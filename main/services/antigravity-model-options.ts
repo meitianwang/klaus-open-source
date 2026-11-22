@@ -80,6 +80,16 @@ export function antigravityModelThinkingLevel(entry: JsonObject): string | undef
   return definition && matches(entry, definition) ? definition.level : undefined;
 }
 
+/** Derive the grouped family ID for a concrete selection when no catalog snapshot is cached yet. */
+export function antigravityFamilyIdForSelection(selection: string): string | undefined {
+  const key = selection.trim().replace(/^antigravity:/i, '');
+  if (!key || isAntigravityHarnessAlias(key) || key === 'gpt-oss-120b-medium') return undefined;
+  const known = member(key, {}, {});
+  if (known) return known.family;
+  const suffixed = /^((?:gemini|claude)-.+)-(?:extra-low|extra-high|low|medium|high|xhigh|max)$/i.exec(key);
+  return suffixed ? suffixed[1]!.toLowerCase() : undefined;
+}
+
 /** The conversation catalog groups known variants without changing wire IDs. */
 export function antigravityModelOptions(entries: JsonObject[], options: JsonObject[]): JsonObject[] {
   const byValue = new Map(options.map(row => [string(row.value), row]));

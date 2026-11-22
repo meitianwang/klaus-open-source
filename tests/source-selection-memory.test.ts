@@ -5,6 +5,8 @@ import type { Json } from '../main/ipc/contract';
 import { ComposerService } from '../main/services/composer';
 import {
   applySessionUltraSelection,
+  forgetEphemeralPreferences,
+  inheritSessionComposerPreferences,
   readSessionModel,
   readSessionThinkingLevel,
   readSessionUltraMode,
@@ -141,6 +143,140 @@ h.test('re-activating an already-active source after login or import preserves c
   await composer.setModel({ mode: 'auto', source: 'subscription' });
   assertEqual(readSessionModel('', root).mode, 'subscription:claude-opus-4-7', 'draft re-login preserves concrete default model');
   assertEqual(readSessionThinkingLevel('', root), 'high', 'draft re-login preserves default reasoning level');
+});
+
+h.test('switching between models mid-session restores each model reasoning level without leaking across conversations', async () => {
+  const root = freshRoot();
+  const composer = new ComposerService({
+    configRoot: root,
+    push: () => {},
+    onSessionConfigChanged: () => {},
+    request: async (method): Promise<Json> => {
+      if (method === 'cursor/models') {
+        return {
+          models: [
+            {
+              key: 'alpha[context=200k,reasoning_effort=medium,fast=false]',
+              modelId: 'alpha',
+              modelName: 'Alpha',
+              isDefault: true,
+              efforts: ['medium'],
+              defaultEffort: 'medium',
+              requestedModel: { modelId: 'alpha', maxMode: false, parameters: [{ id: 'context', value: '200k' }, { id: 'reasoning_effort', value: 'medium' }, { id: 'fast', value: 'false' }] },
+            },
+            {
+              key: 'alpha[context=1m,reasoning_effort=high,fast=false]',
+              modelId: 'alpha',
+              modelName: 'Alpha',
+              isDefault: false,
+              efforts: ['high'],
+              defaultEffort: 'high',
+              requestedModel: { modelId: 'alpha', maxMode: false, parameters: [{ id: 'context', value: '1m' }, { id: 'reasoning_effort', value: 'high' }, { id: 'fast', value: 'false' }] },
+            },
+            {
+              key: 'beta[context=200k,reasoning_effort=low,fast=false]',
+              modelId: 'beta',
+              modelName: 'Beta',
+              isDefault: true,
+              efforts: ['low'],
+              defaultEffort: 'low',
+              requestedModel: { modelId: 'beta', maxMode: false, parameters: [{ id: 'context', value: '200k' }, { id: 'reasoning_effort', value: 'low' }, { id: 'fast', value: 'false' }] },
+            },
+          ],
+        };
+      }
+      if (method === 'trae/models') {
+        return {
+          models: [
+            {
+              key: 'seed-a',
+              display_name: 'Seed A',
+              traeFamilyId: 'seed-a',
+              traeVariants: [
+                { value: 'trae:seed-a', nativeEffort: 'medium', available: true, isDefault: true },
+                { value: 'trae:seed-a::effort=high', nativeEffort: 'high', available: true },
+              ],
+            },
+            {
+              key: 'seed-b',
+              display_name: 'Seed B',
+              traeFamilyId: 'seed-b',
+              traeVariants: [
+                { value: 'trae:seed-b', nativeEffort: 'low', available: true, isDefault: true },
+              ],
+            },
+          ],
+        };
+      }
+      if (method === 'kiro/models') {
+        return {
+          models: [
+            {
+              key: 'sonnet-a',
+              display_name: 'Sonnet A',
+              kiroFamilyId: 'sonnet-a',
+              kiroVariants: [
+                { value: 'kiro:sonnet-a', nativeEffort: 'medium', available: true, isDefault: true },
+                { value: 'kiro:sonnet-a::effort=high', nativeEffort: 'high', available: true },
+              ],
+            },
+            {
+              key: 'haiku-b',
+              display_name: 'Haiku B',
+              kiroFamilyId: 'haiku-b',
+              kiroVariants: [
+                { value: 'kiro:haiku-b', nativeEffort: 'low', available: true, isDefault: true },
+              ],
+            },
+          ],
+        };
+      }
+      return {};
+    },
+  });
+
+  // 1. Standard non-variant models: Model A (xhigh) -> Model B (low) -> Model A restores xhigh, and chat-b keeps its own Model A level.
+  setSessionModel('chat-a', 'codex:gpt-5.4', 'codex', root, { thinkingLevel: 'medium' });
+  setSessionModel('chat-b', 'codex:gpt-5.4', 'codex', root, { thinkingLevel: 'low' });
+  await composer.setThinking({ sessionId: 'chat-a', level: 'xhigh' });
+  await composer.setModel({ sessionId: 'chat-a', mode: 'codex:gpt-5.3-codex' });
+  await composer.setThinking({ sessionId: 'chat-a', level: 'low' });
+  await composer.setModel({ sessionId: 'chat-a', mode: 'codex:gpt-5.4' });
+  assertEqual(readSessionThinkingLevel('chat-a', root), 'xhigh', 'switching back to Model A restores its previously selected reasoning level');
+  await composer.setModel({ sessionId: 'chat-a', mode: 'codex:gpt-5.3-codex' });
+  assertEqual(readSessionThinkingLevel('chat-a', root), 'low', 'switching back to Model B restores Model B reasoning level');
+
+  // Conversation B switching away and back keeps its own frozen level for Model A.
+  await composer.setModel({ sessionId: 'chat-b', mode: 'codex:gpt-5.3-codex', updateDefaults: false });
+  await composer.setModel({ sessionId: 'chat-b', mode: 'codex:gpt-5.4', updateDefaults: false });
+  assertEqual(readSessionThinkingLevel('chat-b', root), 'low', 'another conversation restores its own level for the same model');
+
+  // Inherited child sessions copy per-model history, and cleanup drops ephemeral rows.
+  inheritSessionComposerPreferences('chat-a', 'forked-chat', root);
+  await composer.setModel({ sessionId: 'forked-chat', mode: 'codex:gpt-5.4', updateDefaults: false });
+  assertEqual(readSessionThinkingLevel('forked-chat', root), 'xhigh', 'forked conversation inherits per-model reasoning memory');
+  forgetEphemeralPreferences('forked-chat', root);
+
+  // 2. Cursor grouped families: switching Alpha (1m + high) -> Beta -> Alpha representative restores Alpha (1m + high).
+  await composer.setModel({ sessionId: 'cursor-chat', source: 'cursor', mode: 'cursor:alpha[context=1m,reasoning_effort=high,fast=false]' });
+  await composer.setModel({ sessionId: 'cursor-chat', source: 'cursor', mode: 'cursor:beta[context=200k,reasoning_effort=low,fast=false]' });
+  assertEqual((await composer.getThinking('cursor-chat') as { level: string }).level, 'low', 'Beta uses its own reasoning level');
+  await composer.setModel({ sessionId: 'cursor-chat', source: 'cursor', mode: 'cursor:alpha[context=200k,reasoning_effort=medium,fast=false]' });
+  assertEqual(readSessionModel('cursor-chat', root).mode, 'cursor:alpha[context=1m,reasoning_effort=high,fast=false]', 'Cursor family restores chosen variant instead of catalog default');
+  assertEqual((await composer.getThinking('cursor-chat') as { level: string }).level, 'high', 'Cursor family restores chosen reasoning level');
+
+  // 3. TRAE CN and Kiro native effort families: switching A (high) -> B -> A base representative restores ::effort=high.
+  await composer.setModel({ sessionId: 'trae-chat', source: 'trae', mode: 'trae:seed-a' });
+  await composer.setThinking({ sessionId: 'trae-chat', level: 'high' });
+  await composer.setModel({ sessionId: 'trae-chat', source: 'trae', mode: 'trae:seed-b' });
+  await composer.setModel({ sessionId: 'trae-chat', source: 'trae', mode: 'trae:seed-a' });
+  assertEqual(readSessionModel('trae-chat', root).mode, 'trae:seed-a::effort=high', 'TRAE family restores chosen effort member');
+
+  await composer.setModel({ sessionId: 'kiro-chat', source: 'kiro', mode: 'kiro:sonnet-a' });
+  await composer.setThinking({ sessionId: 'kiro-chat', level: 'high' });
+  await composer.setModel({ sessionId: 'kiro-chat', source: 'kiro', mode: 'kiro:haiku-b' });
+  await composer.setModel({ sessionId: 'kiro-chat', source: 'kiro', mode: 'kiro:sonnet-a' });
+  assertEqual(readSessionModel('kiro-chat', root).mode, 'kiro:sonnet-a::effort=high', 'Kiro family restores chosen effort member');
 });
 
 void (async () => {

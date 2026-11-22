@@ -7,7 +7,7 @@ import fastModeVectors from '../../../../contracts/vectors/codex-fast-mode-vecto
 import antigravityVectors from '../../../../contracts/vectors/antigravity-model-variants.json'
 import cursorVectors from '../../../../contracts/vectors/cursor-grouped-parameters-vectors.json'
 import catalogVectors from '../../../../contracts/vectors/model-catalog-selection-vectors.json'
-import { cursorFastMode, cursorVariantForFast, cursorVariantForThinking, cursorContextTiers, cursorVariantForContext, cursorMaxMode, cursorVariantForMaxMode, modelOptionForValue, modelOptionIsAntigravity, modelOptionIsSelectable, type CursorModelMetadata } from '../../../../shared/cursor-model-catalog'
+import { cursorFastMode, cursorVariantForFast, cursorVariantForThinking, cursorContextTiers, cursorVariantForContext, cursorMaxMode, cursorVariantForMaxMode, modelOptionForValue, modelOptionsForRemembered, modelOptionIsAntigravity, modelOptionIsSelectable, modelPreferenceKey, type CursorModelMetadata } from '../../../../shared/cursor-model-catalog'
 import { createThinkingSelection, createUltraSelection } from './ultra-selection'
 import type { MainModelItem } from './model-select'
 
@@ -652,4 +652,41 @@ test('dedicated Antigravity multi-step harness aliases are rejected as conversat
   expect(isMainModelValue('antigravity:gemini-4-argon-high')).toBe(true)
   expect(isMainModelValue('antigravity:gemini-4-hydrogen-xhigh')).toBe(true)
 })
+
+test('modelOptionsForRemembered projects previously selected family variants alongside the active family', () => {
+  const carbon: MainModelItem = {
+    value: 'antigravity:gemini-4-carbon-medium',
+    label: 'Gemini 4 Carbon',
+    defaultThinkingLevel: 'medium',
+    antigravityFamilyId: 'gemini-4-carbon',
+    antigravityVariants: [
+      { value: 'antigravity:gemini-4-carbon-low', thinkingLevel: 'low', available: true },
+      { value: 'antigravity:gemini-4-carbon-medium', thinkingLevel: 'medium', available: true, isDefault: true },
+      { value: 'antigravity:gemini-4-carbon-high', thinkingLevel: 'high', available: true },
+    ],
+  }
+  const opus: MainModelItem = {
+    value: 'antigravity:claude-opus-5-5-medium',
+    label: 'Claude Opus 5.5',
+    defaultThinkingLevel: 'medium',
+    antigravityFamilyId: 'claude-opus-5-5',
+    antigravityVariants: [
+      { value: 'antigravity:claude-opus-5-5-medium', thinkingLevel: 'medium', available: true, isDefault: true },
+      { value: 'antigravity:claude-opus-5-5-max', thinkingLevel: 'max', available: true },
+    ],
+  }
+  expect(modelPreferenceKey(carbon)).toBe('antigravityFamily:gemini-4-carbon')
+  expect(modelPreferenceKey(undefined, 'trae:seed-a::effort=high')).toBe('traeFamily:seed-a')
+  expect(modelPreferenceKey(undefined, 'kiro:sonnet::effort=high')).toBe('kiroFamily:sonnet')
+  expect(modelPreferenceKey(undefined, 'codex:gpt-5.4')).toBe('codex:gpt-5.4')
+
+  const projected = modelOptionsForRemembered([carbon, opus], 'antigravity:claude-opus-5-5-max', {
+    'antigravityFamily:gemini-4-carbon': 'antigravity:gemini-4-carbon-high',
+  })
+  expect(projected[0]?.value).toBe('antigravity:gemini-4-carbon-high')
+  expect(projected[0]?.defaultThinkingLevel).toBe('high')
+  expect(projected[1]?.value).toBe('antigravity:claude-opus-5-5-max')
+  expect(projected[1]?.defaultThinkingLevel).toBe('max')
+})
+
 

@@ -1,9 +1,9 @@
 import { visibleAntigravityModelOptions } from '../../../../shared/antigravity-presentation'
 import { type FastModeMetadata, type FastModeState } from '../../../../shared/model-fast-mode'
-import { modelOptionIsAntigravity, modelOptionIsSelectable, cursorFastMode, cursorThinkingLevel, cursorThinkingLevels, cursorContextTiers, cursorVariantForContext, cursorMaxMode, cursorVariantForMaxMode, cursorVariant, modelOptionHasValue, modelOptionForValue, modelOptionsForValue, type CursorModelMetadata } from '../../../../shared/cursor-model-catalog'
-import { antigravityThinkingLevel, antigravityThinkingLevels, isAntigravityHarnessAlias, type AntigravityModelMetadata } from '../../../../shared/antigravity-model-catalog'
-import { traeThinkingLevel, traeThinkingLevels, traeThinkingLabel, type TraeModelMetadata } from '../../../../shared/trae-model-catalog'
-import { isKiroRoutingAlias, kiroThinkingLevel, kiroThinkingLevels, kiroThinkingLabel, type KiroModelMetadata } from '../../../../shared/kiro-model-catalog'
+import { modelOptionIsAntigravity, modelOptionIsSelectable, cursorFastMode, cursorThinkingLevel, cursorThinkingLevels, cursorVariantForThinking, cursorContextTiers, cursorVariantForContext, cursorMaxMode, cursorVariantForMaxMode, cursorVariant, modelOptionHasValue, modelOptionForValue, modelOptionsForRemembered, modelOptionsForValue, modelPreferenceKey, type CursorModelMetadata } from '../../../../shared/cursor-model-catalog'
+import { antigravityThinkingLevel, antigravityThinkingLevels, antigravityVariantForThinking, isAntigravityHarnessAlias, type AntigravityModelMetadata } from '../../../../shared/antigravity-model-catalog'
+import { traeThinkingLevel, traeThinkingLevels, traeThinkingLabel, traeVariantForThinking, type TraeModelMetadata } from '../../../../shared/trae-model-catalog'
+import { isKiroRoutingAlias, kiroThinkingLevel, kiroThinkingLevels, kiroThinkingLabel, kiroVariantForThinking, type KiroModelMetadata } from '../../../../shared/kiro-model-catalog'
 // Composer model and reasoning picker. The trigger shows the selected model and
 // thinking level; the panel lists models and opens a nested thinking-level menu.
 // Main and side composers keep independent session selections and menu visibility
@@ -248,6 +248,7 @@ interface ModelSelectState {
   submenuOpen: boolean
   submenuKind: 'thinking' | 'context' | 'max'
   runtime: ComposerInferenceState | null
+  rememberedModels: Record<string, { value: string; thinkingLevel: string }>
 }
 
 export interface ModelSelectApi {
@@ -414,6 +415,7 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
   const submenuOpen = useStore(store, s => s.submenuOpen)
   const submenuKind = useStore(store, s => s.submenuKind)
   const runtime = useStore(store, s => s.runtime)
+  const rememberedModels = useStore(store, s => s.rememberedModels)
   // A failed publication is announced ONCE per change: the toast is the whole
   // surface now, and re-announcing on every re-render or session switch would
   // stack duplicates for a failure the user already saw.
@@ -436,7 +438,9 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
   ;(store as any).__forceRender = () => force(v => v + 1)
 
   const selectedItem = modelOptionForValue(items, value) || null
-  const visibleItems = visibleAntigravityModelOptions(modelOptionsForValue(items, value))
+  const rememberedModes: Record<string, string> = {}
+  for (const [key, entry] of Object.entries(rememberedModels)) rememberedModes[key] = entry.value
+  const visibleItems = visibleAntigravityModelOptions(modelOptionsForRemembered(items, value, rememberedModes))
   const cursorFast = cursorFastMode(selectedItem, value)
   const cursorContexts = value.startsWith('cursor:') ? cursorContextTiers(selectedItem, value) : []
   const cursorMax = value.startsWith('cursor:') ? cursorMaxMode(selectedItem, value) : { enabled: false, supported: false }
@@ -781,17 +785,54 @@ export function mountModelSelect(
     submenuOpen: false,
     submenuKind: 'thinking',
     runtime: null,
+    rememberedModels: {},
   })) as StoreApi<ModelSelectState>
   const sessionId = () => modelSelectSessionId(getSessionId?.())
   let scope = sessionId()
+  const scopeKey = (id: string | undefined) => id || '__default__'
+  const rememberedByScope = new Map<string, Record<string, { value: string; thinkingLevel: string }>>()
+  const readRememberedScope = (id: string | undefined) => rememberedByScope.get(scopeKey(id)) ?? {}
+  const recordRememberedSelection = (
+    items: MainModelItem[],
+    mode: string,
+    level: string,
+    explicit: boolean,
+  ): Record<string, { value: string; thinkingLevel: string }> => {
+    const current = readRememberedScope(scope)
+    if (!isMainModelValue(mode)) return current
+    const item = modelOptionForValue(items, mode)
+    const key = modelPreferenceKey(item, mode)
+    if (!key) return current
+    const isVariantFamily = Boolean(
+      item?.antigravityVariants?.length || item?.cursorVariants?.length || item?.traeVariants?.length || item?.kiroVariants?.length,
+    )
+    if (!explicit && !isVariantFamily && Object.keys(current).length > 0 && !(key in current)) {
+      return current
+    }
+    const effectiveLevel = mode.startsWith('antigravity:') && item?.antigravityVariants?.length
+      ? (antigravityThinkingLevel(item, mode) ?? level)
+      : mode.startsWith('cursor:') && item?.cursorVariants?.length
+        ? (cursorThinkingLevel(item, mode) ?? level)
+        : level
+    const prev = current[key]
+    if (prev && prev.value === mode && prev.thinkingLevel === effectiveLevel) return current
+    const next = { ...current, [key]: { value: mode, thinkingLevel: effectiveLevel } }
+    rememberedByScope.set(scopeKey(scope), next)
+    return next
+  }
   let fastModeSaveRevision = 0
   let thinkingSaveRevision = 0
   let thinkingPersistencePending = false
   let thinkingPersistenceToken: symbol | null = null
   const modelSaver = createPreferenceSaver({
     getSessionId: sessionId,
-    getValue: () => store.getState().value,
-    setValue: value => store.setState({ value, open: false, submenuOpen: false }),
+    getValue: () => ({ value: store.getState().value, thinkingLevel: store.getState().thinkingLevel }),
+    isEqual: (left, right) => left.value === right.value && left.thinkingLevel === right.thinkingLevel,
+    setValue: next => {
+      const state = store.getState()
+      const rememberedModels = recordRememberedSelection(state.items, next.value, next.thinkingLevel, false)
+      store.setState({ value: next.value, thinkingLevel: next.thinkingLevel, rememberedModels, open: false, submenuOpen: false })
+    },
     onError: error => {
       console.warn('[main-model] set failed:', error)
       showToast(preferenceSaveFailureText(error instanceof Error ? error.message : String(error)))
@@ -801,9 +842,13 @@ export function mountModelSelect(
   })
   const thinkingSaver = createPreferenceSaver({
     getSessionId: sessionId,
-    getValue: () => ({ level: store.getState().thinkingLevel, ultraMode: store.getState().ultraMode }),
-    isEqual: (left, right) => left.level === right.level && left.ultraMode === right.ultraMode,
-    setValue: selection => store.setState({ thinkingLevel: selection.level, ultraMode: selection.ultraMode, open: false, submenuOpen: false }),
+    getValue: () => ({ value: store.getState().value, level: store.getState().thinkingLevel, ultraMode: store.getState().ultraMode }),
+    isEqual: (left, right) => left.value === right.value && left.level === right.level && left.ultraMode === right.ultraMode,
+    setValue: selection => {
+      const state = store.getState()
+      const rememberedModels = recordRememberedSelection(state.items, selection.value, selection.level, true)
+      store.setState({ value: selection.value, thinkingLevel: selection.level, ultraMode: selection.ultraMode, rememberedModels, open: false, submenuOpen: false })
+    },
     onError: error => {
       console.warn('[thinking-level] set failed:', error)
       showToast(preferenceSaveFailureText(error instanceof Error ? error.message : String(error)))
@@ -829,8 +874,20 @@ export function mountModelSelect(
       thinkingPersistenceToken = token
       thinkingPersistencePending = true
       try {
-        await thinkingSaver.save({ level, ultraMode: store.getState().ultraMode }, async value => {
-          await w().klaus.session.setThinkingLevel(value.level, id)
+        const state = store.getState()
+        const currentItem = modelOptionForValue(state.items, state.value)
+        const nextVariantValue = state.value.startsWith('antigravity:') && currentItem?.antigravityVariants?.length
+          ? (antigravityVariantForThinking(currentItem, state.value, level)?.value ?? state.value)
+          : state.value.startsWith('cursor:') && currentItem?.cursorVariants?.length
+            ? (cursorVariantForThinking(currentItem, state.value, level)?.value ?? state.value)
+            : state.value.startsWith('trae:') && currentItem?.traeVariants?.length
+              ? (traeVariantForThinking(currentItem, state.value, level)?.value ?? state.value)
+              : state.value.startsWith('kiro:') && currentItem?.kiroVariants?.length
+                ? (kiroVariantForThinking(currentItem, state.value, level)?.value ?? state.value)
+                : state.value
+        const nextThinkingState = state.value.startsWith('trae:') || state.value.startsWith('kiro:') ? state.thinkingLevel : level
+        await thinkingSaver.save({ value: nextVariantValue, level: nextThinkingState, ultraMode: state.ultraMode }, async () => {
+          await w().klaus.session.setThinkingLevel(level, id)
           await Promise.all([w().refreshComposerPreferences?.(), w().refreshSideModelButton?.()])
         })
       } finally {
@@ -882,7 +939,7 @@ export function mountModelSelect(
     ultraSaver.invalidate()
     fastModeSaveRevision++
     ultraSaveRevision++
-    store.setState({ runtime: null, thinkingLevel: 'medium', ultraMode: false, fastMode: false, fastModePending: false, thinkingPending: false, ultraPending: false, open: false, submenuOpen: false })
+    store.setState({ runtime: null, thinkingLevel: 'medium', ultraMode: false, fastMode: false, fastModePending: false, thinkingPending: false, ultraPending: false, open: false, submenuOpen: false, rememberedModels: readRememberedScope(next) })
   }
   const close = () => {
     store.setState({ open: false, submenuOpen: false })
@@ -903,7 +960,23 @@ export function mountModelSelect(
       onEmptyClick={onEmptyClick}
       saveModel={mode => {
         syncScope()
-        return modelSaver.save(mode, (value, id) => w().klaus.session.setMainModel(value, id))
+        const state = store.getState()
+        const targetItem = modelOptionForValue(state.items, mode)
+        const currentItem = modelOptionForValue(state.items, state.value)
+        const targetKey = modelPreferenceKey(targetItem, mode)
+        const currentKey = modelPreferenceKey(currentItem, state.value)
+        let optimisticThinking = state.thinkingLevel
+        if (mode.startsWith('antigravity:') && targetItem?.antigravityVariants?.length) {
+          optimisticThinking = antigravityThinkingLevel(targetItem, mode) ?? optimisticThinking
+        } else if (mode.startsWith('cursor:') && targetItem?.cursorVariants?.length) {
+          optimisticThinking = cursorThinkingLevel(targetItem, mode) ?? optimisticThinking
+        } else if (targetKey && targetKey !== currentKey) {
+          const remembered = state.rememberedModels[targetKey]
+          if (remembered && isThinkingLevelForModel(targetItem, remembered.thinkingLevel)) {
+            optimisticThinking = remembered.thinkingLevel
+          }
+        }
+        return modelSaver.save({ value: mode, thinkingLevel: optimisticThinking }, (next, id) => w().klaus.session.setMainModel(next.value, id))
       }}
       saveThinkingLevel={async level => {
         syncScope()
@@ -989,7 +1062,8 @@ export function mountModelSelect(
       const fastModeSupported = value.startsWith('cursor:') ? cursorFastMode(selected, value).supported
         : nextFastSupported ?? selected?.supportsFastMode === true
       const fastModeBilling = nextFastBilling ?? selected?.fastBilling
-      store.setState({ items, value, thinkingLevel, ultraMode, fastMode, fastModeSupported, fastModeBilling, fastModePending, unavailable, loading, ...(loading ? { open: false, submenuOpen: false } : {}) })
+      const rememberedModels = !loading && value ? recordRememberedSelection(items, value, thinkingLevel, false) : readRememberedScope(scope)
+      store.setState({ items, value, thinkingLevel, ultraMode, fastMode, fastModeSupported, fastModeBilling, fastModePending, unavailable, loading, rememberedModels, ...(loading ? { open: false, submenuOpen: false } : {}) })
     },
     setValue(nextValue) {
       syncScope()

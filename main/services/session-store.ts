@@ -6,9 +6,12 @@ import { join } from 'node:path';
 import { withSettingsDb, withSettingsTransaction } from './settings';
 import { IpcHandlerError } from '../ipc/registry';
 import { fastModePreferenceKey, isRequestFastSource } from '../../shared/model-fast-mode';
-import { antigravityReplacementModelId, canonicalAntigravitySelection } from '../../shared/antigravity-model-catalog';
+import { antigravityReplacementModelId, canonicalAntigravitySelection, isAntigravityPlaceholder } from '../../shared/antigravity-model-catalog';
+import { modelPreferenceKey } from '../../shared/cursor-model-catalog';
+import { antigravityFamilyIdForSelection } from './antigravity-model-options';
 
 export interface SessionModelPreference { mode: string; source: string }
+export interface RememberedModelSelection { mode?: string; thinkingLevel?: string }
 
 export const MODEL_SOURCES = ['subscription', 'custom', 'codex', 'cursor', 'qoder', 'qwenwork', 'workbuddy', 'antigravity', 'trae', 'kiro', 'kimi', 'bailian', 'minimax', 'zhipu', 'ark'];
 
@@ -72,6 +75,90 @@ function writeLastSourceThinkingLevel(db: DatabaseSync, source: string, level: s
   put(db, lastSourceThinkingKey(source), level);
 }
 
+const LAST_MODEL_SELECTION_PREFIX = 'composer.last_model_selection:';
+const LAST_MODEL_THINKING_PREFIX = 'composer.last_model_thinking:';
+
+function lastModelSelectionKey(modelKey: string): string {
+  return LAST_MODEL_SELECTION_PREFIX + modelKey;
+}
+
+function lastModelThinkingKey(modelKey: string): string {
+  return LAST_MODEL_THINKING_PREFIX + modelKey;
+}
+
+function validConcreteMode(mode: unknown): mode is string {
+  return typeof mode === 'string' && validModelSelection(mode) && !['auto', 'high', 'medium', 'low'].includes(mode);
+}
+
+function inferredModelPreferenceKey(mode: string): string | undefined {
+  if (!validConcreteMode(mode)) return undefined;
+  if (mode.startsWith('antigravity:')) {
+    const canonical = canonicalAntigravitySelection(mode);
+    if (isAntigravityPlaceholder(canonical)) return undefined;
+    const family = antigravityFamilyIdForSelection(canonical);
+    if (family) return `antigravityFamily:${family}`;
+  }
+  return modelPreferenceKey(undefined, mode);
+}
+
+function writeLastModelSelection(db: DatabaseSync, modelKey: string, mode: string): void {
+  if (!modelKey || !validConcreteMode(mode)) return;
+  put(db, lastModelSelectionKey(modelKey), mode);
+}
+
+function writeLastModelThinkingLevel(db: DatabaseSync, modelKey: string, level: string): void {
+  if (!modelKey || !validThinkingLevel(level)) return;
+  put(db, lastModelThinkingKey(modelKey), level);
+}
+
+function writeSessionModelSelection(
+  db: DatabaseSync, sessionId: string, modelKey: string, mode: string, thinkingLevel: string | null, updatedAt: number,
+): void {
+  if (!sessionId || !modelKey || !validConcreteMode(mode)) return;
+  db.prepare(`INSERT INTO session_model_selections (session_id, model_key, mode, thinking_level, updated_at)
+    VALUES (?, ?, ?, ?, ?)
+    ON CONFLICT(session_id, model_key) DO UPDATE SET
+      mode = excluded.mode,
+      thinking_level = COALESCE(excluded.thinking_level, session_model_selections.thinking_level),
+      updated_at = excluded.updated_at`)
+    .run(sessionId, modelKey, mode, thinkingLevel, updatedAt);
+}
+
+function readRememberedModelSelectionIn(
+  db: DatabaseSync, sessionId: string, modelKey: string, options: { includeDefaults?: boolean } = {},
+): RememberedModelSelection {
+  if (!modelKey) return {};
+  if (sessionId) {
+    const row = db.prepare('SELECT mode, thinking_level FROM session_model_selections WHERE session_id = ? AND model_key = ?')
+      .get(sessionId, modelKey) as { mode?: unknown; thinking_level?: unknown } | undefined;
+    if (row) {
+      return {
+        ...(validConcreteMode(row.mode) ? { mode: row.mode } : {}),
+        ...(validThinkingLevel(row.thinking_level) ? { thinkingLevel: row.thinking_level } : {}),
+      };
+    }
+  }
+  if (!sessionId || options.includeDefaults !== false) {
+    const mode = get(db, lastModelSelectionKey(modelKey));
+    const level = get(db, lastModelThinkingKey(modelKey));
+    return {
+      ...(validConcreteMode(mode) ? { mode } : {}),
+      ...(validThinkingLevel(level) ? { thinkingLevel: level } : {}),
+    };
+  }
+  return {};
+}
+
+export function readSessionRememberedModel(
+  sessionId: string, modelKey: string, configRoot: string, options: { includeDefaults?: boolean } = {},
+): RememberedModelSelection {
+  if (!modelKey) return {};
+  return withSettingsTransaction(configRoot, db => {
+    ensureTables(db, configRoot);
+    return readRememberedModelSelectionIn(db, sessionId, modelKey, options);
+  });
+}
+
 function get(db: DatabaseSync, key: string): string | undefined {
   const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
   return typeof row?.value === 'string' ? row.value : undefined;
@@ -118,6 +205,7 @@ function ensureTables(db: DatabaseSync, configRoot: string): void {
   }
   db.exec('CREATE TABLE IF NOT EXISTS session_chat_modes (session_id TEXT PRIMARY KEY, mode TEXT NOT NULL, updated_at INTEGER NOT NULL)');
   db.exec('CREATE TABLE IF NOT EXISTS session_thinking_levels (session_id TEXT PRIMARY KEY, level TEXT NOT NULL, updated_at INTEGER NOT NULL)');
+  db.exec('CREATE TABLE IF NOT EXISTS session_model_selections (session_id TEXT NOT NULL, model_key TEXT NOT NULL, mode TEXT NOT NULL, thinking_level TEXT, updated_at INTEGER NOT NULL, PRIMARY KEY (session_id, model_key))');
   db.exec('CREATE TABLE IF NOT EXISTS session_ultra_modes (session_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
   db.exec('CREATE TABLE IF NOT EXISTS session_orchestration_modes (session_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
   db.exec('CREATE TABLE IF NOT EXISTS session_fast_modes (session_id TEXT PRIMARY KEY, enabled INTEGER NOT NULL, updated_at INTEGER NOT NULL)');
@@ -463,6 +551,8 @@ export function inheritSessionComposerPreferences(parentId: string, sessionId: s
     db.prepare('INSERT INTO session_orchestration_modes (session_id, enabled, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET enabled = excluded.enabled, updated_at = excluded.updated_at')
       .run(sessionId, orchestration ? 1 : 0, now);
     if (isRequestFastSource(model.source)) writeFastMode(db, sessionId, model.source, fast);
+    db.prepare('INSERT INTO session_model_selections (session_id, model_key, mode, thinking_level, updated_at) SELECT ?, model_key, mode, thinking_level, ? FROM session_model_selections WHERE session_id = ? ON CONFLICT(session_id, model_key) DO UPDATE SET mode = excluded.mode, thinking_level = excluded.thinking_level, updated_at = excluded.updated_at')
+      .run(sessionId, now, parentId);
     db.prepare('INSERT INTO session_runtime_policies (session_id, policy_json, updated_at) SELECT ?, policy_json, ? FROM session_runtime_policies WHERE session_id = ? ON CONFLICT(session_id) DO UPDATE SET policy_json=excluded.policy_json, updated_at=excluded.updated_at').run(sessionId, now, parentId);
   });
 }
@@ -479,7 +569,7 @@ export function pinSessionModel(configRoot: string, sessionId: string, mode: str
 /** A model pick changes this conversation and the future default, never other conversations. */
 export function setSessionModel(
   sessionId: string, mode: string, requestedSource: string | undefined, configRoot: string,
-  options: { thinkingLevel?: string; ultraMode?: boolean; fastMode?: boolean; updateDefaults?: boolean } = {},
+  options: { thinkingLevel?: string; ultraMode?: boolean; fastMode?: boolean; updateDefaults?: boolean; modelKey?: string; outgoingModelKey?: string } = {},
 ): void {
   if (options.thinkingLevel !== undefined && !validThinkingLevel(options.thinkingLevel)) throw new IpcHandlerError('BAD_REQUEST', 'invalid level');
   if (options.fastMode !== undefined && typeof options.fastMode !== 'boolean') throw new IpcHandlerError('BAD_REQUEST', 'invalid Fast mode');
@@ -494,7 +584,7 @@ export function setSessionModel(
     ensureTables(db, configRoot);
     if (sessionId) seedWorkModesIn(db, sessionId);
     const previous = sessionId
-      ? db.prepare('SELECT source FROM session_main_models WHERE session_id = ?').get(sessionId) as { source?: string } | undefined
+      ? db.prepare('SELECT mode, source FROM session_main_models WHERE session_id = ?').get(sessionId) as { mode?: string; source?: string } | undefined
       : undefined;
     const source = requestedSource ?? explicit
       ?? (typeof previous?.source === 'string' && previous.source ? previous.source : authModeIn(db));
@@ -512,6 +602,9 @@ export function setSessionModel(
     const selectedMode = mode === 'auto' && rememberedModel ? rememberedModel : mode;
     const thinkingLevel = options.thinkingLevel ?? (sourceChanged ? readLastSourceThinkingLevel(db, source) : undefined);
     const ultraMode = options.ultraMode;
+    const incomingKey = options.modelKey ?? inferredModelPreferenceKey(selectedMode);
+    const recordIncomingModel = Boolean(incomingKey && validConcreteMode(selectedMode)
+      && (['antigravity', 'cursor', 'trae', 'kiro'].includes(source) || thinkingLevel !== undefined));
     if (options.updateDefaults !== false) {
       if (selectedMode === 'auto') db.prepare('DELETE FROM settings WHERE key = ?').run('composer.main_model');
       else put(db, 'composer.main_model', selectedMode);
@@ -535,9 +628,21 @@ export function setSessionModel(
       }
       if (selectedMode !== 'auto') writeLastSourceModel(db, source, selectedMode);
       if (thinkingLevel !== undefined) writeLastSourceThinkingLevel(db, source, thinkingLevel);
+      if (recordIncomingModel && incomingKey) {
+        writeLastModelSelection(db, incomingKey, selectedMode);
+        if (thinkingLevel !== undefined) writeLastModelThinkingLevel(db, incomingKey, thinkingLevel);
+      }
     }
     if (sessionId) {
       const now = Date.now();
+      const outgoingKey = options.outgoingModelKey ?? (typeof previous?.mode === 'string' ? inferredModelPreferenceKey(previous.mode) : undefined);
+      const hasSessionModelHistory = Boolean(db.prepare('SELECT 1 FROM session_model_selections WHERE session_id = ? LIMIT 1').get(sessionId));
+      if (!hasSessionModelHistory && outgoingKey && outgoingKey !== incomingKey && typeof previous?.mode === 'string' && validConcreteMode(previous.mode)) {
+        const priorThinking = db.prepare('SELECT level FROM session_thinking_levels WHERE session_id = ?').get(sessionId) as { level?: string } | undefined;
+        const priorLevel = ['trae', 'kiro'].includes(previous.source ?? '') ? null
+          : (validThinkingLevel(priorThinking?.level) ? priorThinking!.level : defaultThinkingLevel(db));
+        writeSessionModelSelection(db, sessionId, outgoingKey, previous.mode, priorLevel, now);
+      }
       db.prepare('INSERT INTO session_main_models (session_id, mode, source, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET mode = excluded.mode, source = excluded.source, updated_at = excluded.updated_at')
         .run(sessionId, selectedMode, source, now);
       if (ultraMode !== undefined) {
@@ -550,6 +655,9 @@ export function setSessionModel(
       if (options.fastMode !== undefined) writeFastMode(db, sessionId, source, options.fastMode);
       if (thinkingLevel !== undefined) db.prepare('INSERT INTO session_thinking_levels (session_id, level, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET level = excluded.level, updated_at = excluded.updated_at')
         .run(sessionId, thinkingLevel, now);
+      if (recordIncomingModel && incomingKey) {
+        writeSessionModelSelection(db, sessionId, incomingKey, selectedMode, thinkingLevel ?? null, now);
+      }
     }
   });
 }
@@ -602,7 +710,7 @@ export function setSessionThinkingLevel(sessionId: string, level: string, config
 /** Persist reasoning, its optional native selection, mode and permission together. */
 export function applySessionThinkingSelection(
   sessionId: string, level: string, configRoot: string, permissionPolicy?: RuntimePolicy,
-  options: { model?: SessionModelPreference; defaultModel?: SessionModelPreference; ultraMode?: false; updateThinking?: boolean; updateDefaults?: boolean; updateUltraDefault?: boolean; updateModelDefault?: boolean } = {},
+  options: { model?: SessionModelPreference; defaultModel?: SessionModelPreference; modelKey?: string; ultraMode?: false; updateThinking?: boolean; updateDefaults?: boolean; updateUltraDefault?: boolean; updateModelDefault?: boolean } = {},
 ): { level: string; rollback(): void } {
   const { model, updateThinking = true, updateDefaults = true } = options;
   // The Ultra default for future chats keeps its own write scope.
@@ -622,21 +730,33 @@ export function applySessionThinkingSelection(
   return withSettingsTransaction(configRoot, db => {
     ensureTables(db, configRoot);
     if (sessionId) seedWorkModesIn(db, sessionId);
+    const currentSessionModel = sessionId
+      ? db.prepare('SELECT mode, source FROM session_main_models WHERE session_id = ?').get(sessionId) as { mode?: string; source?: string } | undefined
+      : undefined;
     const source = model?.source ?? defaultModel?.source ?? (sessionId
-      ? (db.prepare('SELECT source FROM session_main_models WHERE session_id = ?').get(sessionId) as { source?: string } | undefined)?.source
+      ? currentSessionModel?.source
       : (modelSource(get(db, 'composer.main_model') ?? '') ?? authModeIn(db)));
     const validSource = typeof source === 'string' && MODEL_SOURCES.includes(source) ? source : undefined;
     const rememberedMode = model?.mode ?? (defaultModel && defaultModel.mode !== 'auto' ? defaultModel.mode : undefined);
+    const activeMode = model?.mode ?? (sessionId ? currentSessionModel?.mode : get(db, 'composer.main_model')) ?? rememberedMode;
+    const isVariantSource = ['antigravity', 'cursor', 'trae', 'kiro'].includes(validSource ?? '');
+    const canRecordModelMemory = Boolean(activeMode && validConcreteMode(activeMode)
+      && (options.modelKey !== undefined || model !== undefined || !isVariantSource));
+    const resolvedModelKey = canRecordModelMemory ? (options.modelKey ?? inferredModelPreferenceKey(activeMode!)) : undefined;
     const keys = [...(updateThinking && updateDefaults ? ['composer.thinking_level'] : []),
       ...(options.ultraMode === false && updateUltraDefault ? ['composer.ultra_mode'] : []),
       ...(defaultModel ? ['composer.main_model', 'auth_mode'] : []),
       ...(validSource && rememberedMode ? [lastSourceModelKey(validSource)] : []),
-      ...(validSource && updateThinking ? [lastSourceThinkingKey(validSource)] : [])];
+      ...(validSource && updateThinking ? [lastSourceThinkingKey(validSource)] : []),
+      ...(resolvedModelKey && updateDefaults ? [lastModelSelectionKey(resolvedModelKey), ...(updateThinking ? [lastModelThinkingKey(resolvedModelKey)] : [])] : [])];
     const previous = keys.map(key => ({ key, value: get(db, key) }));
     const session = sessionId ? db.prepare('SELECT level, updated_at FROM session_thinking_levels WHERE session_id = ?').get(sessionId) : undefined;
     const previousUltra = sessionId && options.ultraMode === false
       ? db.prepare('SELECT enabled, updated_at FROM session_ultra_modes WHERE session_id = ?').get(sessionId) : undefined;
     const previousModel = sessionId && model ? db.prepare('SELECT mode, source, updated_at FROM session_main_models WHERE session_id = ?').get(sessionId) : undefined;
+    const previousModelSelection = sessionId && resolvedModelKey
+      ? db.prepare('SELECT mode, thinking_level, updated_at FROM session_model_selections WHERE session_id = ? AND model_key = ?').get(sessionId, resolvedModelKey) as { mode?: string; thinking_level?: string | null; updated_at?: number } | undefined
+      : undefined;
     const previousPermission = sessionId && permissionPolicy !== undefined ? db.prepare('SELECT policy_json, updated_at FROM session_runtime_policies WHERE session_id = ?').get(sessionId) : undefined;
     if (updateThinking && updateDefaults) {
       if (level === DEFAULT_THINKING_LEVEL) db.prepare('DELETE FROM settings WHERE key = ?').run('composer.thinking_level');
@@ -644,7 +764,7 @@ export function applySessionThinkingSelection(
     }
     if (options.ultraMode === false && updateUltraDefault) db.prepare('DELETE FROM settings WHERE key = ?').run('composer.ultra_mode');
     const now = Math.max(Date.now(), Number(session?.updated_at ?? 0) + 1, Number(previousUltra?.updated_at ?? 0) + 1,
-      Number(previousModel?.updated_at ?? 0) + 1, Number(previousPermission?.updated_at ?? 0) + 1);
+      Number(previousModel?.updated_at ?? 0) + 1, Number(previousModelSelection?.updated_at ?? 0) + 1, Number(previousPermission?.updated_at ?? 0) + 1);
     const permissionJson = permissionPolicy ? JSON.stringify({ policy: permissionPolicy }) : undefined;
     if (sessionId && permissionJson) db.prepare('INSERT INTO session_runtime_policies (session_id, policy_json, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET policy_json = excluded.policy_json, updated_at = excluded.updated_at').run(sessionId, permissionJson, now);
     if (sessionId && updateThinking) db.prepare('INSERT INTO session_thinking_levels (session_id, level, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET level = excluded.level, updated_at = excluded.updated_at')
@@ -658,6 +778,15 @@ export function applySessionThinkingSelection(
     if (model && sessionId) {
       db.prepare('INSERT INTO session_main_models (session_id, mode, source, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET mode = excluded.mode, source = excluded.source, updated_at = excluded.updated_at')
         .run(sessionId, model.mode, model.source, now);
+    }
+    if (resolvedModelKey && activeMode) {
+      if (updateDefaults) {
+        writeLastModelSelection(db, resolvedModelKey, activeMode);
+        if (updateThinking) writeLastModelThinkingLevel(db, resolvedModelKey, level);
+      }
+      if (sessionId) {
+        writeSessionModelSelection(db, sessionId, resolvedModelKey, activeMode, updateThinking ? level : null, now);
+      }
     }
     // Source-scoped memory records what the user last chose on this source,
     // whether or not the pick also becomes the default for future conversations.
@@ -704,6 +833,18 @@ export function applySessionThinkingSelection(
             if (previousModel) current.prepare('UPDATE session_main_models SET mode = ?, source = ?, updated_at = ? WHERE session_id = ?')
               .run(previousModel.mode ?? null, previousModel.source ?? null, previousModel.updated_at ?? null, sessionId);
             else current.prepare('DELETE FROM session_main_models WHERE session_id = ?').run(sessionId);
+          }
+        }
+        if (resolvedModelKey && activeMode) {
+          const latestModelSelection = current.prepare('SELECT mode, thinking_level, updated_at FROM session_model_selections WHERE session_id = ? AND model_key = ?')
+            .get(sessionId, resolvedModelKey) as { mode?: string; thinking_level?: string | null; updated_at?: number } | undefined;
+          if (latestModelSelection?.mode === activeMode && latestModelSelection.updated_at === now) {
+            if (previousModelSelection) {
+              current.prepare('UPDATE session_model_selections SET mode = ?, thinking_level = ?, updated_at = ? WHERE session_id = ? AND model_key = ?')
+                .run(previousModelSelection.mode ?? null, previousModelSelection.thinking_level ?? null, previousModelSelection.updated_at ?? null, sessionId, resolvedModelKey);
+            } else {
+              current.prepare('DELETE FROM session_model_selections WHERE session_id = ? AND model_key = ?').run(sessionId, resolvedModelKey);
+            }
           }
         }
       }
@@ -1087,7 +1228,7 @@ export function bindSessionWorkdir(sessionId: string, workdir: string, configRoo
 /** Called after deleting a persistent thread or disposing a registered ephemeral session. */
 export function forgetEphemeralPreferences(sessionId: string, configRoot: string): void {
   withSettingsTransaction(configRoot, db => {
-    for (const table of ['session_main_models', 'session_chat_modes', 'session_workdirs', 'session_workspaces', 'session_titles', 'session_thinking_levels', 'session_ultra_modes', 'session_orchestration_modes', 'session_fast_modes', 'session_source_fast_modes', 'session_permission_modes', 'session_runtime_policies', 'session_recency', 'session_agent_profiles']) {
+    for (const table of ['session_main_models', 'session_model_selections', 'session_chat_modes', 'session_workdirs', 'session_workspaces', 'session_titles', 'session_thinking_levels', 'session_ultra_modes', 'session_orchestration_modes', 'session_fast_modes', 'session_source_fast_modes', 'session_permission_modes', 'session_runtime_policies', 'session_recency', 'session_agent_profiles']) {
       if (db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name=?").get(table)) {
         db.prepare(`DELETE FROM ${table} WHERE session_id = ?`).run(sessionId);
       }

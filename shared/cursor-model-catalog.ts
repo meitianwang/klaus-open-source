@@ -1,6 +1,6 @@
 import { antigravityModelOptionForValue, antigravityModelOptionHasValue, pickAntigravityModelMetadata } from './antigravity-model-catalog';
-import { traeModelOptionForValue, traeModelOptionHasValue } from './trae-model-catalog';
-import { kiroModelOptionForValue, kiroModelOptionHasValue } from './kiro-model-catalog';
+import { pickTraeModelMetadata, traeModelOptionForValue, traeModelOptionHasValue } from './trae-model-catalog';
+import { isKiroRoutingAlias, kiroModelOptionForValue, kiroModelOptionHasValue, pickKiroModelMetadata } from './kiro-model-catalog';
 
 /** Exact provider variants stay stable while model menus display one family row. */
 export interface CursorModelVariant {
@@ -237,4 +237,51 @@ export function modelOptionForValue<T>(options: readonly T[], value: string): T 
 /** Native selects need a row whose value is the exact saved member. */
 export function modelOptionsForValue<T>(options: readonly T[], value: string): T[] {
   return options.map(option => modelOptionHasValue(option, value) ? modelOptionForValue([option], value)! : option);
+}
+
+/** Identify the per-model or per-family slot used to remember reasoning choices. */
+export function modelPreferenceKey(option: unknown, selection?: string): string | undefined {
+  const antigravity = pickAntigravityModelMetadata(option);
+  if (antigravity.antigravityFamilyId) return `antigravityFamily:${antigravity.antigravityFamilyId}`;
+  const cursor = pickCursorModelMetadata(option);
+  if (cursor.cursorModelId) return `cursorFamily:${cursor.cursorModelId}`;
+  const trae = pickTraeModelMetadata(option);
+  if (trae.traeFamilyId) return `traeFamily:${trae.traeFamilyId}`;
+  const kiro = pickKiroModelMetadata(option);
+  if (kiro.kiroFamilyId) return `kiroFamily:${kiro.kiroFamilyId}`;
+  const row = record(option);
+  const raw = typeof selection === 'string' && selection ? selection.trim()
+    : (typeof row.value === 'string' ? row.value.trim() : '');
+  if (!raw || ['auto', 'high', 'medium', 'low'].includes(raw)) return undefined;
+  if (raw.startsWith('cursor:')) {
+    if (['cursor:default', 'cursor:auto'].includes(raw.toLowerCase())) return undefined;
+    const base = raw.slice('cursor:'.length).replace(/@max$/i, '').replace(/\[.*\]$/, '');
+    return base ? `cursorFamily:${base}` : undefined;
+  }
+  if (raw.startsWith('kiro:')) {
+    if (isKiroRoutingAlias(raw)) return undefined;
+    const family = raw.slice('kiro:'.length).split('::effort=')[0];
+    return family ? `kiroFamily:${family}` : undefined;
+  }
+  if (raw.startsWith('trae:')) {
+    const family = raw.slice('trae:'.length).split('::effort=')[0];
+    return family ? `traeFamily:${family}` : undefined;
+  }
+  const colon = raw.indexOf(':');
+  return colon > 0 && colon < raw.length - 1 ? raw : undefined;
+}
+
+/** Project both the active selection and previously chosen family members onto menu rows. */
+export function modelOptionsForRemembered<T>(
+  options: readonly T[],
+  activeValue: string,
+  rememberedModes?: Readonly<Record<string, string>>,
+): T[] {
+  return options.map(option => {
+    if (modelOptionHasValue(option, activeValue)) return modelOptionForValue([option], activeValue)!;
+    const key = rememberedModes ? modelPreferenceKey(option) : undefined;
+    const remembered = key ? rememberedModes?.[key] : undefined;
+    if (remembered && modelOptionHasValue(option, remembered)) return modelOptionForValue([option], remembered)!;
+    return option;
+  });
 }

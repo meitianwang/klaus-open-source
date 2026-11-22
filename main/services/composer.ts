@@ -1,7 +1,7 @@
-import { antigravityModelOptions } from './antigravity-model-options';
-import { antigravityThinkingLevel, antigravityVariantForThinking, canonicalAntigravitySelection, isAntigravityHarnessAlias, isAntigravityPlaceholder, pickAntigravityModelMetadata, type AntigravityModelMetadata } from '../../shared/antigravity-model-catalog';
-import { isTraeNativeEffort, pickTraeModelMetadata, traeThinkingLevel, traeThinkingLevels, traeVariantForThinking, traeModelOptionForValue, type TraeModelMetadata } from '../../shared/trae-model-catalog';
-import { isKiroNativeEffort, isKiroRoutingAlias, pickKiroModelMetadata, kiroThinkingLevel, kiroThinkingLevels, kiroVariantForThinking, kiroModelOptionForValue, type KiroModelMetadata } from '../../shared/kiro-model-catalog';
+import { antigravityFamilyIdForSelection, antigravityModelOptions } from './antigravity-model-options';
+import { antigravityThinkingLevel, antigravityVariant, antigravityVariantForThinking, canonicalAntigravitySelection, isAntigravityHarnessAlias, isAntigravityPlaceholder, pickAntigravityModelMetadata, type AntigravityModelMetadata } from '../../shared/antigravity-model-catalog';
+import { isTraeNativeEffort, pickTraeModelMetadata, traeThinkingLevel, traeThinkingLevels, traeVariant, traeVariantForThinking, traeModelOptionForValue, type TraeModelMetadata } from '../../shared/trae-model-catalog';
+import { isKiroNativeEffort, isKiroRoutingAlias, pickKiroModelMetadata, kiroThinkingLevel, kiroThinkingLevels, kiroVariant, kiroVariantForThinking, kiroModelOptionForValue, type KiroModelMetadata } from '../../shared/kiro-model-catalog';
 import type { ClientEvent } from '../engine/protocol';
 import type { Json } from '../ipc/contract';
 import { IpcHandlerError } from '../ipc/registry';
@@ -12,12 +12,12 @@ import { nativeFastModeMetadata, resolvedFastModeMetadata } from './native-fast-
 import { fastModePreferenceKey, isRequestFastSource } from '../../shared/model-fast-mode';
 import { isNativeMediaSource } from '../../shared/media-input';
 import { cursorFastMode, cursorThinkingLevel, cursorVariantForFast, cursorVariantForThinking, cursorVariantForThinkingAndFast,
-  modelOptionForValue, pickCursorModelMetadata, type CursorModelMetadata } from '../../shared/cursor-model-catalog';
+  modelOptionForValue, modelPreferenceKey, pickCursorModelMetadata, type CursorModelMetadata } from '../../shared/cursor-model-catalog';
 
 import { isFailure, kvDel, kvSet, withSettingsDb } from './settings';
 import { storedAuthMode, thinkingLevelFor } from './session-init';
 import {
-  MODEL_SOURCES, THINKING_LEVELS, modelSource, readSessionModel, setSessionModel,
+  MODEL_SOURCES, THINKING_LEVELS, modelSource, readSessionModel, readSessionRememberedModel, setSessionModel,
   applySessionThinkingSelection, applySessionRuntimePolicy, applySessionUltraSelection, applySessionOrchestrationSelection, readSessionFastMode, readSessionUltraMode, readSessionOrchestrationMode, setSessionFastMode, sourceTierSelections, validModelSelection, readLastSourceModel, readLastSourceThinkingLevel, type SessionModelPreference,
 } from './session-store';
 import { type EngineRequest, type JsonObject, type ServicePush, object, string, errorMessage, SerialMutations } from './service-types';
@@ -211,6 +211,16 @@ export class ComposerService {
     if (!row) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected TRAE CN model is unavailable');
     return { selection: resolved, metadata: pickTraeModelMetadata(row) };
   }
+  private synchronousModelKey(source: string, mode: string): string | undefined {
+    if (!validModelSelection(mode) || ['auto', 'high', 'medium', 'low'].includes(mode)) return undefined;
+    if (source === 'antigravity') {
+      const canonical = canonicalAntigravitySelection(mode);
+      if (isAntigravityPlaceholder(canonical)) return undefined;
+      const family = antigravityFamilyIdForSelection(canonical);
+      return family ? `antigravityFamily:${family}` : canonical;
+    }
+    return modelPreferenceKey(undefined, mode);
+  }
   async setModel(payload: JsonObject, assertCurrent?: () => void): Promise<Json> {
     const mode = string(payload.mode);
     if (!validModelSelection(mode)) return { error: 'invalid mode' };
@@ -239,6 +249,8 @@ export class ComposerService {
       const currentSaved = readSessionModel(sessionId, this.configRoot);
       const source = payload.source ?? modelSource(mode) ?? currentSaved.source;
       const sameSource = typeof payload.source === 'string' && payload.source === currentSaved.source;
+      const outgoingModelKey = this.synchronousModelKey(currentSaved.source, currentSaved.mode);
+      let incomingModelKey: string | undefined;
       let antigravityRows: Json[] | undefined;
       let skipAntigravityCatalogLookup = false;
       let restoredConcreteAntigravity = false;
@@ -287,8 +299,35 @@ export class ComposerService {
           if (target) selection = target.value;
         }
       }
+      if (source === 'cursor') {
+        incomingModelKey = this.synchronousModelKey('cursor', selection);
+        if (!sourceActivation && explicitThinking === undefined && payload.fastMode === undefined && incomingModelKey && incomingModelKey !== outgoingModelKey) {
+          const remembered = readSessionRememberedModel(sessionId, incomingModelKey, this.configRoot, { includeDefaults: payload.updateDefaults !== false });
+          if (remembered.mode !== undefined || remembered.thinkingLevel !== undefined) {
+            const model = await this.cursorModel(selection);
+            assertCurrent?.();
+            if (model.cursorModelId) incomingModelKey = `cursorFamily:${model.cursorModelId}`;
+            const representative = (model.cursorVariants?.find(variant => variant.isDefault) ?? model.cursorVariants?.[0])?.value;
+            const isRepresentativePick = selection === representative || (remembered.mode !== undefined && selection === remembered.mode);
+            if (incomingModelKey !== outgoingModelKey && isRepresentativePick) {
+              if (remembered.mode && model.cursorVariants?.some(variant => variant.value === remembered.mode)) {
+                selection = remembered.mode;
+                thinkingSelection = cursorThinkingLevel(model, selection);
+              } else if (remembered.thinkingLevel !== undefined) {
+                const target = cursorVariantForThinking(model, selection, remembered.thinkingLevel);
+                if (target) {
+                  selection = target.value;
+                  thinkingSelection = remembered.thinkingLevel;
+                }
+              }
+            }
+          }
+        }
+      }
       if (source === 'cursor' && explicitThinking !== undefined && payload.fastMode === undefined) {
-        const target = cursorVariantForThinking(await this.cursorModel(selection), selection, explicitThinking);
+        const model = await this.cursorModel(selection);
+        if (model.cursorModelId) incomingModelKey = `cursorFamily:${model.cursorModelId}`;
+        const target = cursorVariantForThinking(model, selection, explicitThinking);
         assertCurrent?.();
         if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
         selection = target.value;
@@ -298,12 +337,22 @@ export class ComposerService {
       if (source === 'antigravity') {
         selection = canonicalAntigravitySelection(selection);
         if (skipAntigravityCatalogLookup) {
+          incomingModelKey = this.synchronousModelKey('antigravity', selection);
           thinkingSelection = explicitThinking ?? restoredSourceThinking;
         } else {
           const model = await this.antigravityModel(selection, 'warm', antigravityRows);
           assertCurrent?.();
           if (isAntigravityPlaceholder(selection)) selection = model.selection;
           if (model.metadata.antigravityFamilyId) {
+            const familyKey = `antigravityFamily:${model.metadata.antigravityFamilyId}`;
+            incomingModelKey = familyKey;
+            const sameFamily = outgoingModelKey === familyKey
+              || (currentSaved.source === 'antigravity' && antigravityVariant(model.metadata, canonicalAntigravitySelection(currentSaved.mode)) !== undefined);
+            const variants = model.metadata.antigravityVariants ?? [];
+            const offered = variants.filter(variant => variant.available);
+            const candidates = offered.length ? offered : variants;
+            const representative = (candidates.find(variant => variant.isDefault)
+              ?? candidates.find(variant => variant.thinkingLevel === 'medium') ?? candidates[0])?.value;
             if (explicitThinking !== undefined) {
               const target = antigravityVariantForThinking(model.metadata, model.selection, explicitThinking);
               if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
@@ -317,37 +366,100 @@ export class ComposerService {
               } else {
                 thinkingSelection = antigravityThinkingLevel(model.metadata, model.selection);
               }
+            } else if (!sourceActivation && !sameFamily) {
+              const remembered = readSessionRememberedModel(sessionId, familyKey, this.configRoot, { includeDefaults: payload.updateDefaults !== false });
+              const candidate = remembered.mode ? canonicalAntigravitySelection(remembered.mode) : undefined;
+              const isRepresentativePick = mode === 'auto' || selection === representative || (candidate !== undefined && selection === candidate);
+              if (isRepresentativePick && candidate && antigravityVariant(model.metadata, candidate)) {
+                selection = candidate;
+                thinkingSelection = antigravityThinkingLevel(model.metadata, candidate);
+              } else if (isRepresentativePick && remembered.thinkingLevel !== undefined) {
+                const target = antigravityVariantForThinking(model.metadata, model.selection, remembered.thinkingLevel);
+                if (target) {
+                  selection = target.value;
+                  thinkingSelection = remembered.thinkingLevel;
+                } else {
+                  thinkingSelection = antigravityThinkingLevel(model.metadata, model.selection);
+                }
+              } else {
+                thinkingSelection = antigravityThinkingLevel(model.metadata, model.selection);
+              }
             } else {
               thinkingSelection = antigravityThinkingLevel(model.metadata, model.selection);
             }
           } else {
-            thinkingSelection = explicitThinking ?? restoredSourceThinking;
+            incomingModelKey = this.synchronousModelKey('antigravity', selection);
+            if (!sourceActivation && explicitThinking === undefined && incomingModelKey && incomingModelKey !== outgoingModelKey) {
+              const remembered = readSessionRememberedModel(sessionId, incomingModelKey, this.configRoot, { includeDefaults: payload.updateDefaults !== false });
+              if (remembered.thinkingLevel !== undefined) thinkingSelection = remembered.thinkingLevel;
+            }
+            thinkingSelection = explicitThinking ?? thinkingSelection ?? restoredSourceThinking;
           }
         }
       }
-      if (source === 'kiro' && explicitThinking !== undefined) {
-        const current = await this.kiroModel(selection);
-        assertCurrent?.();
-        if (kiroThinkingLevels(current.metadata).length) {
-          const target = kiroVariantForThinking(current.metadata, current.selection, explicitThinking);
-          if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
-          if (selection !== 'auto' || target.value !== current.selection) selection = target.value;
+      if (source === 'kiro') {
+        incomingModelKey = this.synchronousModelKey('kiro', selection);
+        if (explicitThinking !== undefined) {
+          const current = await this.kiroModel(selection);
+          assertCurrent?.();
+          if (current.metadata.kiroFamilyId) incomingModelKey = `kiroFamily:${current.metadata.kiroFamilyId}`;
+          if (kiroThinkingLevels(current.metadata).length) {
+            const target = kiroVariantForThinking(current.metadata, current.selection, explicitThinking);
+            if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
+            if (selection !== 'auto' || target.value !== current.selection) selection = target.value;
+          }
+          thinkingSelection = undefined;
+        } else if (!sourceActivation && incomingModelKey && incomingModelKey !== outgoingModelKey) {
+          const remembered = readSessionRememberedModel(sessionId, incomingModelKey, this.configRoot, { includeDefaults: payload.updateDefaults !== false });
+          if (remembered.mode && remembered.mode !== selection) {
+            const current = await this.kiroModel(selection);
+            assertCurrent?.();
+            if (current.metadata.kiroFamilyId) {
+              const base = `kiro:${current.metadata.kiroFamilyId}`;
+              if ((selection === base || selection === remembered.mode) && kiroVariant(current.metadata, remembered.mode)) {
+                selection = remembered.mode;
+              }
+            }
+          }
         }
-        thinkingSelection = undefined;
       }
-      if (source === 'trae' && explicitThinking !== undefined) {
-        const current = await this.traeModel(selection);
-        assertCurrent?.();
-        if (traeThinkingLevels(current.metadata).length) {
-          const target = traeVariantForThinking(current.metadata, current.selection, explicitThinking);
-          if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
-          if (selection !== 'auto' || target.value !== current.selection) selection = target.value;
+      if (source === 'trae') {
+        incomingModelKey = this.synchronousModelKey('trae', selection);
+        if (explicitThinking !== undefined) {
+          const current = await this.traeModel(selection);
+          assertCurrent?.();
+          if (current.metadata.traeFamilyId) incomingModelKey = `traeFamily:${current.metadata.traeFamilyId}`;
+          if (traeThinkingLevels(current.metadata).length) {
+            const target = traeVariantForThinking(current.metadata, current.selection, explicitThinking);
+            if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
+            if (selection !== 'auto' || target.value !== current.selection) selection = target.value;
+          }
+          // Native effort is encoded in the exact member, not the shared canonical preference.
+          thinkingSelection = undefined;
+        } else if (!sourceActivation && incomingModelKey && incomingModelKey !== outgoingModelKey) {
+          const remembered = readSessionRememberedModel(sessionId, incomingModelKey, this.configRoot, { includeDefaults: payload.updateDefaults !== false });
+          if (remembered.mode && remembered.mode !== selection) {
+            const current = await this.traeModel(selection);
+            assertCurrent?.();
+            if (current.metadata.traeFamilyId) {
+              const base = `trae:${current.metadata.traeFamilyId}`;
+              if ((selection === base || selection === remembered.mode) && traeVariant(current.metadata, remembered.mode)) {
+                selection = remembered.mode;
+              }
+            }
+          }
         }
-        // Native effort is encoded in the exact member, not the shared canonical preference.
-        thinkingSelection = undefined;
       }
-      if (!['antigravity', 'cursor', 'kiro', 'trae'].includes(string(source)) && explicitThinking === undefined && restoredSourceThinking !== undefined) {
-        thinkingSelection = restoredSourceThinking;
+      if (!['antigravity', 'cursor', 'kiro', 'trae'].includes(string(source))) {
+        incomingModelKey = this.synchronousModelKey(string(source), selection);
+        if (explicitThinking === undefined) {
+          if (sourceActivation) {
+            thinkingSelection = restoredSourceThinking;
+          } else if (incomingModelKey && incomingModelKey !== outgoingModelKey) {
+            const remembered = readSessionRememberedModel(sessionId, incomingModelKey, this.configRoot, { includeDefaults: payload.updateDefaults !== false });
+            if (remembered.thinkingLevel !== undefined) thinkingSelection = remembered.thinkingLevel;
+          }
+        }
       }
       if (payload.fastMode !== undefined) {
         if (source === 'cursor') {
@@ -378,6 +490,8 @@ export class ComposerService {
         ultraMode: payload.ultraMode as boolean | undefined ?? (ultraAlias ? true : undefined),
         fastMode: source === 'cursor' ? undefined : payload.fastMode as boolean | undefined,
         updateDefaults: payload.updateDefaults as boolean | undefined,
+        modelKey: incomingModelKey,
+        outgoingModelKey,
       });
       await this.deps.onSessionConfigChanged({ kind: 'model', sessionId });
       if (ultraAlias || payload.ultraMode !== undefined) this.deps.push('app:preferences-changed', { key: 'composer.ultra_mode' });
@@ -554,10 +668,12 @@ export class ComposerService {
       const saved = readSessionModel(sessionId, this.configRoot);
       if (!['trae', 'kiro'].includes(saved.source) && !LEVELS.includes(selected)) return { error: 'invalid level' } as Json;
       let model: SessionModelPreference | undefined;
+      let modelKey: string | undefined;
       if (saved.source === 'kiro') {
         const current = await this.kiroModel(saved.mode);
         assertCurrent?.();
         this.assertPreference(sessionId, saved);
+        if (current.metadata.kiroFamilyId) modelKey = `kiroFamily:${current.metadata.kiroFamilyId}`;
         const target = kiroVariantForThinking(current.metadata, current.selection, selected);
         if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
         if (target.value !== saved.mode) model = { source: 'kiro', mode: target.value };
@@ -566,12 +682,15 @@ export class ComposerService {
         const current = await this.traeModel(saved.mode);
         assertCurrent?.();
         this.assertPreference(sessionId, saved);
+        if (current.metadata.traeFamilyId) modelKey = `traeFamily:${current.metadata.traeFamilyId}`;
         const target = traeVariantForThinking(current.metadata, current.selection, selected);
         if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
         if (target.value !== saved.mode) model = { source: 'trae', mode: target.value };
       }
       if (saved.source === 'cursor') {
-        const target = cursorVariantForThinking(await this.cursorModel(saved.mode), saved.mode, selected);
+        const cursorMeta = await this.cursorModel(saved.mode);
+        if (cursorMeta.cursorModelId) modelKey = `cursorFamily:${cursorMeta.cursorModelId}`;
+        const target = cursorVariantForThinking(cursorMeta, saved.mode, selected);
         assertCurrent?.();
         this.assertPreference(sessionId, saved);
         if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
@@ -582,18 +701,24 @@ export class ComposerService {
         assertCurrent?.();
         this.assertPreference(sessionId, saved);
         if (current.metadata.antigravityFamilyId) {
+          modelKey = `antigravityFamily:${current.metadata.antigravityFamilyId}`;
           const target = antigravityVariantForThinking(current.metadata, current.selection, selected);
           if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'The selected reasoning level is unavailable');
           if (target.value !== saved.mode) model = { source: 'antigravity', mode: target.value };
+        } else {
+          modelKey = this.synchronousModelKey('antigravity', current.selection);
         }
       }
       const nativeMember = saved.source === 'trae' || saved.source === 'kiro';
       const leaveUltra = payload.ultraMode === false;
       const updateDefaults = payload.updateDefaults !== false;
       const effectiveModel = model ?? saved;
+      if (!modelKey && !['antigravity', 'cursor', 'trae', 'kiro'].includes(saved.source)) {
+        modelKey = this.synchronousModelKey(saved.source, effectiveModel.mode);
+      }
       const previousDefault = updateDefaults ? readSessionModel('', this.configRoot) : undefined;
       const selection = applySessionThinkingSelection(sessionId, nativeMember ? previous : selected, this.configRoot, undefined,
-        { model, defaultModel: effectiveModel, ...(leaveUltra ? { ultraMode: false } : {}), updateThinking: !nativeMember, updateDefaults, updateUltraDefault: leaveUltra && updateDefaults, updateModelDefault: updateDefaults });
+        { model, defaultModel: effectiveModel, modelKey, ...(leaveUltra ? { ultraMode: false } : {}), updateThinking: !nativeMember, updateDefaults, updateUltraDefault: leaveUltra && updateDefaults, updateModelDefault: updateDefaults });
       try {
         if (model || previous !== selected || (leaveUltra && previousUltra)) await this.deps.onSessionConfigChanged({ kind: model ? 'model' : 'thinking', sessionId });
       } catch (error) {
@@ -637,13 +762,15 @@ export class ComposerService {
       const sessionId = sessionIdOf(payload);
       const saved = readSessionModel(sessionId, this.configRoot);
       if (saved.source === 'cursor') {
-        const target = cursorVariantForFast(await this.cursorModel(saved.mode), saved.mode, enabled);
+        const cursorMeta = await this.cursorModel(saved.mode);
+        const modelKey = cursorMeta.cursorModelId ? `cursorFamily:${cursorMeta.cursorModelId}` : this.synchronousModelKey('cursor', saved.mode);
+        const target = cursorVariantForFast(cursorMeta, saved.mode, enabled);
         assertCurrent?.();
         this.assertPreference(sessionId, saved);
         if (!target) throw new IpcHandlerError('MODEL_SELECTION_UNAVAILABLE', 'Fast mode is unavailable for this model selection');
         if (target.value === saved.mode) return { ok: true };
         const selection = applySessionThinkingSelection(sessionId, thinkingLevelFor(sessionId, this.configRoot), this.configRoot, undefined,
-          { model: { source: 'cursor', mode: target.value }, updateThinking: false, updateDefaults: payload.updateDefaults !== false });
+          { model: { source: 'cursor', mode: target.value }, modelKey, updateThinking: false, updateDefaults: payload.updateDefaults !== false });
         try { await this.deps.onSessionConfigChanged({ kind: 'model', sessionId }); }
         catch (error) {
           selection.rollback();

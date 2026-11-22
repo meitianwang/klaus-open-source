@@ -515,6 +515,20 @@ export function registerAntigravityModelVariantTests(h: Harness): void {
       assert.equal(readSessionModel('new-chat-3', f.root).mode, 'antigravity:gemini-4-carbon-high');
       assert.deepEqual(await f.service.getThinking('new-chat-3'), { level: 'high' });
 
+      // Switch to another Antigravity family mid-session and back: Carbon restores High instead of its Medium catalog default.
+      await f.service.setModel({ sessionId: 'active', source: 'antigravity', mode: 'antigravity:gemini-4-argon-medium' });
+      assert.equal(readSessionModel('active', f.root).mode, 'antigravity:gemini-4-argon-medium');
+      assert.deepEqual(await f.service.getThinking('active'), { level: 'medium' });
+      await f.service.setModel({ sessionId: 'active', source: 'antigravity', mode: 'antigravity:gemini-4-carbon-medium' });
+      assert.equal(readSessionModel('active', f.root).mode, 'antigravity:gemini-4-carbon-high');
+      assert.deepEqual(await f.service.getThinking('active'), { level: 'high' });
+
+      // Another existing conversation switching away and back restores its own Low choice on Carbon.
+      await f.service.setModel({ sessionId: 'existing-other', source: 'antigravity', mode: 'antigravity:gemini-4-argon-medium', updateDefaults: false });
+      await f.service.setModel({ sessionId: 'existing-other', source: 'antigravity', mode: 'antigravity:gemini-4-carbon-medium', updateDefaults: false });
+      assert.equal(readSessionModel('existing-other', f.root).mode, 'antigravity:gemini-4-carbon-low');
+      assert.deepEqual(await f.service.getThinking('existing-other'), { level: 'low' });
+
       // Re-login while a baseline catalog temporarily lacks a live-only selection keeps the active selection intact.
       f.reply.catalogBaseline = true;
       setSessionModel('live-chat', 'antigravity:live-only-high', 'antigravity', f.root, { thinkingLevel: 'high' });
