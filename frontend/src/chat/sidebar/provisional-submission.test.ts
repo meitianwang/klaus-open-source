@@ -241,7 +241,6 @@ function createSidebarSendHarness(options: {
     refreshTasksForSession: async () => {},
     updateSendBtn() {},
     syncTitlebarSessionTitle() {},
-    updateCronNavBadge() {},
     syncSidebarToolbar() {},
     renderSidebarActivityView() {},
     persistExpandedProjectThreadLists() {},

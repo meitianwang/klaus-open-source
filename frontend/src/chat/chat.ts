@@ -1665,19 +1665,6 @@ function isCronRunSession(id: string | null | undefined) {
   return !!id && findKnownSession(id)?.threadSource === 'automation'
 }
 
-function updateCronNavBadge() {
-  // The flag goes on the BUTTON, not the dot: the rule that reveals a nav dot is
-  // `.sidebar-nav-item.has-active .sidebar-nav-dot`, so toggling the class on the
-  // dot itself never matched and the indicator stayed invisible. Same shape as
-  // the memory entry's updateSidebarDot.
-  const item = document.getElementById('btn-cron')
-  if (!item) return
-  const hasUnread = sessions.some((session) =>
-    session.threadSource === 'automation' && isSidebarSessionCompleteUnread(session.id),
-  )
-  item.classList.toggle('has-active', hasUnread)
-}
-
 function findCronTaskBySessionId(sessionId: string | null | undefined) {
   const taskId = sessionId ? findKnownSession(sessionId)?.automation?.taskId : null
   return taskId ? cronTasks.find((task) => task.id === taskId) || null : null
@@ -7394,7 +7381,6 @@ function renderSessionList() {
   }
   sidebarApi?.render(snapshot)
   syncTitlebarSessionTitle()
-  updateCronNavBadge()
   syncSidebarToolbar()
   if (sidebarActivityOpen) renderSidebarActivityView()
 }
@@ -15947,8 +15933,8 @@ klausApi.on.friendMessageArrived?.((payload: FriendArrivalPayload) => {
   if (!viewing && !payload.muted && friendToastPref !== 'off' && document.hasFocus()) showFriendArrivalToast(payload)
 })
 
-// 后台 cron 失败（硬失败/超时，或软失败=chat 成功但工具报错）→ app 内即时 toast（系统通知在
-// dev 模式不可靠）。点 toast 跳到该 cron 会话；并刷新侧栏拉到这条失败 run、点亮全局 badge。
+// Surface an in-app toast when a background cron run fails (system notifications
+// are unreliable in dev), jump to the run session on click, and refresh the sidebar.
 klausApi.on.cronFailed?.((p: { taskId?: string; taskName?: string; sessionId?: string; detail?: string } | null) => {
   const label = (p && (p.taskName || p.taskId)) || '定时任务'
   const detail = p && p.detail ? ` — ${p.detail}` : ''
@@ -15957,9 +15943,7 @@ klausApi.on.cronFailed?.((p: { taskId?: string; taskName?: string; sessionId?: s
     duration: 6000,
   })
   if (p && typeof window.surfaceCronRunInSidebar === 'function') {
-    Promise.resolve(window.surfaceCronRunInSidebar(p.taskId)).then(updateCronNavBadge).catch(() => updateCronNavBadge())
-  } else {
-    updateCronNavBadge()
+    void Promise.resolve(window.surfaceCronRunInSidebar(p.taskId)).catch(() => {})
   }
 })
 
