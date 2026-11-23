@@ -9046,7 +9046,8 @@ body.artifacts-maximized .artifacts-panel > .artifacts-body {
 .artifacts-panel[data-mode="prototype"],
 .artifacts-panel[data-mode="video-editing"],
 .artifacts-panel[data-mode="ppt"],
-.artifacts-panel[data-mode="design"] {
+.artifacts-panel[data-mode="design"],
+.artifacts-panel[data-mode="photo-editing"] {
   transition: none;
 }
 

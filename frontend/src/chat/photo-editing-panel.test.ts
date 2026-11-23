@@ -137,3 +137,79 @@ test('visual artifact normalization and semantic activity recognize photo-editin
   expect(semanticActivityLabel(indirect!, 'done', 'zh')).toContain('打开图像编辑')
   expect(semanticActivityLabel(indirect!, 'done', 'en')).toContain('Opened photo workspace')
 })
+
+test('overlay suspension mounts a still snapshot in the photo-editing host and clears it on resume', async () => {
+  const prevDoc = Object.getOwnPropertyDescriptor(globalThis, 'document')
+  const prevWidth = Object.getOwnPropertyDescriptor(globalThis, 'innerWidth')
+  const mounted: any[] = []
+  const rootProps = new Map<string, string>()
+  try {
+    Object.defineProperty(globalThis, 'innerWidth', { configurable: true, value: 1440 })
+    Object.defineProperty(globalThis, 'document', {
+      configurable: true,
+      value: {
+        documentElement: {
+          style: {
+            setProperty: (k: string, v: string) => rootProps.set(k, v),
+            removeProperty: (k: string) => rootProps.delete(k),
+          },
+        },
+        createElement: () => {
+          const img: any = {
+            className: '',
+            alt: '',
+            draggable: true,
+            src: '',
+            setAttribute() {},
+            decode: async () => {},
+            remove: () => {
+              const idx = mounted.indexOf(img)
+              if (idx >= 0) mounted.splice(idx, 1)
+            },
+          }
+          return img
+        },
+      },
+    })
+    const host = { appendChild: (node: unknown) => { mounted.push(node); return node } }
+    const surface = createPhotoEditingPanel({
+      api: () => ({
+        panelShow: async () => ({ ok: true }),
+        panelSetBounds: async () => ({ ok: true }),
+        panelHide: async () => ({ ok: true, snapshotDataUrl: 'data:image/jpeg;base64,AAAA' }),
+        panelClose: async () => ({ ok: true }),
+        openResult: async () => {},
+      }),
+      currentSession: () => 'chat-a',
+      visible: () => true,
+      bounds: () => ({ x: 560, y: 40, width: 880, height: 860 }),
+      layout: async () => {},
+      openMode: () => {},
+      openTab: async () => true,
+      toast: () => {},
+      text: key => key,
+      schedule: () => {},
+      host: () => host,
+    })
+
+    expect(await surface.activate({ id: 'photo-1', title: 'Retouch', sessionId: 'chat-a' })).toBe(true)
+    expect(rootProps.get('--klaus-native-panel-inset-right')).toBe('880px')
+    expect(mounted).toHaveLength(0)
+
+    await surface.suspend()
+    expect(rootProps.has('--klaus-native-panel-inset-right')).toBe(false)
+    expect(mounted).toHaveLength(1)
+    expect(mounted[0].className).toBe('browser-overlay-snapshot')
+    expect(mounted[0].src).toBe('data:image/jpeg;base64,AAAA')
+
+    await surface.resume()
+    expect(mounted).toHaveLength(0)
+    expect(rootProps.get('--klaus-native-panel-inset-right')).toBe('880px')
+  } finally {
+    if (prevDoc) Object.defineProperty(globalThis, 'document', prevDoc)
+    else Reflect.deleteProperty(globalThis, 'document')
+    if (prevWidth) Object.defineProperty(globalThis, 'innerWidth', prevWidth)
+    else Reflect.deleteProperty(globalThis, 'innerWidth')
+  }
+})
+

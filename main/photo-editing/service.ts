@@ -9,6 +9,7 @@ import type { Json } from '../ipc/contract';
 import type { HandlerContext } from '../ipc/registry';
 import { VisualCapabilityServer } from '../visuals/capability-server';
 import { inside, message, readBounded, record, text, type Data } from '../visuals/data';
+import { canCaptureNativeViewSnapshot, captureNativeViewSnapshot } from '../utils/native-view-snapshot';
 import { PhotoEditingStore, type PhotoEditingProject } from './store';
 import { PHOTO_EDITING_TOOL_FIELDS, photoEditingTools } from './tools';
 
@@ -882,6 +883,22 @@ export class PhotoEditingService {
     return { ok: true };
   }
 
+  private async hideWindowWithSnapshot(winId: number): Promise<Data> {
+    const revision = (this.revisionByWindow.get(winId) ?? 0) + 1;
+    this.revisionByWindow.set(winId, revision);
+    const activeId = this.activeByWindow.get(winId);
+    const active = activeId ? this.editors.get(activeId) : undefined;
+    if (active && canCaptureNativeViewSnapshot(active.view)) {
+      const snapshotDataUrl = await captureNativeViewSnapshot(active.view);
+      if (this.revisionByWindow.get(winId) === revision && this.activeByWindow.get(winId) === activeId) {
+        active.view.setVisible(false);
+      }
+      return snapshotDataUrl ? { ok: true, snapshotDataUrl } : { ok: true };
+    }
+    active?.view.setVisible(false);
+    return { ok: true };
+  }
+
   private async openPanel(fields: Data, explicitWindow?: BrowserWindow): Promise<Data> {
     const owner = text(fields.sessionId, 'photo-editing session');
     const project = this.store.load(fields.id, owner);
@@ -1001,7 +1018,7 @@ export class PhotoEditingService {
         this.resizeWindow(winId);
         return { ok: true };
       case 'photo-editing:panel-hide':
-        return this.hideWindow(winId);
+        return this.hideWindowWithSnapshot(winId);
       case 'photo-editing:panel-close':
         this.hideWindow(winId);
         this.activeByWindow.delete(winId);

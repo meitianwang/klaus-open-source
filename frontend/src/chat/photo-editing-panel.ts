@@ -57,6 +57,7 @@ export function initPhotoEditingPanel(): void {
     toast: message => w().showToast?.(message),
     text,
     schedule: schedulePhotoEditingBoundsSync,
+    host: () => host,
   })
   const surface = controller
   w().klausActivatePhotoEditingPanel = surface.activate

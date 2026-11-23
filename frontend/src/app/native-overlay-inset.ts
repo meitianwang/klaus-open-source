@@ -1,7 +1,7 @@
 // Viewport boundary helpers for non-modal popovers, menus, pickers, and tooltips.
 //
 // Native child WebContentsViews (Browser, Canvas, Prototype, VideoEditing, Ppt,
-// Design) dock to the right side of the window and composite above every DOM
+// Design, PhotoEditing) dock to the right side of the window and composite above every DOM
 // z-index. Each active panel publishes the width it covers through
 // `--klaus-native-panel-inset-right` on `document.documentElement`. Non-modal
 // floating elements anchored in the sidebar or chat column clamp against the

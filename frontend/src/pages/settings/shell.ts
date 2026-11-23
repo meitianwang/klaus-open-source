@@ -37,7 +37,7 @@ let resumeNativeEditors: (() => void) | null = null
 function suspendNativeEditors(): void {
   if (resumeNativeEditors) return
   const resumes: Array<() => Promise<void>> = []
-  for (const name of ['Canvas', 'Prototype', 'VideoEditing', 'Ppt', 'Design']) {
+  for (const name of ['Canvas', 'Prototype', 'VideoEditing', 'Ppt', 'Design', 'PhotoEditing']) {
     const suspend = w()[`klausSuspend${name}ForOverlay`]
     const resume = w()[`klausResume${name}AfterOverlay`]
     if (typeof suspend !== 'function' || typeof resume !== 'function') continue

@@ -1,6 +1,6 @@
 // Native child WebContentsViews step aside for every modal or full-window overlay.
 //
-// Embedded surfaces (Browser, Canvas, Prototype, VideoEditing, Ppt, Design) are
+// Embedded surfaces (Browser, Canvas, Prototype, VideoEditing, Ppt, Design, PhotoEditing) are
 // host-owned WebContentsViews. They paint above every HTML layer of this window,
 // so an overlay's backdrop or dialog card cannot cover them with z-index: the
 // native surface stays sharp on top of the window and slices the dialog in half.
@@ -29,6 +29,7 @@ const SURFACE_HOOKS: ReadonlyArray<readonly [suspend: string, resume: string]> =
   ['klausSuspendVideoEditingForOverlay', 'klausResumeVideoEditingAfterOverlay'],
   ['klausSuspendPptForOverlay', 'klausResumePptAfterOverlay'],
   ['klausSuspendDesignForOverlay', 'klausResumeDesignAfterOverlay'],
+  ['klausSuspendPhotoEditingForOverlay', 'klausResumePhotoEditingAfterOverlay'],
 ]
 
 type Hook = () => unknown

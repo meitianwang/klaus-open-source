@@ -17260,7 +17260,7 @@ function suspendNativeViewsForUserSubmenu() {
   if (resumeNativeForUserSubmenu) return
   const host = window as unknown as Record<string, (() => Promise<void> | void) | undefined>
   const resumes: Array<() => Promise<void> | void> = []
-  for (const name of ['Browser', 'Canvas', 'Prototype', 'VideoEditing', 'Ppt', 'Design']) {
+  for (const name of ['Browser', 'Canvas', 'Prototype', 'VideoEditing', 'Ppt', 'Design', 'PhotoEditing']) {
     const suspend = host[`klausSuspend${name}ForOverlay`]
     const resume = host[`klausResume${name}AfterOverlay`]
     if (typeof suspend !== 'function' || typeof resume !== 'function') continue
