@@ -10,11 +10,16 @@ import { ModalPortal } from '../../components/ModalPortal'
 import { rawIconHtml } from '../../components/Icon'
 import {
   CRON_PAGE_RELOAD_EVENT, CRON_PAGE_VISIBLE_EVENT, channelLabelOf, cronExecutionTarget, cronPermissionPreset,
-  cronRunErrorText, effectiveCronRunStatus, humanizeSchedule, navigateToCronRunSession, pad2, relFromNow, runMatchesSearch,
-  sortTasksFlat, startOfDay, taskMatchesSearch,
+  effectiveCronRunStatus, humanizeSchedule, relFromNow,
+  sortTasksFlat, taskMatchesSearch,
 } from './data'
 import type { CronRun, CronStatus, CronTask } from './data'
 import { CronTaskFormModal } from './form'
+import {
+  CRON_SIDEBAR_ACTION_EVENT,
+  CRON_SIDEBAR_SELECT_EMPTY_EVENT,
+  CRON_SIDEBAR_SYNC_EVENT,
+} from '../../chat/sidebar/secondary-module-panes'
 import styles from './cron.module.css'
 
 const w = () => window as any
@@ -71,10 +76,10 @@ function CardMenu({ state, onClose, onAct }: {
 export function CronPage() {
   const t = useT()
   const [tasksData, setTasksData] = useState<TasksData>({ tasks: [], status: { nextRuns: {}, running: [] }, lastRunByTask: new Map() })
-  const [runsByTask, setRunsByTask] = useState<Map<string, CronRun[]>>(new Map())
   const [statusFilter, setStatusFilter] = useState<'all' | 'enabled' | 'paused'>('all')
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState('')
+  const [emptyTaskId, setEmptyTaskId] = useState<string | null>(null)
   const [formTask, setFormTask] = useState<{ task: CronTask | null; runAfter?: boolean } | null>(null)
   const [kebab, setKebab] = useState<KebabState | null>(null)
   const [tasksLoaded, setTasksLoaded] = useState(false)
@@ -85,8 +90,8 @@ export function CronPage() {
   const [pendingTaskIds, setPendingTaskIds] = useState<Set<string>>(() => new Set())
   const pendingTaskIdsRef = useRef(new Set<string>())
   const visibleRef = useRef(true)
-  const stateRef = useRef({ statusFilter, selectedId, tasksData, runsByTask })
-  stateRef.current = { statusFilter, selectedId, tasksData, runsByTask }
+  const stateRef = useRef({ statusFilter, selectedId, tasksData })
+  stateRef.current = { statusFilter, selectedId, tasksData }
 
   const beginTaskOperation = (taskId: string): boolean => {
     if (pendingTaskIdsRef.current.has(taskId)) return false
@@ -110,17 +115,11 @@ export function CronPage() {
       ])
       if (!Array.isArray(tasks) || !Array.isArray(recentRuns)) throw new Error(t('cron_load_failed'))
       const lastRunByTask = new Map<string, CronRun>()
-      const runsByTask = new Map<string, CronRun[]>()
       for (const r of recentRuns as CronRun[]) {
         const prev = lastRunByTask.get(r.taskId)
         if (!prev || r.startedAt > prev.startedAt) lastRunByTask.set(r.taskId, r)
-        const list = runsByTask.get(r.taskId)
-        if (list) list.push(r)
-        else runsByTask.set(r.taskId, [r])
       }
-      for (const list of runsByTask.values()) list.sort((a, b) => b.startedAt - a.startedAt)
       setTasksData({ tasks, status: status || { nextRuns: {}, running: [] }, lastRunByTask })
-      setRunsByTask(runsByTask)
       try { w().refreshCronSidebar?.() } catch {}
     } catch (error: any) {
       setTasksError(error?.message || t('cron_load_failed'))
@@ -198,7 +197,44 @@ export function CronPage() {
     })
   }, [])
 
-  useEffect(() => { bindTasksFilter() }, [tasksData, bindTasksFilter])
+  useEffect(() => { bindTasksFilter() }, [tasksData, statusFilter, bindTasksFilter])
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent(CRON_SIDEBAR_SYNC_EVENT, {
+      detail: {
+        tasks: tasksData.tasks,
+        status: tasksData.status,
+        statusFilter,
+        selectedId,
+        emptyTaskId,
+      },
+    }))
+  }, [tasksData, statusFilter, selectedId, emptyTaskId])
+
+  useEffect(() => {
+    const onSidebarAction = (event: Event) => {
+      const detail = (event as CustomEvent<{ type?: string; taskId?: string; filter?: 'all' | 'enabled' | 'paused' }>).detail
+      if (!detail) return
+      if (detail.type === 'select' && typeof detail.taskId === 'string') {
+        setEmptyTaskId(null)
+        setSelectedId(detail.taskId)
+      } else if (detail.type === 'filter' && detail.filter) {
+        setStatusFilter(detail.filter)
+      } else if (detail.type === 'create-manual') {
+        setFormTask({ task: null })
+      }
+    }
+    const onSelectEmpty = (event: Event) => {
+      const taskId = (event as CustomEvent<{ taskId?: string | null }>).detail?.taskId
+      setEmptyTaskId(typeof taskId === 'string' && taskId ? taskId : null)
+    }
+    window.addEventListener(CRON_SIDEBAR_ACTION_EVENT, onSidebarAction)
+    window.addEventListener(CRON_SIDEBAR_SELECT_EMPTY_EVENT, onSelectEmpty)
+    return () => {
+      window.removeEventListener(CRON_SIDEBAR_ACTION_EVENT, onSidebarAction)
+      window.removeEventListener(CRON_SIDEBAR_SELECT_EMPTY_EVENT, onSelectEmpty)
+    }
+  }, [])
 
   const toggleTaskEnabled = async (task: CronTask) => {
     if (!beginTaskOperation(task.id)) return
@@ -282,14 +318,6 @@ export function CronPage() {
     }, 100)
   }
 
-  const openRunSession = async (sessionId: string) => {
-    try {
-      await navigateToCronRunSession(w(), sessionId)
-    } catch (error: any) {
-      w().showToast?.(error?.message || t('cron_load_failed'))
-    }
-  }
-
   // ---- 页头（工具行走 bodyHtml 保持吸顶结构，点击容器委托） ----
   const header = (
     <PageHeader
@@ -335,15 +363,16 @@ export function CronPage() {
   const selected = visibleTasks.find(task => task.id === selectedId)
     || tasks.find(task => task.id === selectedId)
     || null
+  const emptyTask = emptyTaskId ? (tasks.find(task => task.id === emptyTaskId) ?? null) : null
 
   // Split mode: while a detail panel is open the view stops scrolling as one
   // page; the header stays pinned and each pane scrolls inside its column.
   useEffect(() => {
     const view = document.getElementById('cron-view')
     if (!view) return
-    view.classList.toggle('cron-view-split', !!selected)
+    view.classList.toggle('cron-view-split', !!selected && !emptyTask)
     return () => { view.classList.remove('cron-view-split') }
-  }, [selected])
+  }, [selected, emptyTask])
 
   const executionLabel = (task: CronTask): string => {
     const target = cronExecutionTarget(task)
@@ -420,17 +449,6 @@ export function CronPage() {
     const running = status.running.includes(task.id)
     const next = task.enabled ? (status.nextRuns[task.id] ?? null) : null
     const last = lastRunByTask.get(task.id)
-    const runs = runsByTask.get(task.id) ?? []
-    const todayMs = startOfDay(new Date()).getTime()
-    const yesterdayMs = todayMs - 24 * 60 * 60 * 1000
-    // Previous runs are grouped by day under a labeled header.
-    const groups = new Map<string, { date: Date; rows: CronRun[] }>()
-    for (const r of runs) {
-      const d = new Date(r.startedAt)
-      const key = `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
-      if (!groups.has(key)) groups.set(key, { date: d, rows: [] })
-      groups.get(key)!.rows.push(r)
-    }
     const meta: string[] = [humanizeSchedule(task.schedule) || t('cron_custom_schedule')]
     meta.push(executionLabel(task), permissionLabel(task))
     if (task.channelBinding) meta.push(channelLabelOf(task.channelBinding.channelId))
@@ -476,80 +494,6 @@ export function CronPage() {
           </div>
           <p className={styles['cron-detail-prompt']}>{task.prompt}</p>
         </div>
-        <div className={styles['cron-detail-runs']}>
-          <div className={styles['cron-detail-runs-title']}>{t('cron_previous_runs')}</div>
-          {runs.length === 0 ? (
-            <p className={styles['cron-detail-empty']}>{t('cron_runs_empty')}</p>
-          ) : (
-            [...groups.entries()].map(([key, g]) => {
-              const dayMs = startOfDay(g.date).getTime()
-              const label = dayMs === todayMs ? t('cron_today')
-                : dayMs === yesterdayMs ? t('cron_yesterday')
-                  : `${g.date.getMonth() + 1}${t('cron_month')}${g.date.getDate()}${t('cron_day')}`
-              return (
-                <div className={styles['cron-runs-group']} key={key}>
-                  <div className={styles['cron-runs-group-header']}>
-                    <span className={styles['cron-runs-group-dot']} />
-                    <span className={styles['cron-runs-group-label']}>{label}</span>
-                  </div>
-                  <div className={styles['cron-runs-group-list']}>
-                    {g.rows.map(renderRunRow)}
-                  </div>
-                </div>
-              )
-            })
-          )}
-        </div>
-      </div>
-    )
-  }
-
-  const renderRunRow = (r: CronRun) => {
-    const duration = r.durationMs != null ? fmtDurationMs(r.durationMs) : '—'
-    const triggerLabel = r.triggerType === 'manual' ? t('cron_trigger_manual') : t('cron_trigger_scheduled')
-    const effStatus = effectiveCronRunStatus(r)
-    const statusLabel = effStatus === 'failed'
-      ? <span className={styles['cron-run-status-failed']}>{t('cron_status_failed')}</span>
-      : effStatus === 'stopped'
-        ? <span className={styles['cron-run-status-badge']}>{t('cron_status_stopped')}</span>
-        : effStatus === 'success'
-          ? <span className={styles['cron-run-status-success']}>{t('cron_status_success')}</span>
-          : <span className={styles['cron-run-status-badge']}>{t('cron_status_running')}</span>
-    const clickable = !!r.sessionId
-    const content = (
-      <>
-        <div className={styles['cron-run-meta']}>
-          <span>{relFromNow(r.startedAt)}</span>
-          <span>{duration}</span>
-          <span>{triggerLabel}</span>
-          {statusLabel}
-        </div>
-        {effStatus === 'failed' && r.error ? <span className={styles['cron-run-error']} title={r.error}>{cronRunErrorText(r.error, t)}</span> : null}
-      </>
-    )
-    return (
-      <div
-        className={`${styles['cron-run-row']} status-${effStatus}${clickable ? ' is-clickable' : ''}`}
-        {...(clickable ? { 'data-session-id': r.sessionId } : {})}
-        key={`${r.taskId}:${r.startedAt}:${r.sessionId || ''}`}
-      >
-        {clickable ? (
-          <button type="button" className={styles['cron-run-open']} onClick={() => { void openRunSession(r.sessionId!) }}>
-            {content}
-            <span className={styles['cron-run-open-chat']}>{t('cron_open_chat')}</span>
-          </button>
-        ) : <div className={styles['cron-run-open']}>{content}</div>}
-        {effStatus === 'failed' && (
-          <button
-            className={styles['cron-run-retry']} data-task-id={r.taskId}
-            disabled={pendingTaskIds.has(r.taskId)}
-            onClick={() => {
-              const task = stateRef.current.tasksData.tasks.find(x => x.id === r.taskId)
-              if (task) void runTaskNow(task)
-              else w().showToast?.(t('cron_run_failed'))
-            }}
-          >{t('cron_retry')}</button>
-        )}
       </div>
     )
   }
@@ -562,45 +506,97 @@ export function CronPage() {
         if (target.closest('[data-cron-tab]')) return
       }}
     >
-      {header}
-
-      <div className={`${styles['cron-split']}${selected ? ' has-detail' : ''}`}>
-        {/* Task list pane. */}
-        <div id="cron-pane-tasks" className={`${styles['cron-pane']} ${styles['cron-pane-list']}${selected ? '' : ' active'}`}>
-          {!tasksLoaded && !tasksError ? <div dangerouslySetInnerHTML={{ __html: w().klsLoading.render() }} /> : null}
-          {tasksError ? (
-            <div className="cron-empty" role="alert">
-              <p>{tasksError}</p>
-              <button type="button" className="btn-sm" onClick={() => { void loadTasks() }}>{t('cron_retry')}</button>
-            </div>
-          ) : null}
-          <div id="cron-list" className={styles['cron-list']}>
-            {visibleTasks.map(renderTaskRow)}
-          </div>
-          <div id="cron-empty" className="cron-empty" style={{ display: tasksLoaded && !tasksError && visibleTasks.length === 0 ? 'flex' : 'none' }}>
+      {emptyTask ? (
+        <div className={styles['cron-empty-session-state']}>
+          <div className={styles['cron-empty-session-icon']} aria-hidden="true">
             <Raw name="cron-empty-tasks" />
-            <p data-i18n="no_cron">{tasksFiltered ? t('cron_search_empty') : t('no_cron')}</p>
-            <p className={styles['cron-empty-hint']} style={tasksFiltered ? { display: 'none' } : undefined}>{t('cron_empty_hint')}</p>
-            <div className={styles['cron-empty-actions']} style={tasksFiltered ? { display: 'none' } : undefined}>
-              <button className="kls-btn" id="cron-empty-new" onClick={() => setFormTask({ task: null })}>
-                <Raw name="cron-empty-new" />
-                <span>{t('cron_new')}</span>
-              </button>
-              <button className="kls-pill-btn" id="cron-empty-via-klaus" onClick={createViaKlaus}>
-                <Raw name="cron-empty-via-klaus" />
-                <span>{t('cron_via_klaus')}</span>
-              </button>
-            </div>
+          </div>
+          <h3 className={styles['cron-empty-session-title']}>
+            {t('cron_empty_sessions_title').replace('{name}', emptyTask.name || emptyTask.id)}
+          </h3>
+          {emptyTask.schedule ? (
+            <p className={styles['cron-empty-session-schedule']}>
+              {humanizeSchedule(emptyTask.schedule)}
+            </p>
+          ) : null}
+          <p className={styles['cron-empty-session-desc']}>
+            {t('cron_empty_sessions_desc').replace('{name}', emptyTask.name || emptyTask.id)}
+          </p>
+          <div className={styles['cron-empty-actions']}>
+            <button
+              type="button"
+              className="kls-btn"
+              disabled={pendingTaskIds.has(emptyTask.id)}
+              onClick={() => {
+                setEmptyTaskId(null)
+                void runTaskNow(emptyTask)
+              }}
+            >
+              <Raw name="cron-empty-new" />
+              <span>{t('cron_run_now')}</span>
+            </button>
+            <button
+              type="button"
+              className="kls-pill-btn"
+              onClick={() => setFormTask({ task: emptyTask })}
+            >
+              {t('cron_edit')}
+            </button>
+            <button
+              type="button"
+              className="kls-pill-btn"
+              onClick={() => {
+                setEmptyTaskId(null)
+                setSelectedId(emptyTask.id)
+              }}
+            >
+              {t('cron_back_all_setup')}
+            </button>
           </div>
         </div>
+      ) : (
+        <>
+          {header}
 
-        {/* Detail pane: edit fields + Previous runs. */}
-        <div className={`${styles['cron-pane']} ${styles['cron-pane-detail']}${selected ? ' active' : ''}`}>
-          {selected
-            ? renderDetail(selected)
-            : <div className={styles['cron-detail-placeholder']}>{t('cron_select_placeholder')}</div>}
-        </div>
-      </div>
+          <div className={`${styles['cron-split']}${selected ? ' has-detail' : ''}`}>
+            {/* Task list pane. */}
+            <div id="cron-pane-tasks" className={`${styles['cron-pane']} ${styles['cron-pane-list']}${selected ? '' : ' active'}`}>
+              {!tasksLoaded && !tasksError ? <div dangerouslySetInnerHTML={{ __html: w().klsLoading.render() }} /> : null}
+              {tasksError ? (
+                <div className="cron-empty" role="alert">
+                  <p>{tasksError}</p>
+                  <button type="button" className="btn-sm" onClick={() => { void loadTasks() }}>{t('cron_retry')}</button>
+                </div>
+              ) : null}
+              <div id="cron-list" className={styles['cron-list']}>
+                {visibleTasks.map(renderTaskRow)}
+              </div>
+              <div id="cron-empty" className="cron-empty" style={{ display: tasksLoaded && !tasksError && visibleTasks.length === 0 ? 'flex' : 'none' }}>
+                <Raw name="cron-empty-tasks" />
+                <p data-i18n="no_cron">{tasksFiltered ? t('cron_search_empty') : t('no_cron')}</p>
+                <p className={styles['cron-empty-hint']} style={tasksFiltered ? { display: 'none' } : undefined}>{t('cron_empty_hint')}</p>
+                <div className={styles['cron-empty-actions']} style={tasksFiltered ? { display: 'none' } : undefined}>
+                  <button className="kls-btn" id="cron-empty-new" onClick={() => setFormTask({ task: null })}>
+                    <Raw name="cron-empty-new" />
+                    <span>{t('cron_new')}</span>
+                  </button>
+                  <button className="kls-pill-btn" id="cron-empty-via-klaus" onClick={createViaKlaus}>
+                    <Raw name="cron-empty-via-klaus" />
+                    <span>{t('cron_via_klaus')}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            {/* Detail pane: edit fields + Previous runs. */}
+            <div className={`${styles['cron-pane']} ${styles['cron-pane-detail']}${selected ? ' active' : ''}`}>
+              {selected
+                ? renderDetail(selected)
+                : <div className={styles['cron-detail-placeholder']}>{t('cron_select_placeholder')}</div>}
+            </div>
+          </div>
+        </>
+      )}
 
       {kebab && (
         <ModalPortal>
@@ -649,5 +645,3 @@ function cronDeleteSucceeded(result: unknown): boolean {
   const payload = result as Record<string, unknown>
   return payload.ok === true || payload.deleted === true
 }
-
-function fmtDurationMs(v: number): string { return v >= 1000 ? (v / 1000).toFixed(1) + 's' : v + 'ms' }

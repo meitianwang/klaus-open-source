@@ -136,7 +136,7 @@ try {
   await click('receiver','好友设置',`[data-friend-id="${(await state('receiver')).friends.friends.find(row=>row.status==='accepted').id}"] button`);
   assert.equal(await send('receiver','/eval',{script:"Array.from(document.querySelectorAll('[role=\"dialog\"] button')).some(node=>node.textContent.trim()==='删除好友'&&node.className.includes('kls-btn-danger'))"}),true,'the remove-friend button is a danger button');
   await click('receiver','取消');
-  await click('receiver',undefined,'#sidebar-user-settings');await click('receiver',undefined,'#menu-settings');await click('receiver',undefined,'[data-stab="friends"]');
+  await click('receiver',undefined,'#btn-rail-settings');await click('receiver',undefined,'[data-stab="friends"]');
   await wait(async()=>(await state('receiver')).bodyText.includes('默认好友权限'),'the friends settings tab carries the default permission form',15000);
   assert((await state('receiver')).bodyText.includes('执行前询问'),'the default permission offers the three task policies');
   appendFileSync(log,'ASSERT friends settings: default permission form with policy, network, apps and directories.\n');
@@ -152,9 +152,9 @@ try {
   await wait(async()=>{const b=await state('receiver');return b.runtime.templates.length===0&&b.runtime.tasks.find(task=>task.id===running.id)?.status==='cancelled';},'real scope revocation cancels the engine task');assert.equal(existsSync(join(root,'grant','approved-marker.txt')),false);await send('receiver','/capture',{path:'revoked.png'});await click('receiver','取消');await request(cloud.origin,'/fixture/hold-model',{hold:false});
   const callsBefore=(await request(cloud.origin,'/fixture/state')).inference.receiver;
   await sendTask({prompt:'Reject this isolated task without model execution.'});pending=await wait(async()=> (await state('receiver')).runtime.tasks.find(task=>task.status==='pending'),'pending request after template revoked');await click('receiver',undefined,'#btn-friends');await openTasks(pending.friendId);await click('receiver','拒绝任务',`[data-task-id="${pending.id}"] button`);await wait(async()=> (await state('receiver')).runtime.tasks.find(task=>task.id===pending.id)?.status==='rejected','actual rejection recorded');assert.equal((await request(cloud.origin,'/fixture/state')).inference.receiver,callsBefore);
-  // The receiving-computer control lives in the settings sidebar's friends tab, not on
-  // the friends page, so the owner route opens it through the real user menu.
-  const openReceiverSettings=async()=>{await click('receiver',undefined,'#sidebar-user-settings');await click('receiver',undefined,'#menu-settings');await click('receiver',undefined,'[data-stab="friends"]');};
+  // The receiving-computer control lives in the settings sidebar's friends tab, so
+  // the owner route opens it through the primary settings rail entry.
+  const openReceiverSettings=async()=>{await click('receiver',undefined,'#btn-rail-settings');await click('receiver',undefined,'[data-stab="friends"]');};
   const offline=await request(cloud.origin,'/fixture/offline-device');await click('receiver','刷新好友','#friends-refresh');await wait(async()=> (await state('receiver')).runtime.receiver.devices.some(device=>device.id===offline.id),'real SQL device inventory');await openReceiverSettings();await click('receiver','更改');await click('receiver','Offline E2E computer',undefined,true);
   await wait(async()=> (await state('receiver')).runtime.receiver.selectedDeviceId===offline.id,'real receiver preference persisted');await send('receiver','/capture',{path:'offline-receiver.png'});
   await assert.rejects(sendTask({prompt:'This must fail instead of silently redirecting to an online computer.'}));assert.equal((await request(cloud.origin,'/fixture/state')).inference.receiver,callsBefore);

@@ -2,6 +2,7 @@
 // right work panel across collapse/expand transitions, pointer/keyboard drag
 // resizing, ratio-preserving workspace updates, and responsive window bounds.
 
+export const PRIMARY_RAIL_WIDTH = 48
 export const SIDEBAR_MIN_WIDTH = 240
 export const SIDEBAR_MAX_WIDTH = 520
 export const SIDEBAR_DEFAULT_WIDTH = 300
@@ -41,9 +42,12 @@ export function computeWorkspaceWidth(
   shellWidth: number,
   sidebarOpen: boolean,
   sidebarWidth: number,
+  collapsedWidth = 0,
 ): number {
   if (!Number.isFinite(shellWidth) || shellWidth <= 0) return 0
-  const left = sidebarOpen ? clampSidebarWidth(sidebarWidth, shellWidth) : 0
+  const left = sidebarOpen
+    ? clampSidebarWidth(sidebarWidth, shellWidth)
+    : Math.max(0, Math.min(collapsedWidth, shellWidth))
   return Math.max(0, shellWidth - left)
 }
 

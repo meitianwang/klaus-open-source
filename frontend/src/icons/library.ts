@@ -152,6 +152,7 @@ import bookOpenSvg from '@phosphor-icons/core/assets/regular/book-open.svg?raw'
 import bellSvg from '@phosphor-icons/core/assets/regular/bell.svg?raw'
 import pulseSvg from '@phosphor-icons/core/assets/regular/pulse.svg?raw'
 import plugSvg from '@phosphor-icons/core/assets/regular/plug.svg?raw'
+import userCheckSvg from '@phosphor-icons/core/assets/regular/user-check.svg?raw'
 import wrenchSvg from '@phosphor-icons/core/assets/regular/wrench.svg?raw'
 import shieldCheckSvg from '@phosphor-icons/core/assets/regular/shield-check.svg?raw'
 import shieldWarningSvg from '@phosphor-icons/core/assets/regular/shield-warning.svg?raw'
@@ -672,6 +673,7 @@ export const LIBRARY: Record<string, string> = {
   'tc-compass': shell(compassSvg),
   'tc-graph': shell(graphSvg),
   'tc-chat': shell(chatCircleSvg),
+  'sb-rail-chats': shell(chatCircleTextSvg),
   'sb-nav-new-chat': shell(notePencilSvg),
   // Sidebar header controls (priority threads + sort menu): the activity
   // view toggle (bell = "needs attention") and the sort entry (arrows-down-up
@@ -689,7 +691,7 @@ export const LIBRARY: Record<string, string> = {
   'sb-nav-channels': shell(chatsSvg),
   'sb-nav-cron': shell(clockSvg),
   'sb-nav-memory': shell(moonSvg),
-  'sb-nav-friends': shell(usersThreeSvg),
+  'sb-nav-friends': shell(userCheckSvg),
   // 用户区菜单
   'user-menu-settings': shell(gearSvg),
   'user-menu-theme': shell(circleHalfSvg),

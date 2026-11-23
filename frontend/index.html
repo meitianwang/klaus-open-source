@@ -118,6 +118,7 @@
           <span data-kls-icon="titlebar-sidebar-toggle"></span>
           <span data-kls-icon="titlebar-sidebar-toggle-collapsed"></span>
         </button>
+        <span class="sidebar-top-title" id="sidebar-top-title" data-i18n="sidebar_section_chats">会话</span>
       </div>
       <!-- Command menu entry: absolutely pinned to the right
            end of the sidebar band, above the conversation list it searches —
@@ -182,99 +183,123 @@
     </div>
 
     <!-- Sidebar -->
-    <div id="sidebar" class="sidebar" data-klaus-tooltips="off" data-pip-obstacle="sidebar">
-      <!-- Sidebar nav icons — [data-kls-icon] slots filled by src/icons/static-mount.ts
-           from the unified icon library (@phosphor-icons as the main source, lucide
-           for glyphs phosphor has no equivalent of). -->
-      <div class="sidebar-nav">
-        <button class="sidebar-nav-item" id="btn-new-chat">
-          <span data-kls-icon="sb-nav-new-chat"></span>
-          <span data-i18n="new_action">New</span>
-        </button>
-        <!-- Server-gated entry: hidden until the host resolves the
-             teamCollaboration feature gate for this account
-             (src/chat/sidebar/feature-gate.ts). Fail-closed at first paint so
-             an unentitled account never sees it flash. -->
-        <button class="sidebar-nav-item" id="btn-team-collaboration" hidden>
-          <span data-kls-icon="sb-nav-team-collaboration"></span>
-          <span data-i18n="tc_nav">团队协作</span>
-        </button>
-        <!-- Extensions group — MCP / Skills / Plugins / Slash Commands / Agents
-             fold under one parent entry. Parent only toggles the fold;
-             navigation stays on the child buttons, whose ids are unchanged so
-             existing chat.js handlers and programmatic .click() deep links
-             keep working. -->
-        <button class="sidebar-nav-item" id="btn-extensions" aria-expanded="false" aria-controls="extensions-children">
-          <!-- Glyph swaps to a fold caret on hover (right = collapsed,
-               down = expanded). -->
-          <span data-kls-icon="sb-nav-extensions"></span>
-          <span data-kls-icon="sb-nav-extensions-caret"></span>
-          <span data-i18n="extensions">Extensions</span>
-        </button>
-        <div class="sidebar-nav-children" id="extensions-children">
-          <div class="sidebar-nav-children-inner">
-            <button class="sidebar-nav-item sidebar-nav-subitem" id="btn-mcp">
-              <span data-kls-icon="sb-nav-mcp"></span>
-              <span data-i18n="mcp">连接器</span>
+    <div id="sidebar" class="sidebar" data-klaus-tooltips="off" data-pip-obstacle="sidebar" data-rail-section="chats">
+      <!-- Unbroken 46px titlebar strip above both columns so macOS window controls
+           (x: 16..68px) never cross a vertical border seam. -->
+      <div class="sidebar-top-band" aria-hidden="true"></div>
+
+      <div class="sidebar-body">
+        <!-- Level-1 icon-only module rail (48px). Like #side-rail on the right,
+             each icon-only entry explicitly opts into a single-line side tooltip. -->
+        <nav id="primary-rail" class="primary-rail" data-i18n-aria-label="sidebar_section_chats" aria-label="Conversations">
+          <div class="primary-rail-top">
+            <button type="button" class="primary-rail-btn active" id="btn-rail-chats" data-rail="chats" data-klaus-tooltips="on" data-klaus-tip-placement="right" data-i18n-title="sidebar_section_chats" title="Conversations" data-i18n-aria-label="sidebar_section_chats" aria-label="Conversations" aria-current="page">
+              <span data-kls-icon="sb-rail-chats"></span>
+              <span class="primary-rail-badge" id="rail-chats-badge" hidden aria-hidden="true"></span>
             </button>
-            <button class="sidebar-nav-item sidebar-nav-subitem" id="btn-skills">
-              <!-- 4-pointed sparkle — "skills/magic/abilities" metaphor. -->
-              <span data-kls-icon="sb-nav-skills"></span>
-              <span data-i18n="skills">Skills</span>
+            <!-- Server-gated entry: hidden until the host resolves the
+                 teamCollaboration feature gate for this account
+                 (src/chat/sidebar/feature-gate.ts). Fail-closed at first paint. -->
+            <button type="button" class="primary-rail-btn" id="btn-team-collaboration" hidden data-rail="teamCollaboration" data-klaus-tooltips="on" data-klaus-tip-placement="right" data-i18n-title="tc_nav" title="团队协作" data-i18n-aria-label="tc_nav" aria-label="团队协作">
+              <span data-kls-icon="sb-nav-team-collaboration"></span>
             </button>
-            <button class="sidebar-nav-item sidebar-nav-subitem" id="btn-plugins">
-              <span data-kls-icon="sb-nav-plugins"></span>
-              <span data-i18n="plugins">Plugins</span>
+            <button type="button" class="primary-rail-btn" id="btn-extensions" data-rail="extensions" aria-expanded="false" aria-controls="extensions-children" data-klaus-tooltips="on" data-klaus-tip-placement="right" data-i18n-title="extensions" title="Extensions" data-i18n-aria-label="extensions" aria-label="Extensions">
+              <span data-kls-icon="sb-nav-extensions"></span>
             </button>
-            <button class="sidebar-nav-item sidebar-nav-subitem" id="btn-slash-commands">
-              <span data-kls-icon="slash-command-fill"></span>
-              <span data-i18n="slash_commands">Slash Commands</span>
+            <button type="button" class="primary-rail-btn" id="btn-channels" data-rail="channels" data-klaus-tooltips="on" data-klaus-tip-placement="right" data-i18n-title="channels" title="Channels" data-i18n-aria-label="channels" aria-label="Channels">
+              <span data-kls-icon="sb-nav-channels"></span>
             </button>
-            <button class="sidebar-nav-item sidebar-nav-subitem" id="btn-agents">
-              <span data-kls-icon="sb-nav-agents"></span>
-              <span data-i18n="agents">Agents</span>
+            <button type="button" class="primary-rail-btn" id="btn-cron" data-rail="cron" data-klaus-tooltips="on" data-klaus-tip-placement="right" data-i18n-title="cron" title="Scheduled Tasks" data-i18n-aria-label="cron" aria-label="Scheduled Tasks">
+              <span data-kls-icon="sb-nav-cron"></span>
+            </button>
+            <button type="button" class="primary-rail-btn" id="btn-memory" data-rail="memory" data-klaus-tooltips="on" data-klaus-tip-placement="right" data-i18n-title="memory" title="Memory" data-i18n-aria-label="memory" aria-label="Memory">
+              <span data-kls-icon="sb-nav-memory"></span>
+              <span class="sidebar-nav-dot primary-rail-dot" id="btn-memory-dot" aria-hidden="true"></span>
+            </button>
+            <button type="button" class="primary-rail-btn" id="btn-friends" hidden data-rail="friends" data-klaus-tooltips="on" data-klaus-tip-placement="right" data-i18n-title="friends" title="Friends" data-i18n-aria-label="friends" aria-label="Friends">
+              <span data-kls-icon="sb-nav-friends"></span>
             </button>
           </div>
+
+          <div class="primary-rail-bottom">
+            <button type="button" class="primary-rail-btn" id="sidebar-user-usage" data-klaus-tooltips="on" data-klaus-tip-placement="right" data-i18n-title="subscription_usage_title" title="Usage" data-i18n-aria-label="subscription_usage_title" aria-label="Usage" aria-haspopup="dialog" aria-expanded="false">
+              <span data-kls-icon="sidebar-user-usage"></span>
+            </button>
+            <button type="button" class="primary-rail-btn" id="btn-rail-settings" data-rail="settings" data-klaus-tooltips="on" data-klaus-tip-placement="right" data-i18n-title="settings" title="Settings" data-i18n-aria-label="settings" aria-label="Settings" aria-expanded="false">
+              <span data-kls-icon="sidebar-user-gear"></span>
+            </button>
+            <button type="button" class="primary-rail-btn primary-rail-avatar-btn" id="sidebar-user-settings" data-klaus-tooltips="on" data-klaus-tip-placement="right" data-i18n-title="profile" title="Profile" data-i18n-aria-label="profile" aria-label="Profile" aria-haspopup="menu" aria-expanded="false">
+              <div class="sidebar-avatar">U</div>
+            </button>
+          </div>
+        </nav>
+
+        <!-- Level-2 contextual sidebar pane: switches content with the active
+             primary-rail module so conversations claim full vertical height and
+             secondary modules avoid nested sidebars. -->
+        <div id="sidebar-secondary" class="sidebar-secondary">
+          <div class="sidebar-pane sidebar-pane-chats" id="sidebar-chats-pane">
+            <div class="sidebar-chats-top">
+              <button class="sidebar-new-chat-btn" id="btn-new-chat" type="button">
+                <span data-kls-icon="sb-nav-new-chat"></span>
+                <span data-i18n="sidebar_new_chat">New chat</span>
+              </button>
+            </div>
+            <div class="sidebar-scroll" id="sidebar-scroll">
+              <div class="session-list" id="session-list"></div>
+            </div>
+          </div>
+
+          <div class="sidebar-pane sidebar-pane-extensions" id="sidebar-extensions-pane">
+            <div class="sidebar-subnav-scroll">
+              <div class="sidebar-nav-children open" id="extensions-children">
+                <div class="sidebar-subnav-list">
+                  <button class="sidebar-nav-item sidebar-nav-subitem" id="btn-mcp" type="button">
+                    <span data-kls-icon="sb-nav-mcp"></span>
+                    <span data-i18n="mcp">连接器</span>
+                  </button>
+                  <button class="sidebar-nav-item sidebar-nav-subitem" id="btn-skills" type="button">
+                    <span data-kls-icon="sb-nav-skills"></span>
+                    <span data-i18n="skills">Skills</span>
+                  </button>
+                  <button class="sidebar-nav-item sidebar-nav-subitem" id="btn-plugins" type="button">
+                    <span data-kls-icon="sb-nav-plugins"></span>
+                    <span data-i18n="plugins">Plugins</span>
+                  </button>
+                  <button class="sidebar-nav-item sidebar-nav-subitem" id="btn-slash-commands" type="button">
+                    <span data-kls-icon="slash-command-fill"></span>
+                    <span data-i18n="slash_commands">Slash Commands</span>
+                  </button>
+                  <button class="sidebar-nav-item sidebar-nav-subitem" id="btn-agents" type="button">
+                    <span data-kls-icon="sb-nav-agents"></span>
+                    <span data-i18n="agents">Agents</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="sidebar-pane sidebar-pane-settings" id="sidebar-settings-pane">
+            <div class="settings-sidebar"></div>
+          </div>
+
+          <div class="sidebar-pane sidebar-pane-modules" id="sidebar-module-panes"></div>
+
+          <!-- A running or finished update keeps one persistent card here: the
+               transfer detail can be minimized without losing the way back to it. -->
+          <div id="sidebar-update-card"></div>
         </div>
-        <button class="sidebar-nav-item" id="btn-channels">
-          <span data-kls-icon="sb-nav-channels"></span>
-          <span data-i18n="channels">Channels</span>
-        </button>
-        <button class="sidebar-nav-item" id="btn-cron">
-          <span data-kls-icon="sb-nav-cron"></span>
-          <span data-i18n="cron">Scheduled Tasks</span>
-        </button>
-        <button class="sidebar-nav-item" id="btn-memory">
-          <!-- Crescent moon — visual cue for "dream" / consolidation. Same path
-               as before but rendered as path-fill (the path describes a 1-unit
-               crescent ribbon between two arcs at radius 5.5 / 4.5). -->
-          <span data-kls-icon="sb-nav-memory"></span>
-          <span data-i18n="memory">Memory</span>
-          <!-- Dot indicator: lights up while a dream is running (CSS class
-               'has-active' toggled by src/pages/memory when dream:event status
-               is 'running'). Hidden by default — no extra noise when idle. -->
-          <span class="sidebar-nav-dot" id="btn-memory-dot" aria-hidden="true"></span>
-        </button>
-        <button class="sidebar-nav-item" id="btn-friends" hidden>
-          <span data-kls-icon="sb-nav-friends"></span>
-          <span data-i18n="friends">Friends</span>
-        </button>
       </div>
-
-      <div class="sidebar-scroll" id="sidebar-scroll">
-        <div class="session-list" id="session-list"></div>
-      </div>
-
-      <!-- A running or finished update keeps one persistent card here: the
-           transfer detail can be minimized without losing the way back to it. -->
-      <div id="sidebar-update-card"></div>
 
       <div class="sidebar-footer">
         <div id="user-menu" class="user-menu">
-          <button class="user-menu-item" id="menu-settings">
-            <span data-kls-icon="user-menu-settings"></span>
-            <span data-i18n="menu_settings">Settings</span>
+          <button type="button" class="user-menu-item user-menu-profile" id="sidebar-profile">
+            <div class="sidebar-avatar">U</div>
+            <div class="sidebar-user-info">
+              <div class="sidebar-username">User</div>
+            </div>
           </button>
+          <div class="user-menu-sep"></div>
           <button class="user-menu-item" id="menu-theme">
             <!-- Half-filled disc: the standard "theme" mark, path-fill on the
                  16x16 grid like the sidebar glyphs. -->
@@ -319,22 +344,6 @@
         <!-- Theme submenu: light/dark/system, rebuilt on open to follow the live language. -->
         <div id="user-menu-theme" class="user-menu-sub"></div>
         <div id="user-menu-font" class="user-menu-sub user-menu-sub-font"></div>
-        <div class="sidebar-user" id="sidebar-user">
-          <button type="button" class="sidebar-profile" id="sidebar-profile" data-i18n-aria-label="profile" aria-label="Profile">
-          <div class="sidebar-avatar">U</div>
-          <div class="sidebar-user-info">
-            <div class="sidebar-username">User</div>
-          </div>
-          </button>
-
-          <button class="sidebar-user-settings" id="sidebar-user-usage" aria-label="Usage" aria-haspopup="dialog" aria-expanded="false">
-            <!-- Gauge：lucide circle-gauge——缺口圆环 + 圆头指针 + 轴心。 -->
-            <span data-kls-icon="sidebar-user-usage"></span>
-          </button>
-          <button class="sidebar-user-settings" id="sidebar-user-settings" data-i18n-aria-label="menu_settings" aria-label="Settings" aria-haspopup="menu" aria-expanded="false">
-            <span data-kls-icon="sidebar-user-gear"></span>
-          </button>
-        </div>
       </div>
     </div>
 
@@ -935,11 +944,10 @@
          See main/artifact-window.ts + renderer/artifact.html. -->
 
 
-    <!-- Settings view — full-window overlay (covers both chat sidebar and main) -->
+    <!-- Settings view — covers the main workspace right of the two-level sidebar;
+         its category directory lives in #sidebar-settings-pane so the primary rail
+         remains anchored on the left. -->
     <div id="settings-view">
-      <!-- Settings sidebar — React 岛（src/pages/settings/settings-nav.tsx）：
-           返回键 + 分组 + 20 个 tab 项与其 path-fill 字形全部组件内渲染。 -->
-      <div class="settings-sidebar"></div>
       <div class="settings-main">
         <div class="settings-content" id="settings-content"></div>
       </div>

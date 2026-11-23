@@ -14,8 +14,21 @@ const RAIL_TOOLTIP_IDS = [
   'btn-diff',
   'terminal-toggle',
 ]
+const PRIMARY_RAIL_TOOLTIP_IDS = [
+  'btn-rail-chats',
+  'btn-team-collaboration',
+  'btn-extensions',
+  'btn-channels',
+  'btn-cron',
+  'btn-memory',
+  'btn-friends',
+  'sidebar-user-usage',
+  'btn-rail-settings',
+  'sidebar-user-settings',
+]
 const DYNAMIC_SOURCES = [
   'src/chat/sidebar/session-list.tsx',
+  'src/chat/sidebar/secondary-module-panes.tsx',
   'src/chat/overview/plan.ts',
   'src/chat/overview/subagents.ts',
   'src/chat/overview/background-processes.ts',
@@ -39,15 +52,21 @@ function section(start: string, end: string): string {
 }
 
 describe('sidebar tooltip policy', () => {
-  test('sidebar surfaces opt out except for the five fixed side-rail entries', () => {
+  test('sidebar surfaces opt out except for the fixed icon-only rail entries', () => {
     const sideRailMarkup = section('<div id="side-rail"', '<!-- Sidebar -->')
     const sideRailWithoutOptIns = sideRailMarkup.replace(
       /<button(?=[^>]*data-klaus-tooltips="on")[^>]*>/g,
       '<button>',
     )
+    const sidebarMarkup = section('<div id="sidebar"', '<!-- Sidebar width is fixed')
+    const primaryRailMarkup = section('<nav id="primary-rail"', '<!-- Level-2 contextual sidebar pane')
+    const primaryRailWithoutOptIns = primaryRailMarkup
+      .replace(/<nav[^>]*>/, '<nav>')
+      .replace(/<button(?=[^>]*data-klaus-tooltips="on")[^>]*>/g, '<button>')
+    const sidebarWithoutPrimaryOptIns = sidebarMarkup.replace(primaryRailMarkup, primaryRailWithoutOptIns)
     const protectedMarkup = [
       sideRailWithoutOptIns,
-      section('<div id="sidebar"', '<!-- Sidebar width is fixed'),
+      sidebarWithoutPrimaryOptIns,
       section('<aside id="artifacts-panel"', '<!-- Artifact preview'),
     ].join('\n')
 
@@ -60,7 +79,16 @@ describe('sidebar tooltip policy', () => {
       expect(tag).toContain('data-i18n-title=')
       expect(tag).toContain('title=')
     }
+    for (const id of PRIMARY_RAIL_TOOLTIP_IDS) {
+      const tag = primaryRailMarkup.match(new RegExp(`<button[^>]*id="${id}"[^>]*>`))?.[0] || ''
+      expect(tag).toContain('data-klaus-tooltips="on"')
+      expect(tag).toContain('data-klaus-tip-placement="right"')
+      expect(tag).toContain('data-i18n-title=')
+      expect(tag).toContain('title=')
+      expect(tag).toContain('aria-label=')
+    }
     expect(sideRailMarkup.match(/data-klaus-tooltips="on"/g)?.length).toBe(RAIL_TOOLTIP_IDS.length)
+    expect(primaryRailMarkup.match(/data-klaus-tooltips="on"/g)?.length).toBe(PRIMARY_RAIL_TOOLTIP_IDS.length)
     expect(sideRailMarkup.indexOf('id="monitor-panel-toggle"')).toBeLessThan(sideRailMarkup.indexOf('id="side-task-new"'))
     expect(INDEX_HTML).toContain('id="sidebar-toggle" data-i18n-aria-label="toggle_sidebar" aria-label="Toggle sidebar"')
     expect(INDEX_HTML).toContain('id="artifacts-panel-toggle" class="artifacts-toggle-btn" data-i18n-aria-label="artifacts_toggle" aria-label="Toggle artifacts panel"')
@@ -68,7 +96,7 @@ describe('sidebar tooltip policy', () => {
 
   test('dynamic content added to a tooltip-free surface is scrubbed', () => {
     expect(TOOLTIP_TS).toContain("const TOOLTIP_FREE_ZONE_SELECTOR = '[data-klaus-tooltips=\"off\"]'")
-    expect(TOOLTIP_TS).toContain("const TOOLTIP_OPT_IN_SELECTOR = '#side-rail > [data-klaus-tooltips=\"on\"], #sidebar [data-session-action][data-klaus-tooltips=\"on\"]'")
+    expect(TOOLTIP_TS).toContain("const TOOLTIP_OPT_IN_SELECTOR = '#side-rail > [data-klaus-tooltips=\"on\"], #primary-rail [data-klaus-tooltips=\"on\"], #sidebar [data-session-action][data-klaus-tooltips=\"on\"]'")
     expect(TOOLTIP_TS).toContain('if (el.closest(TOOLTIP_OPT_IN_SELECTOR)) continue')
     expect(TOOLTIP_TS).toContain("attributeFilter: ['title', 'data-klaus-tip']")
     expect(TOOLTIP_TS).toContain("el.removeAttribute('title')")

@@ -147,3 +147,47 @@
 @media (max-width: 720px) {
   :global(.channels-page-content) .ch-grid { grid-template-columns: 1fr; }
 }
+
+.ch-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 64px 24px;
+  max-width: 440px;
+  margin: 0 auto;
+  gap: 10px;
+}
+
+.ch-empty-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-sm);
+  object-fit: contain;
+  margin-bottom: 4px;
+}
+
+.ch-empty-title {
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+}
+
+.ch-empty-desc {
+  margin: 0;
+  font-size: var(--text-body-sm);
+  line-height: 1.55;
+  color: var(--fg-tertiary);
+}
+
+.ch-empty-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+

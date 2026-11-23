@@ -3,16 +3,17 @@ import { readFileSync } from 'node:fs'
 const source = (file: string) => readFileSync(new URL(file, import.meta.url), 'utf8')
 
 describe('team collaboration page integration', () => {
-  test('registers an independent static overlay and a server-gated sidebar entry without tooltips', () => {
+  test('registers an independent static overlay and a server-gated primary-rail entry', () => {
     const html = source('../../../index.html')
-    const entry = html.match(/<button class="sidebar-nav-item" id="btn-team-collaboration"[^>]*>[\s\S]*?<\/button>/)?.[0]
+    const entry = html.match(/<button[^>]*class="primary-rail-btn"[^>]*id="btn-team-collaboration"[^>]*>[\s\S]*?<\/button>/)?.[0]
     expect(entry).toBeDefined()
     // The entry ships hidden and is revealed only when the host resolves the
     // teamCollaboration feature gate for this account (sidebar/feature-gate.ts).
     expect(entry).toContain('hidden')
-    expect(entry).toContain('data-i18n="tc_nav"')
-    expect(entry).not.toContain('title=')
-    expect(entry).not.toContain('data-klaus-tip')
+    expect(entry).toContain('data-i18n-title="tc_nav"')
+    expect(entry).toContain('data-i18n-aria-label="tc_nav"')
+    expect(entry).toContain('data-klaus-tooltips="on"')
+    expect(entry).toContain('data-klaus-tip-placement="right"')
     expect(html).toContain('id="team-collaboration-view-content"')
     expect(source('./index.tsx')).toContain("name: 'team-collaboration'")
     expect(source('../../app-entry.ts')).toContain("import './pages/team-collaboration'")
@@ -21,7 +22,7 @@ describe('team collaboration page integration', () => {
     const chat = source('../../chat/chat.ts')
     expect(chat).toContain("teamCollaboration: 'btn-team-collaboration'")
     expect(chat).toContain("if (view !== 'teamCollaboration') (window as any).klsPageViews?.get('team-collaboration')?.hide()")
-    const handler = chat.split("document.getElementById('btn-team-collaboration')?.addEventListener('click', () => {")[1]?.split('\n})')[0]
+    const handler = chat.split("document.getElementById('btn-team-collaboration')?.addEventListener('click', (e) => {")[1]?.split('\n})')[0]
     // The handler is gated: a closed teamCollaboration flag refuses even the
     // programmatic .click() that deep links and hash routes land on.
     expect(handler).toContain("featureGates?.enabled('teamCollaboration')")

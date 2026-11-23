@@ -12,6 +12,12 @@ import { createFriendsPageController, failureText, grantSubmission } from './dat
 import { FRIEND_INVITE_EVENT, takeQueuedFriendInvite } from './invite'
 import { decodeImageFile, decodeVideoFrame } from './qr-scan'
 import { writeClipboardText } from '../../clipboard'
+import { startGuestSignin } from '../../chat/sidebar/guest-signin'
+import {
+  FRIENDS_SIDEBAR_ACTION_EVENT,
+  FRIENDS_SIDEBAR_SELECT_EMPTY_EVENT,
+  FRIENDS_SIDEBAR_SYNC_EVENT,
+} from '../../chat/sidebar/secondary-module-panes'
 import styles from './friends.module.css'
 
 export const FRIENDS_PAGE_VISIBLE_EVENT = 'klaus:friends-page-visible'
@@ -238,6 +244,8 @@ export function FriendsPage() {
   const [search, setSearch] = useState(''), [adding, setAdding] = useState(false), [settingsId, setSettingsId] = useState<string | null>(null)
   const [myQr, setMyQr] = useState(false)
   const [scanning, setScanning] = useState(false), [scannedEmail, setScannedEmail] = useState<string | null>(null)
+  const [signInPromptOpen, setSignInPromptOpen] = useState(false)
+  const [emptyFriendId, setEmptyFriendId] = useState<string | null>(null)
   const [acceptingId, setAcceptingId] = useState<string | null>(null), [acceptChoice, setAcceptChoice] = useState<'off' | 'approve' | 'auto'>('approve')
   const [dialogError, setDialogError] = useState('')
   const visible = useRef(true), dialogGeneration = useRef(0), disposed = useRef(false)
@@ -248,7 +256,7 @@ export function FriendsPage() {
   const currentDevice = devices.find(device => device.id === currentDeviceId)
   const settingsFriend = friends.find(friend => friend.id === settingsId), acceptingFriend = friends.find(friend => friend.id === acceptingId)
   const busy = !!state.busy
-  const closeDialogs = () => { ++dialogGeneration.current; setAdding(false); setMyQr(false); setScanning(false); setScannedEmail(null); setSettingsId(null); setAcceptingId(null); setDialogError('') }
+  const closeDialogs = () => { ++dialogGeneration.current; setAdding(false); setMyQr(false); setScanning(false); setSignInPromptOpen(false); setScannedEmail(null); setSettingsId(null); setAcceptingId(null); setDialogError('') }
 
   useEffect(() => {
     // A clicked add-me link arrives either before this island mounts (queued)
@@ -389,6 +397,61 @@ export function FriendsPage() {
   const query = search.trim().toLowerCase()
   const filtered = friends.filter(friend => friendDisplayName(friend).toLowerCase().includes(query) || friend.displayName.toLowerCase().includes(query))
   const accepted = filtered.filter(friend => friend.status === 'accepted'), requests = filtered.filter(friend => friend.status !== 'accepted')
+  const emptyFriend = emptyFriendId ? friends.find(friend => friend.id === emptyFriendId && friend.status === 'accepted') : undefined
+  useEffect(() => {
+    const acceptedAll = friends.filter(friend => friend.status === 'accepted')
+    window.dispatchEvent(new CustomEvent(FRIENDS_SIDEBAR_SYNC_EVENT, {
+      detail: {
+        accepted: acceptedAll.length,
+        requests: friends.filter(friend => friend.status !== 'accepted').length,
+        signedIn: management ? !!management.signedIn : undefined,
+        emptyFriendId: emptyFriend?.id ?? null,
+        acceptedFriends: acceptedAll.map(friend => ({
+          id: friend.id,
+          userId: friend.userId,
+          name: friendDisplayName(friend),
+          avatarUrl: friend.avatarUrl,
+          online: friend.online,
+          peerAllowsAgentTasks: friend.peerAllowsAgentTasks,
+        })),
+      },
+    }))
+  }, [friends, management, emptyFriend?.id])
+  useEffect(() => {
+    const onSelectEmpty = (event: Event) => {
+      const next = (event as CustomEvent<{ friendId?: string | null }>).detail?.friendId ?? null
+      setEmptyFriendId(next)
+    }
+    window.addEventListener(FRIENDS_SIDEBAR_SELECT_EMPTY_EVENT, onSelectEmpty)
+    return () => window.removeEventListener(FRIENDS_SIDEBAR_SELECT_EMPTY_EVENT, onSelectEmpty)
+  }, [])
+  useEffect(() => {
+    const onSidebarAction = (event: Event) => {
+      const action = (event as CustomEvent<{ action?: string }>).detail?.action
+      if (action === 'add') {
+        if (!management?.signedIn) { setSignInPromptOpen(true); return }
+        if (!busy) setAdding(true)
+      } else if (action === 'qr') {
+        if (!management?.signedIn) { setSignInPromptOpen(true); return }
+        if (!busy) { setDialogError(''); setMyQr(true) }
+      } else if (action === 'scan') {
+        if (!management?.signedIn) { setSignInPromptOpen(true); return }
+        if (!busy) { setDialogError(''); setScanning(true) }
+      } else if (action === 'requests') {
+        setEmptyFriendId(null)
+        const target = document.getElementById('friends-requests-section')
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        else contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+      } else if (action === 'list') {
+        setEmptyFriendId(null)
+        const target = document.getElementById('friends-list-section')
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' })
+        else contentRef.current?.scrollTo({ top: 0, behavior: 'smooth' })
+      }
+    }
+    window.addEventListener(FRIENDS_SIDEBAR_ACTION_EVENT, onSidebarAction)
+    return () => window.removeEventListener(FRIENDS_SIDEBAR_ACTION_EVENT, onSidebarAction)
+  }, [management?.signedIn, busy])
   const row = (friend: FriendSummary) => {
     const name = friendDisplayName(friend)
     const policy = runtime?.templates.find(row => row.friendId === friend.id && row.deviceId === currentDeviceId)?.grant.policy
@@ -406,13 +469,14 @@ export function FriendsPage() {
   }
   return <>
     <PageHeader titleKey="friends" subtitleKey="friends_subtitle" refresh={{ id: 'friends-refresh', titleKey: 'friends_refresh', disabled: state.loading || busy, onClick: controller.refresh }} search={{ id: 'friends-search', placeholderKey: 'friends_search', value: search, onInput: setSearch }} create={{
-      btnId: 'friends-add', menuId: 'friends-add-menu', disabled: !management?.signedIn || busy,
+      btnId: 'friends-add', menuId: 'friends-add-menu', disabled: busy,
       items: [
         { action: 'add', labelKey: 'friends_menu_add', iconHtml: (window as any).klsTopbar?.icons?.['user-plus'] },
         { action: 'my-qr', labelKey: 'friends_menu_my_qr', iconHtml: (window as any).klsTopbar?.icons?.qr },
         { action: 'scan', labelKey: 'friends_menu_scan', iconHtml: (window as any).klsTopbar?.icons?.scan },
       ],
       onAction: action => {
+        if (!management?.signedIn) { setSignInPromptOpen(true); return }
         if (action === 'add') setAdding(true)
         else if (action === 'my-qr') { setDialogError(''); setMyQr(true) }
         else if (action === 'scan') { setDialogError(''); setScanning(true) }
@@ -421,19 +485,53 @@ export function FriendsPage() {
     <div className={styles.content} ref={contentRef}>
       {[state.friendsError, state.runtimeError, state.actionError, dialogError].filter(Boolean).map((error, index) => <div className={styles.error} key={`${index}:${error}`} role="alert"><span>{error}</span><button className="kls-btn kls-btn-secondary" disabled={busy} onClick={() => { setDialogError(''); controller.clearActionError(); void controller.refresh() }}>{t('friends_retry')}</button></div>)}
       {state.loading && !management && <p className={styles.empty} role="status">{t('friends_loading')}</p>}
-      {management && !management.signedIn && <div className={styles.empty}><Icon name="sb-nav-friends" size={28} /><p>{t('friends_sign_in')}</p><button className="kls-btn kls-btn-primary" onClick={() => document.getElementById('menu-login')?.click()}>{t('friends_sign_in_action')}</button></div>}
-      {(management?.signedIn || runtime?.signedIn) && <>
-        {requests.length > 0 && <section className={styles.section}><h2 className={styles.stickyHeading}>{t('friends_requests')} <span>{requests.length}</span></h2>{requests.map(row)}</section>}
-            {management && <section className={styles.section}><h2 className={styles.stickyHeading}>{t('friends_list')} <span>{accepted.length}</span></h2>{accepted.length ? accepted.map(row) : <p className={styles.empty}>{t(search.trim() ? 'friends_no_results' : 'friends_empty')}</p>}</section>}
-            {(!management || state.friendsError) && !!runtime?.templates.length && <section className={styles.section}><h2 className={styles.stickyHeading}>{t('friends_saved_authorizations')}</h2>{runtime.templates.map(template => <div className={styles.templateCard} key={template.id}>
-              <strong>{friends.find(friend => friend.id === template.friendId)?.displayName || runtime.tasks.find(task => task.friendId === template.friendId)?.senderDisplayName || t('friends')}</strong>
-              <GrantSummary grant={template.grant} /><button className="kls-btn kls-btn-secondary" disabled={busy || template.deviceId !== currentDeviceId} onClick={() => void revoke(template)}>{t('friends_revoke_saved_grant')}</button>
-            </div>)}</section>}
-      </>}
+      {management && !management.signedIn && <div className={styles.empty}><Icon name="sb-nav-friends" size={28} /><p>{t('friends_sign_in')}</p><button className="kls-btn kls-btn-primary" onClick={() => { void startGuestSignin() }}>{t('friends_sign_in_action')}</button></div>}
+      {(management?.signedIn || runtime?.signedIn) && (
+        emptyFriend ? (
+          <div className={styles.emptySessionsState}>
+            <FriendAvatar large name={friendDisplayName(emptyFriend)} url={emptyFriend.avatarUrl} />
+            <h3 className={styles.emptySessionsTitle}>
+              {t('friends_empty_sessions_title').replace('{name}', friendDisplayName(emptyFriend))}
+            </h3>
+            <p className={styles.emptySessionsDesc}>
+              {t('friends_empty_sessions_desc').replace('{name}', friendDisplayName(emptyFriend))}
+            </p>
+            <div className={styles.emptySessionsActions}>
+              <button
+                className={`kls-btn ${emptyFriend.peerAllowsAgentTasks ? 'kls-btn-primary' : 'kls-btn-secondary'}`}
+                disabled={!emptyFriend.peerAllowsAgentTasks}
+                onClick={() => composeFriendTask(emptyFriend.id, friendDisplayName(emptyFriend))}
+              >
+                {t('friends_send_task')}
+              </button>
+              <button
+                className="kls-btn kls-btn-secondary"
+                onClick={() => { setDialogError(''); setSettingsId(emptyFriend.id) }}
+              >
+                {t('friends_settings')}
+              </button>
+              <button
+                className="kls-btn kls-btn-secondary"
+                onClick={() => setEmptyFriendId(null)}
+              >
+                {t('friends_back_all_manage')}
+              </button>
+            </div>
+          </div>
+        ) : <>
+          {requests.length > 0 && <section className={styles.section} id="friends-requests-section"><h2 className={styles.stickyHeading}>{t('friends_requests')} <span>{requests.length}</span></h2>{requests.map(row)}</section>}
+          {management && <section className={styles.section} id="friends-list-section"><h2 className={styles.stickyHeading}>{t('friends_list')} <span>{accepted.length}</span></h2>{accepted.length ? accepted.map(row) : <p className={styles.empty}>{t(search.trim() ? 'friends_no_results' : 'friends_empty')}</p>}</section>}
+          {(!management || state.friendsError) && !!runtime?.templates.length && <section className={styles.section}><h2 className={styles.stickyHeading}>{t('friends_saved_authorizations')}</h2>{runtime.templates.map(template => <div className={styles.templateCard} key={template.id}>
+            <strong>{friends.find(friend => friend.id === template.friendId)?.displayName || runtime.tasks.find(task => task.friendId === template.friendId)?.senderDisplayName || t('friends')}</strong>
+            <GrantSummary grant={template.grant} /><button className="kls-btn kls-btn-secondary" disabled={busy || template.deviceId !== currentDeviceId} onClick={() => void revoke(template)}>{t('friends_revoke_saved_grant')}</button>
+          </div>)}</section>}
+        </>
+      )}
     </div>
     {adding && <AddFriendDialog runtime={runtime} onPickDirectory={pickDirectory} initialEmail={scannedEmail ?? undefined} onClose={() => { setAdding(false); setScannedEmail(null) }} onAdded={() => { setAdding(false); setScannedEmail(null); invalidateFriendMentions(); void controller.refresh() }} />}
     {myQr && <MyQrDialog onClose={() => setMyQr(false)} onSelfInvite={email => { setMyQr(false); setScannedEmail(email); setAdding(true) }} />}
     {scanning && <ScanAddDialog onClose={() => setScanning(false)} onFound={email => { setScanning(false); setScannedEmail(email); setAdding(true) }} />}
+    {signInPromptOpen && <FriendsDialog title={t('friends_sign_in_required_title')} onClose={() => setSignInPromptOpen(false)} footer={<><button className="kls-btn kls-btn-secondary" onClick={() => setSignInPromptOpen(false)}>{t('friends_cancel')}</button><button className="kls-btn kls-btn-primary" onClick={() => { setSignInPromptOpen(false); void startGuestSignin() }}>{t('friends_sign_in_action')}</button></>}><p className={styles.muted}>{t('friends_sign_in')}</p></FriendsDialog>}
     {acceptingFriend && <FriendsDialog title={`${t('friends_accept')} · ${friendDisplayName(acceptingFriend)}`} closeDisabled={busy} onClose={() => setAcceptingId(null)} footer={<><button className="kls-btn kls-btn-secondary" disabled={busy} onClick={() => setAcceptingId(null)}>{t('friends_cancel')}</button><button className="kls-btn kls-btn-primary" disabled={busy} onClick={() => void (async () => {
       const friend = acceptingFriend
       if (friend.status !== 'accepted' && !await manage(`accept:${friend.id}`, () => window.klaus.friends.respond({ friendId: friend.id, accept: true, allowIncomingAgentTasks: acceptChoice !== 'off' }))) return

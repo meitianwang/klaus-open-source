@@ -140,7 +140,8 @@
 }
 
 .sidebar-section-head:hover .sidebar-section-action,
-.sidebar-section-head:focus-within .sidebar-section-action {
+.sidebar-section-head:focus-within .sidebar-section-action,
+.sidebar-section-action-visible {
   visibility: visible;
 }
 
@@ -918,4 +919,39 @@
   .project-reorder-group {
     transition: none;
   }
+}
+
+.project-empty-add {
+  width: calc(100% - 12px);
+  margin: 0 6px;
+  padding: 5px 8px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-tertiary);
+  font-family: var(--font);
+  font-size: var(--text-caption);
+  font-weight: var(--weight-regular);
+  line-height: 1.4;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  transition: background var(--transition), color var(--transition), border-color var(--transition);
+}
+.project-empty-add:hover {
+  background: var(--bg-hover);
+  border-color: var(--input-border);
+  color: var(--fg);
+}
+.project-empty-add-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.project-empty-add-icon svg {
+  width: 14px;
+  height: 14px;
 }

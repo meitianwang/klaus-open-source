@@ -700,45 +700,56 @@ export function SidebarRoot({ store, actions }: { store: Store; actions: Sidebar
         section={snapshot.channels}
         actions={actions}
       />
-      {snapshot.projects.rows.length > 0 ? (
-        <section className={styles['sidebar-task-section']}>
-          <SectionHeader
-            label={sidebarLabel('projects', '项目')}
-            sectionKey="projects"
-            collapsed={snapshot.projects.collapsed}
-            badge={snapshot.projects.collapsedBadge}
-            actions={actions}
-            trailing={(
-              <button
-                type="button"
-                className={styles['sidebar-section-action']}
-                aria-label={sidebarLabel('project_add', '添加项目')}
-                onClick={(e) => { e.stopPropagation(); actions.addProjectFromSection() }}
-                dangerouslySetInnerHTML={{ __html: rawIconHtml('chat-project-add') }}
-              />
-            )}
-          />
-          {snapshot.projects.collapsed ? null : (
-            <ProjectReorderList
-              keys={snapshot.projects.rows.map(project => project.key)}
-              reorderable={snapshot.projects.rows.length > 1}
-              pending={snapshot.projects.reorderPending === true}
-              onCommit={actions.reorderProjects}
-              overlayFor={key => {
-                const project = snapshot.projects.rows.find(row => row.key === key)
-                if (!project) return null
-                return {
-                  iconHtml: rawIconHtml(projectFolderIconName(project, project.expanded && !project.closing)),
-                  label: project.name,
-                }
-              }}
-            >
-              {snapshot.projects.rows.map(project => <ProjectRow project={project} actions={actions} key={project.key} />)}
-              <ProjectListEndIndicator />
-            </ProjectReorderList>
+      <section className={styles['sidebar-task-section']}>
+        <SectionHeader
+          label={sidebarLabel('projects', '项目')}
+          sectionKey="projects"
+          collapsed={snapshot.projects.collapsed}
+          badge={snapshot.projects.rows.length > 0 ? snapshot.projects.collapsedBadge : null}
+          actions={actions}
+          trailing={(
+            <button
+              type="button"
+              className={styles['sidebar-section-action'] + (snapshot.projects.rows.length === 0 ? ` ${styles['sidebar-section-action-visible']}` : '')}
+              aria-label={sidebarLabel('project_add', '添加项目')}
+              onClick={(e) => { e.stopPropagation(); actions.addProjectFromSection() }}
+              dangerouslySetInnerHTML={{ __html: rawIconHtml('chat-project-add') }}
+            />
           )}
-        </section>
-      ) : null}
+        />
+        {snapshot.projects.collapsed ? null : snapshot.projects.rows.length > 0 ? (
+          <ProjectReorderList
+            keys={snapshot.projects.rows.map(project => project.key)}
+            reorderable={snapshot.projects.rows.length > 1}
+            pending={snapshot.projects.reorderPending === true}
+            onCommit={actions.reorderProjects}
+            overlayFor={key => {
+              const project = snapshot.projects.rows.find(row => row.key === key)
+              if (!project) return null
+              return {
+                iconHtml: rawIconHtml(projectFolderIconName(project, project.expanded && !project.closing)),
+                label: project.name,
+              }
+            }}
+          >
+            {snapshot.projects.rows.map(project => <ProjectRow project={project} actions={actions} key={project.key} />)}
+            <ProjectListEndIndicator />
+          </ProjectReorderList>
+        ) : (
+          <button
+            type="button"
+            className={styles['project-empty-add']}
+            onClick={() => actions.addProjectFromSection()}
+          >
+            <span
+              className={styles['project-empty-add-icon']}
+              aria-hidden="true"
+              dangerouslySetInnerHTML={{ __html: rawIconHtml('chat-project-add') }}
+            />
+            <span>{sidebarLabel('projects_empty_add', '添加项目文件夹')}</span>
+          </button>
+        )}
+      </section>
       <SessionSection
         label={sidebarLabel('recent_chats', '最近任务')}
         sectionKey="recent"

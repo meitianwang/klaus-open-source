@@ -12,6 +12,7 @@ import {
 } from './data'
 import type { DreamRun, DreamSkillDistilled, DreamSkillReview, MemoryFileInfo, Vividness } from './data'
 import { highlightSynapsesForRow, renderSynapses, stopSynapsePulses } from './synapse'
+import { MEMORY_SIDEBAR_FILTER_EVENT, MEMORY_SIDEBAR_SYNC_EVENT } from '../../chat/sidebar/secondary-module-panes'
 import styles from './memory.module.css'
 
 const w = () => window as any
@@ -340,7 +341,22 @@ export function MemoryPage() {
         void loadNextHistoryPage({ reset: true, range: v })
       },
     })
-  }, [timeFilterBodyHtml, loadNextHistoryPage])
+  }, [timeFilterBodyHtml, timeRange, loadNextHistoryPage])
+
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent(MEMORY_SIDEBAR_SYNC_EVENT, { detail: { timeRange } }))
+  }, [timeRange])
+
+  useEffect(() => {
+    const onFilter = (event: Event) => {
+      const next = (event as CustomEvent<{ timeRange?: string }>).detail?.timeRange
+      if (!next || next === stateRef.current.timeRange) return
+      setTimeRange(next)
+      void loadNextHistoryPage({ reset: true, range: next })
+    }
+    window.addEventListener(MEMORY_SIDEBAR_FILTER_EVENT, onFilter)
+    return () => window.removeEventListener(MEMORY_SIDEBAR_FILTER_EVENT, onFilter)
+  }, [loadNextHistoryPage])
 
   // ---- 文件/技能点击 → 独立预览窗（委托路由） ----
   const openReference = (target: Element) => {

@@ -32,6 +32,7 @@ const LABELS: Record<string, string> = {
   project_menu: 'Project menu',
   project_new_chat: 'New chat in project',
   project_add: 'Add project',
+  projects_empty_add: 'Add project folder',
   session_menu_more: 'Session menu',
   session_row_pin: 'Pin chat',
   session_row_unpin: 'Unpin chat',
@@ -179,8 +180,15 @@ describe('sidebar section heads', () => {
     expect(withProjects).not.toMatch(/\stitle="/)
   })
 
-  test('an empty section renders nothing at all', () => {
-    expect(render(snapshot({ pinned: { rows: [], collapsed: false, collapsedBadge: null } }))).not.toContain('Pinned')
+  test('an empty Pinned section renders nothing while Projects stays visible with an add-folder prompt', () => {
+    const html = render(snapshot({
+      pinned: { rows: [], collapsed: false, collapsedBadge: null },
+      projects: { rows: [], collapsed: false, collapsedBadge: null },
+    }))
+    expect(html).not.toContain('Pinned')
+    expect(html).toContain('Projects')
+    expect(html).toContain('Add project folder')
+    expect(html).toContain('aria-label="Add project"')
   })
 })
 

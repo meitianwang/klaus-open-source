@@ -3,6 +3,7 @@
 import { mountActionDots } from './action-dots'
 import { mountAuthModePill } from './auth-pill'
 import { mountCommandMenu } from './command-menu/host'
+import { mountSecondaryModulePanes } from './sidebar/secondary-module-panes'
 import { mountStatusBar } from './status-bar'
 import { mountWelcome } from './welcome'
 import './transcript'
@@ -12,3 +13,4 @@ mountStatusBar()
 mountWelcome()
 mountActionDots()
 mountCommandMenu()
+mountSecondaryModulePanes()

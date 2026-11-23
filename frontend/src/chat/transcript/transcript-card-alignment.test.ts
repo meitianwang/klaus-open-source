@@ -76,4 +76,19 @@ describe('transcript card alignment contract', () => {
     expect(titlebar).toContain('display: block;')
     expect(titlebar).toContain('text-overflow: ellipsis;')
   })
+
+  test('friend task approval cards span and center within the 720px transcript column', () => {
+    const chatCss = readFileSync(new URL('../chat.module.css', import.meta.url), 'utf8')
+    const approval = ruleBody(chatCss, '.friend-approval')
+    expect(approval).toContain('width: 100%;')
+    expect(approval).toContain('max-width: min(720px, 100%);')
+    expect(approval).toContain('margin: 12px auto 18px;')
+    expect(approval).toContain('box-sizing: border-box;')
+
+    const inlineWrap = ruleBody(chatCss, '.friend-approval-inline')
+    expect(inlineWrap).toContain('width: 100%;')
+    expect(inlineWrap).toContain('max-width: min(720px, 100%);')
+    expect(inlineWrap).toContain('margin: 0 auto;')
+    expect(inlineWrap).not.toContain('padding-left:')
+  })
 })

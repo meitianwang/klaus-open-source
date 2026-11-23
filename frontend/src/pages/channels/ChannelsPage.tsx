@@ -13,6 +13,7 @@ import styles from './channels.module.css'
 import { writeClipboardText } from '../../clipboard'
 import { isChannelConfigured, isSavedChannelFailure, type ChannelPresentationState } from './channel-state'
 import { finishAfterMinimumDuration } from './refresh-timing'
+import { CHANNELS_SIDEBAR_SELECT_EMPTY_EVENT, CHANNELS_SIDEBAR_SYNC_EVENT } from '../../chat/sidebar/secondary-module-panes'
 
 interface ChannelInput { 0: string; 1: string; 2: string; 3: string; 4?: string }
 interface GuideStep {
@@ -138,6 +139,7 @@ export function ChannelsPage() {
   const [channels, setChannels] = useState<ChannelState[] | null>(null)
   const [loadError, setLoadError] = useState('')
   const [modalId, setModalId] = useState<string | null>(null)
+  const [emptyChannelId, setEmptyChannelId] = useState<string | null>(null)
   const [, setTick] = useState(0)
 
   const reload = useCallback(async () => {
@@ -164,15 +166,29 @@ export function ChannelsPage() {
     const unsubscribe = (window as any).klaus?.on?.appPreferencesChanged?.(({ key }: { key?: string }) => {
       if (key === 'channels') void reload()
     })
+    const onSelectEmpty = (event: Event) => {
+      const channelId = (event as CustomEvent<{ channelId?: string | null }>).detail?.channelId ?? null
+      setEmptyChannelId(channelId)
+    }
+    window.addEventListener(CHANNELS_SIDEBAR_SELECT_EMPTY_EVENT, onSelectEmpty)
     return () => {
       bumpSearch = null
       refreshBtn?.removeEventListener('click', onRefresh)
+      window.removeEventListener(CHANNELS_SIDEBAR_SELECT_EMPTY_EVENT, onSelectEmpty)
       unsubscribe?.()
     }
   }, [reload])
 
+  useEffect(() => {
+    window.dispatchEvent(new CustomEvent(CHANNELS_SIDEBAR_SYNC_EVENT, {
+      detail: { channels: channels || undefined, activeId: modalId, emptyChannelId },
+    }))
+  }, [channels, modalId, emptyChannelId])
+
   const filterTextMatches = (window as any).filterTextMatches as (q: string, hay: string[]) => boolean
-  const defs = buildChannelDefs().filter(ch => filterTextMatches(channelsSearch, [ch.id, ch.name, ch.desc]))
+  const allDefs = buildChannelDefs()
+  const defs = allDefs.filter(ch => filterTextMatches(channelsSearch, [ch.id, ch.name, ch.desc]))
+  const emptyChannelDef = emptyChannelId ? allDefs.find(ch => ch.id === emptyChannelId) ?? null : null
   const stateMap = new Map((channels || []).map(c => [c.id, c]))
 
   // 冷启动壳：状态 IPC 回来前给品牌加载态，不留白屏（与旧 dataset.ready 行为一致）。
@@ -193,7 +209,29 @@ export function ChannelsPage() {
           <button type="button" className="btn-sm" onClick={() => { void reload() }}>{t('channels_retry')}</button>
         </div>
       )}
-      {channels !== null && (defs.length ? (
+      {channels !== null && (emptyChannelDef ? (
+        <div className={styles['ch-empty-state']}>
+          <img src={emptyChannelDef.icon} alt={emptyChannelDef.name} width={48} height={48} className={styles['ch-empty-icon']} />
+          <h3 className={styles['ch-empty-title']}>{t('ch_empty_sessions_title').replace('{name}', emptyChannelDef.name)}</h3>
+          <p className={styles['ch-empty-desc']}>{t('ch_empty_sessions_desc').replace('{name}', emptyChannelDef.name)}</p>
+          <div className={styles['ch-empty-actions']}>
+            <button
+              type="button"
+              className="kls-btn kls-btn-primary"
+              onClick={() => setModalId(emptyChannelDef.id)}
+            >
+              {t('ch_setup_channel_btn').replace('{name}', emptyChannelDef.name)}
+            </button>
+            <button
+              type="button"
+              className="kls-btn kls-btn-secondary"
+              onClick={() => setEmptyChannelId(null)}
+            >
+              {t('ch_back_all_setup')}
+            </button>
+          </div>
+        </div>
+      ) : defs.length ? (
         <div className={styles['ch-grid']}>
           {defs.map(ch => {
             const configured = isChannelConfigured(stateMap.get(ch.id), ch.inputs.map(input => input[1]))

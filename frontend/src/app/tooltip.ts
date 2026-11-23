@@ -9,7 +9,7 @@ import { effectiveViewportRight } from './native-overlay-inset'
 const SHOW_DELAY = 120
 const HIDE_DELAY = 60
 const TOOLTIP_FREE_ZONE_SELECTOR = '[data-klaus-tooltips="off"]'
-const TOOLTIP_OPT_IN_SELECTOR = '#side-rail > [data-klaus-tooltips="on"], #sidebar [data-session-action][data-klaus-tooltips="on"]'
+const TOOLTIP_OPT_IN_SELECTOR = '#side-rail > [data-klaus-tooltips="on"], #primary-rail [data-klaus-tooltips="on"], #sidebar [data-session-action][data-klaus-tooltips="on"]'
 let tipEl: HTMLDivElement | null = null
 let target: HTMLElement | null = null
 let showT: ReturnType<typeof setTimeout> | null = null

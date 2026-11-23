@@ -983,8 +983,8 @@ button.cron-run-open { cursor: pointer; }
    layout) so each column can scroll on its own. */
 .cron-split:global(.has-detail) {
   display: grid;
-  grid-template-columns: minmax(320px, 5fr) 7fr;
-  gap: 8px;
+  grid-template-columns: minmax(240px, 4fr) minmax(340px, 6fr);
+  gap: 16px;
   align-items: stretch;
   flex: 1 1 auto;
   min-height: 0;
@@ -1141,3 +1141,48 @@ button.cron-run-open { cursor: pointer; }
 .cron-notify-toggle:global(.on) .cron-notify-thumb { transform: translateX(14px); }
 
 .cron-notify-label { font-size: var(--text-body-sm); color: var(--fg-secondary); }
+
+.cron-empty-session-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  min-height: 62vh;
+  max-width: 440px;
+  margin: 0 auto;
+  padding: 48px 24px;
+  gap: 8px;
+}
+
+.cron-empty-session-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  background: var(--bg-secondary);
+  color: var(--fg-secondary);
+  margin-bottom: 6px;
+}
+
+.cron-empty-session-title {
+  margin: 0;
+  font-size: var(--text-title);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+}
+
+.cron-empty-session-schedule {
+  margin: 0;
+  font-size: var(--text-caption);
+  color: var(--fg-tertiary);
+}
+
+.cron-empty-session-desc {
+  margin: 2px 0 8px;
+  font-size: var(--text-body-sm);
+  line-height: 1.6;
+  color: var(--fg-secondary);
+}

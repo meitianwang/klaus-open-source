@@ -325,20 +325,25 @@ body:global(.artifacts-open) .welcome-greeting {
 
 /* A friend request awaits its decision inside the conversation it arrived in:
    one card with the decision, then a quiet status line once decided. */
-/* The decision card sits under the message that carries the request and lines
-   up with the bubble column, leaving the sender avatar's gutter clear. */
-.friend-approval-inline {
-  padding-left: 32px;
-}
-.friend-approval-inline .friend-approval {
-  margin: 6px 0 16px;
-}
+/* The decision card sits under the message that carries the request or at the
+   tail of the conversation, spanning the centered 720px transcript column. */
 .friend-approval {
+  width: 100%;
+  max-width: min(720px, 100%);
+  margin: 12px auto 18px;
+  box-sizing: border-box;
   border: 1px solid color-mix(in srgb, var(--border) 90%, transparent);
   border-radius: var(--radius-md, 12px);
   padding: 13px 14px;
-  margin: 12px 0 18px;
+}
+.friend-approval-inline {
+  width: 100%;
   max-width: min(720px, 100%);
+  margin: 0 auto;
+  box-sizing: border-box;
+}
+.friend-approval-inline .friend-approval {
+  margin: 6px auto 16px;
 }
 .friend-approval-title {
   display: flex;
@@ -390,7 +395,10 @@ body:global(.artifacts-open) .welcome-greeting {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  margin: 18px 0;
+  width: 100%;
+  max-width: min(720px, 100%);
+  margin: 18px auto;
+  box-sizing: border-box;
   font-size: var(--text-xs, 11px);
   color: var(--fg-tertiary);
 }

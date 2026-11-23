@@ -208,7 +208,10 @@
   --leading-page-category: 16px;
   --activity-font-size: var(--text-body);
   --transition: 150ms cubic-bezier(0.4, 0, 0.2, 1);
+  --primary-rail-width: 48px;
   --sidebar-width: 300px;
+  --bg-rail: color-mix(in srgb, var(--fg) 3.2%, var(--bg-surface));
+  --bg-secondary-rail: var(--bg-surface);
   /* Horizontal inset between the sidebar edge and every rail row (nav items,
      tab strip, session rows, project rows, footer). 8px read as cramped —
      hover pills sat almost on the window border. */
@@ -240,6 +243,8 @@ like a fixed artifact area,
   --bg: #181818;
   --bg-secondary: #212121;
   --bg-surface: #000000;
+  --bg-rail: var(--bg-surface);
+  --bg-secondary-rail: color-mix(in srgb, var(--bg) 56%, var(--bg-surface));
   --bg-elevated: #212121;
   --bg-hover: rgba(255, 255, 255, 0.06);
   --border: rgba(255, 255, 255, 0.08);
@@ -393,6 +398,7 @@ body.panel-resizing {
 
 body.panel-resizing #sidebar,
 body.panel-resizing .artifacts-panel,
+body.panel-resizing #settings-view,
 body.panel-resizing .titlebar-session-title,
 body.panel-resizing .titlebar-right,
 body.panel-resizing .titlebar-activity-btn,
@@ -402,7 +408,7 @@ body.panel-resizing .titlebar-search-btn {
 
 body.sidebar-collapsed:not(.panel-resizing) #sidebar-resizer,
 body:not(.artifacts-open):not(.panel-resizing) #artifacts-panel-resizer,
-body.settings-open .panel-resizer {
+body.settings-open #artifacts-panel-resizer {
   display: none;
 }
 
@@ -410,7 +416,6 @@ body.settings-open .panel-resizer {
   background: var(--bg-under);
 }
 
-body.settings-open #sidebar,
 body.settings-open #main,
 body.settings-open #artifacts-panel,
 body.settings-open #slash-menu {
@@ -428,12 +433,12 @@ body.settings-open #slash-menu {
   left: 0;
   right: 0;
   height: var(--titlebar-height);
-  z-index: 300;
+  z-index: 520;
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  padding: 0 14px 0 88px;
+  padding: 0 14px 0 80px;
   background: transparent;
   pointer-events: none;
   -webkit-app-region: drag;
@@ -516,6 +521,22 @@ body.artifacts-open .titlebar-session-title {
   -webkit-app-region: no-drag;
 }
 .titlebar-left { flex: 0 0 auto; }
+.sidebar-top-title {
+  margin-left: 6px;
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+  line-height: 1.2;
+  max-width: 112px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+  -webkit-app-region: drag;
+}
+body.sidebar-collapsed .sidebar-top-title {
+  display: none;
+}
 /* Command menu entry: pinned to the right end of the sidebar
    band so it sits above the conversation list it searches, exactly where
 It sits on the sidebar header row's trailing edge. The titlebar's
@@ -540,6 +561,10 @@ body.sidebar-collapsed .titlebar-search-btn {
 .window-fullscreen body.sidebar-collapsed .titlebar-search-btn {
   left: 48px;
 }
+body.non-chat-view .titlebar-search-btn,
+body.settings-open .titlebar-search-btn {
+  display: none;
+}
 .titlebar-right {
   margin-left: auto;
   gap: 8px;
@@ -556,6 +581,7 @@ body:not(.artifacts-open) .titlebar-right {
   margin-right: -10.5px;
 }
 body.non-chat-view .titlebar-right,
+body.settings-open .titlebar-right,
 body:has(#mcp-view.active) .titlebar-right,
 body:has(#skills-view.active) .titlebar-right,
 body:has(#plugins-view.active) .titlebar-right,
@@ -567,6 +593,7 @@ body:has(#memory-view.active) .titlebar-right {
   display: none;
 }
 body.non-chat-view .titlebar-session-title,
+body.settings-open .titlebar-session-title,
 body:has(#mcp-view.active) .titlebar-session-title,
 body:has(#skills-view.active) .titlebar-session-title,
 body:has(#plugins-view.active) .titlebar-session-title,
@@ -618,14 +645,273 @@ body:has(#memory-view.active) .titlebar-session-title {
 body.sidebar-collapsed .sidebar-toggle .sidebar-toggle-icon-expanded { display: none; }
 body.sidebar-collapsed .sidebar-toggle .sidebar-toggle-icon-collapsed { display: block; }
 
+/* Two-level sidebar: 46px unbroken titlebar strip on top, followed by the
+   48px primary module rail + contextual secondary pane underneath. */
+.sidebar-top-band {
+  height: var(--titlebar-height);
+  width: 100%;
+  flex-shrink: 0;
+  background: var(--bg-secondary-rail);
+  transition: background var(--sidebar-transition);
+}
+#sidebar.collapsed .sidebar-top-band {
+  background: var(--bg-rail);
+}
+
+.sidebar-body {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: flex;
+  flex-direction: row;
+  overflow: hidden;
+}
+
+.primary-rail {
+  flex: 0 0 var(--primary-rail-width);
+  width: var(--primary-rail-width);
+  background: var(--bg-rail);
+  border-top: 1px solid var(--border-subtle);
+  border-right: 1px solid var(--border-subtle);
+  border-top-right-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0 10px;
+  z-index: 2;
+  -webkit-app-region: no-drag;
+}
+#sidebar.collapsed .primary-rail {
+  border-top-right-radius: 0;
+}
+
+.primary-rail-top,
+.primary-rail-bottom {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+}
+
+.primary-rail-btn {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--fg-tertiary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background var(--transition), color var(--transition);
+}
+.primary-rail-btn[hidden] {
+  display: none;
+}
+.primary-rail-btn svg {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+.primary-rail-btn:hover,
+.primary-rail-btn[aria-expanded="true"]:not([data-rail="extensions"]):not([data-rail="settings"]) {
+  background: color-mix(in srgb, var(--fg) 7%, transparent);
+  color: var(--fg);
+}
+.primary-rail-btn:focus-visible {
+  outline: none;
+  color: var(--fg);
+  box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--fg) 8%, transparent);
+}
+.primary-rail-btn.active {
+  background: color-mix(in srgb, var(--fg) 8%, transparent);
+  color: var(--fg);
+}
+.primary-rail-btn.active::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 16px;
+  border-radius: 0 var(--radius-2xs) var(--radius-2xs) 0;
+  background: var(--fg);
+}
+.primary-rail-avatar-btn .sidebar-avatar {
+  width: 26px;
+  height: 26px;
+}
+
+.primary-rail-badge,
+.primary-rail-btn > [data-plugin-update-count],
+.primary-rail-btn > [data-friend-request-badge] {
+  position: absolute;
+  top: 2px;
+  right: 2px;
+  min-width: 15px;
+  height: 15px;
+  padding: 0 4px;
+  margin: 0;
+  border-radius: 999px;
+  background: var(--status-busy);
+  color: #ffffff;
+  font-size: var(--text-badge);
+  font-weight: var(--weight-semibold);
+  line-height: 15px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow: 0 0 0 1.5px var(--bg-rail);
+  pointer-events: none;
+}
+.primary-rail-badge[hidden],
+.primary-rail-btn > [data-plugin-update-count][hidden],
+.primary-rail-btn > [data-friend-request-badge][hidden] {
+  display: none;
+}
+.primary-rail-badge.is-attention {
+  background: var(--status-attn);
+}
+.primary-rail-dot {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  margin-left: 0;
+}
+
+.sidebar-secondary {
+  flex: 1 1 auto;
+  width: calc(var(--sidebar-width) - var(--primary-rail-width));
+  min-width: calc(var(--sidebar-width) - var(--primary-rail-width));
+  background: var(--bg-secondary-rail);
+  border-right: 1px solid var(--border-subtle);
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+  transition: opacity 160ms ease;
+}
+
+.sidebar-pane {
+  display: none;
+  flex: 1;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  -webkit-app-region: no-drag;
+}
+#sidebar[data-rail-section="chats"] .sidebar-pane-chats,
+#sidebar[data-rail-section="extensions"] .sidebar-pane-extensions,
+#sidebar[data-rail-section="settings"] .sidebar-pane-settings,
+#sidebar[data-rail-section="cron"] .sidebar-pane-modules,
+#sidebar[data-rail-section="channels"] .sidebar-pane-modules,
+#sidebar[data-rail-section="memory"] .sidebar-pane-modules,
+#sidebar[data-rail-section="teamCollaboration"] .sidebar-pane-modules,
+#sidebar[data-rail-section="friends"] .sidebar-pane-modules {
+  display: flex;
+}
+
+.sidebar-chats-top {
+  padding: 4px var(--sidebar-gutter) 6px;
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+.sidebar-new-chat-btn {
+  width: 100%;
+  min-height: 32px;
+  padding: 6px 10px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--bg-elevated) 72%, transparent);
+  color: var(--fg);
+  font-family: var(--font);
+  font-size: var(--text-body-sm);
+  font-weight: var(--weight-medium);
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background var(--transition), border-color var(--transition);
+}
+.sidebar-new-chat-btn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--input-border);
+}
+.sidebar-new-chat-btn svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--fg-secondary);
+}
+
+.sidebar-pane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 12px var(--sidebar-gutter) 8px;
+  flex-shrink: 0;
+}
+.sidebar-pane-title {
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+  color: var(--fg);
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.sidebar-pane-action {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-xs);
+  background: transparent;
+  color: var(--fg-secondary);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background var(--transition), color var(--transition);
+}
+.sidebar-pane-action:hover {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.sidebar-pane-action svg {
+  width: 15px;
+  height: 15px;
+}
+
+.sidebar-subnav-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 8px 10px;
+}
+.sidebar-subnav-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 /* Section list wrapper: flex column with 1px gap between rows. */
 .sidebar-nav {
   display: flex;
   flex-direction: column;
   gap: 1px;
-  padding: calc(var(--titlebar-height) + 8px) var(--sidebar-gutter) 8px;
-  width: var(--sidebar-width);
-  min-width: var(--sidebar-width);
+  padding: 8px var(--sidebar-gutter);
+  width: 100%;
+  min-width: 0;
   flex-shrink: 0;
 }
 
@@ -640,7 +926,9 @@ body.sidebar-collapsed .sidebar-toggle .sidebar-toggle-icon-collapsed { display:
   transform: translateY(-50%);
   transition: left var(--sidebar-transition);
 }
-body.sidebar-collapsed .titlebar-activity-btn {
+body.sidebar-collapsed .titlebar-activity-btn,
+body.non-chat-view .titlebar-activity-btn,
+body.settings-open .titlebar-activity-btn {
   display: none;
 }
 .titlebar-activity-btn[aria-pressed='true'] {
@@ -710,65 +998,9 @@ body.sidebar-collapsed .titlebar-activity-btn {
 }
 
 
-/* Extensions fold-out — child rows keep their own icons, indented past the
-   thin rail under the parent icon's centerline. Collapsed by default; .open is
-   toggled by the parent button and forced open while a child view is active.
-
-   Smooth fold: grid-template-rows 0fr→1fr animates the height without JS
-   measurement (the inner wrapper clips via overflow:hidden + min-height:0),
-   paired with a fade + 2px slide on the content — same easing family as the
-   project thread fold. display:none toggling was instant and read as janky. */
-#btn-extensions .sidebar-nav-caret {
-  display: none;
-  transition: transform var(--transition);
-}
-#btn-extensions[aria-expanded="true"] .sidebar-nav-caret { transform: rotate(90deg); }
-#btn-extensions:hover .sidebar-nav-glyph,
-#btn-extensions:focus-visible .sidebar-nav-glyph { display: none; }
-#btn-extensions:hover .sidebar-nav-caret,
-#btn-extensions:focus-visible .sidebar-nav-caret { display: block; }
+/* Extensions sub-navigation list inside #sidebar-extensions-pane. */
 .sidebar-nav-children {
-  display: grid;
-  grid-template-rows: 0fr;
-  /* Collapsed row still sits in the nav flex flow: pull back one 1px gap so
-     neighbors keep the same 1px rhythm they had with display:none. */
-  margin-top: -1px;
-  transition: grid-template-rows 210ms cubic-bezier(0.16, 1, 0.3, 1), margin-top 210ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-.sidebar-nav-children.open {
-  grid-template-rows: 1fr;
-  margin-top: 0;
-}
-.sidebar-nav-children-inner {
-  display: flex;
-  flex-direction: column;
-  gap: 1px;
-  min-height: 0;
-  overflow: hidden;
-  position: relative;
-  padding-left: 24px;
-  opacity: 0;
-  transform: translateY(-2px);
-  transition: opacity 160ms ease, transform 210ms cubic-bezier(0.16, 1, 0.3, 1);
-}
-.sidebar-nav-children.open .sidebar-nav-children-inner {
-  opacity: 1;
-  transform: none;
-}
-.sidebar-nav-children-inner::before {
-  content: '';
-  position: absolute;
-  left: 15px;
-  top: 2px;
-  bottom: 2px;
-  width: 1px;
-  background: var(--border);
-}
-@media (prefers-reduced-motion: reduce) {
-  .sidebar-nav-children,
-  .sidebar-nav-children-inner {
-    transition: none;
-  }
+  display: block;
 }
 
 .sidebar-scroll {
@@ -776,9 +1008,9 @@ body.sidebar-collapsed .titlebar-activity-btn {
   overflow-y: auto;
   min-height: 0;
   padding: 0 0 8px;
-  width: var(--sidebar-width);
-  min-width: var(--sidebar-width);
-  flex-shrink: 0;
+  width: 100%;
+  min-width: 0;
+  flex-shrink: 1;
   -webkit-app-region: no-drag;
   /* Keep the scrollbar rail width constant (thin ≈ 6px) and only fade the
      thumb in/out via .is-scrolling. The previous none→thin toggle changed
@@ -892,51 +1124,58 @@ body.sidebar-collapsed .titlebar-activity-btn {
 .cron-sb-task { display: flex; flex-direction: column; }
 
 .sidebar-footer {
-  margin-top: auto;
-  /* Same gutter as .sidebar-nav so the user row aligns with nav items. */
-  padding: 8px var(--sidebar-gutter);
-  border-top: 1px solid var(--border-subtle);
-  width: var(--sidebar-width);
-  min-width: var(--sidebar-width);
+  height: 0;
+  padding: 0;
+  border: 0;
+  width: 0;
+  min-width: 0;
   flex-shrink: 0;
+  overflow: visible;
   -webkit-app-region: no-drag;
-  position: relative;
+  position: static;
 }
 
-/* Sidebar collapsed */
+/* Sidebar collapsed: fold the secondary contextual column while keeping the
+   48px primary module rail interactive on the left edge. */
 #sidebar.collapsed {
-  flex-basis: 0;
-  width: 0;
-  max-width: 0;
+  flex-basis: var(--primary-rail-width);
+  width: var(--primary-rail-width);
+  max-width: var(--primary-rail-width);
+  pointer-events: auto;
+}
+#sidebar.collapsed .sidebar-secondary {
+  opacity: 0;
   pointer-events: none;
 }
-#sidebar.collapsed .user-menu {
-  left: calc(100% + 10px);
-  right: auto;
-  bottom: 8px;
-  width: 200px;
-}
 
-/* User menu popup — compact dropdown anchored to the footer gear:
-   fixed narrow width instead of spanning the sidebar, 13px rows so the menu
-   reads one step denser than the 14px identity row it belongs to. */
+/* User menu popup — anchored to the right of the primary rail's avatar button
+   so it works identically whether the secondary pane is expanded, collapsed, or
+   showing Settings. */
 .user-menu {
-  position: absolute;
-  bottom: calc(100% + 8px);
-  left: auto;
-  right: 8px;
-  width: 200px;
+  position: fixed;
+  bottom: 10px;
+  left: calc(var(--primary-rail-width) + 8px);
+  right: auto;
+  width: 212px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
-  z-index: 200;
+  z-index: 650;
   display: none;
   flex-direction: column;
   padding: 4px;
   animation: fade-in .15s ease-out;
 }
 .user-menu.open { display: flex; }
+.user-menu-profile {
+  gap: 10px;
+  padding: 7px 10px;
+}
+.user-menu-profile .sidebar-avatar {
+  width: 26px;
+  height: 26px;
+}
 .user-menu-item {
   display: flex;
   align-items: center;
@@ -987,7 +1226,7 @@ body.sidebar-collapsed .titlebar-activity-btn {
   padding: 4px;
   display: none;
   flex-direction: column;
-  z-index: 201;
+  z-index: 651;
   animation: fade-in .1s ease-out;
 }
 .user-menu-sub.open { display: flex; }
@@ -4697,15 +4936,30 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
 }
 .drop-overlay.active { display: flex; }
 
-/* ===== Settings panel — full-window overlay with own left sidebar ===== */
+/* ===== Settings panel — main area right of the two-level sidebar ===== */
 #settings-view {
   display: none;
   position: fixed;
-  inset: 0;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  left: var(--sidebar-width);
   background: transparent;
   z-index: 500;
+  transition: left var(--sidebar-transition);
+}
+body.sidebar-collapsed #settings-view {
+  left: var(--primary-rail-width);
+}
+/* Isolated DOM test harnesses mount .settings-sidebar directly inside #settings-view. */
+#settings-view:has(> .settings-sidebar) {
+  left: 0;
 }
 #settings-view.active { display: flex; }
+
+#sidebar-resizer {
+  z-index: 510;
+}
 
 .settings-sidebar {
   width: var(--sidebar-width);
@@ -4717,6 +4971,33 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   flex-shrink: 0;
   min-height: 0;
   overflow: hidden;
+}
+#sidebar-settings-pane .settings-sidebar {
+  width: 100%;
+  min-width: 0;
+  flex: 1;
+  padding: 4px 8px 8px;
+  background: transparent;
+}
+#sidebar-settings-pane #settings-back {
+  display: none;
+}
+#sidebar-settings-pane #settings-nav-groups,
+.sidebar-subnav-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+#sidebar-settings-pane #settings-nav-groups::-webkit-scrollbar-thumb,
+.sidebar-subnav-scroll::-webkit-scrollbar-thumb {
+  background: transparent;
+}
+#sidebar-settings-pane #settings-nav-groups:hover,
+.sidebar-subnav-scroll:hover {
+  scrollbar-color: var(--border) transparent;
+}
+#sidebar-settings-pane #settings-nav-groups:hover::-webkit-scrollbar-thumb,
+.sidebar-subnav-scroll:hover::-webkit-scrollbar-thumb {
+  background: var(--border);
 }
 
 :root.app-opaque .settings-sidebar {
@@ -8480,7 +8761,7 @@ button.kls-market-open {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: var(--shadow-lg);
-  z-index: 200;
+  z-index: 650;
   animation: fade-in .15s ease-out;
 }
 .usage-popover-head {

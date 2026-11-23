@@ -366,7 +366,12 @@ export interface SessionInfo {
   /** The friendship a friend task conversation belongs to; the sidebar files
    *  the conversation under that friend's folder. Absent for ordinary chats. */
   friendGroupId?: string | null
-  hostMetadata?: { delegatedFrom?: string; threadSource?: string; friendTask?: { taskId: string; mode: 'manual' | 'auto-edit' | 'scoped-auto' } }
+  hostMetadata?: {
+    delegatedFrom?: string
+    threadSource?: string
+    friendTask?: { taskId: string; mode: 'manual' | 'auto-edit' | 'scoped-auto' }
+    channel?: { channelId?: string; sourceSessionKey?: string; accountId?: string; targetId?: string; chatType?: string }
+  }
   automation?: {
     taskId: string
     taskName?: string | null

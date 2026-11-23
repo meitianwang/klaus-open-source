@@ -119,7 +119,7 @@ function SettingsSidebar() {
 
 // Mount once; language changes update the labels and current search results.
 export function mountSettingsSidebar(): void {
-  const host = document.querySelector('#settings-view .settings-sidebar')
+  const host = document.querySelector('#sidebar-settings-pane .settings-sidebar, #settings-view .settings-sidebar')
   if (!host) return
   createRoot(host).render(<SettingsSidebar />)
 }
