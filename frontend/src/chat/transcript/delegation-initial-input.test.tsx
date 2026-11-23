@@ -121,4 +121,50 @@ describe('a created conversation starts with an owner input', () => {
     const units = transcript.unitsFromMessages([marked()])
     expect(transcript.editTargetFor(units, [])).toEqual({ uuid: 'initial', turnId: 'turn-1' })
   })
+
+  test('a mobile turn opener leads the running turn with image and file previews while steers stay inline', () => {
+    const openerMsg = {
+      role: 'user',
+      uuid: 'mobile-open-1',
+      turnId: 'turn-mobile',
+      text: 'Check this rendering\n\nAttached:\n- /fixture/notes.txt',
+      contentBlocks: [
+        { type: 'text', text: 'Check this rendering\n\nAttached:\n- /fixture/notes.txt' },
+        { type: 'image', path: '/fixture/photo.jpg', name: 'photo.jpg' },
+      ],
+      localRender: {
+        clientMessageId: 'mobile-client-1',
+        displayText: 'Check this rendering',
+        attachments: [{ type: 'file', name: 'notes.txt', path: '/fixture/notes.txt', mimeType: 'text/plain' }],
+        inputPresentation: { version: 1, kind: 'turn' },
+      },
+    }
+    const steerMsg = {
+      role: 'user',
+      uuid: 'mobile-steer-1',
+      turnId: 'turn-mobile',
+      steered: true,
+      text: 'Also check dark mode',
+      contentBlocks: [{ type: 'text', text: 'Also check dark mode' }],
+      localRender: {
+        clientMessageId: 'mobile-client-2',
+        inputPresentation: { version: 1, kind: 'steer' },
+      },
+    }
+    const nodes = transcript.groupLiveActivityUnits([
+      { type: 'live-text', key: 'work-1', turnId: 'turn-mobile', text: 'Inspecting.', phase: 'commentary' },
+      { type: 'live-user', key: 'open-key', turnId: 'turn-mobile', msg: openerMsg },
+      { type: 'live-compaction', key: 'compact-1', turnId: 'turn-mobile', trigger: 'auto' },
+      { type: 'live-user', key: 'steer-key', turnId: 'turn-mobile', msg: steerMsg },
+    ] as any, {}, true, false)
+    expect(nodes[0]?.kind).toBe('unit')
+    expect((nodes[0] as any).unit?.key).toBe('open-key')
+    const turnNode = nodes.find(node => node.kind === 'turn') as any
+    expect(turnNode?.items?.some((node: any) => node.kind === 'unit' && node.unit?.key === 'steer-key')).toBe(true)
+
+    const html = renderToStaticMarkup(<transcript.StaticTranscriptView container={{} as HTMLElement} running={false} msgs={[openerMsg]} />)
+    expect(html).toContain('Check this rendering')
+    expect(html).toContain('/fixture/photo.jpg')
+    expect(html).toContain('notes.txt')
+  })
 })

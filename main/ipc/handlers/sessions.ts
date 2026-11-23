@@ -160,7 +160,13 @@ export function registerSessionHandlers(registry: ChannelRegistry, deps: {
     },
     'chat:send': context => {
       const value = payload(context);
-      return sessions.send(requiredString(value, 'sessionId'), value);
+      return sessions.send(
+        requiredString(value, 'sessionId'),
+        value,
+        undefined,
+        undefined,
+        context.role === 'mobile' ? { frame: true, allowFriendDispatch: true } : undefined,
+      );
     },
     'chat:continue': context => sessions.continueTurn(requiredString(payload(context), 'sessionId')),
     'chat:side-question': async (context): Promise<Json> => {
@@ -176,7 +182,11 @@ export function registerSessionHandlers(registry: ChannelRegistry, deps: {
     'chat:side-question:cancel': context => sessions.cancelSideQuestion({ ownerId: context.senderId, requestId: requiredString(payload(context), 'requestId') }),
     'chat:follow-up': context => {
       const value = payload(context);
-      return sessions.followUp(requiredString(value, 'sessionId'), value);
+      return sessions.followUp(
+        requiredString(value, 'sessionId'),
+        value,
+        context.role === 'mobile' ? { frame: true } : undefined,
+      );
     },
     'chat:interrupt': context => {
       const value = payload(context);

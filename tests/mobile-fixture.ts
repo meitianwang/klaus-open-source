@@ -96,6 +96,7 @@ export async function mobileFixture(options: Pick<MobileBridgeDeps, 'sessionInte
         case 'agents:history': return { messages: histories.get(string(payload.agentId)) ?? [] };
         case 'agents:snapshot': return { tasks: {} };
         case 'permission:pending': case 'elicit:pending': case 'question:pending': return [];
+        case 'tasks:list': return { available: true, tasks: [] };
         case 'settings:kv:get': return payload.key === 'follow_up_queue_mode' ? followUpMode : authMode;
         case 'settings:kv:set': if (payload.key === 'follow_up_queue_mode') followUpMode = string(payload.value); else authMode = string(payload.value); return true;
         case 'engine:slashCommands': return commands;

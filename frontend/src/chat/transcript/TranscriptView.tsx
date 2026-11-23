@@ -940,7 +940,15 @@ export function buildUserBubbleHtml(msg: any, composerAuthored: boolean, session
     ], local) : undefined)
     return { html: renderFriendCardHtml(local, externalMessageSender(local, msg.text), translate, target, sessionId, friendsRuntimeSnapshot()), navTurn: false }
   }
-  const parsedQuote = (local || !composerAuthored) ? null : parseSelectedTextEnvelope(text)
+  const hasLocalDisplaySnapshot = Boolean(
+    local && (
+      Object.prototype.hasOwnProperty.call(local, 'displayText')
+      || local.composerDocument != null
+      || Array.isArray(local.selectedTextAttachments)
+      || Array.isArray(local.pastedCards)
+    )
+  )
+  const parsedQuote = (hasLocalDisplaySnapshot || !composerAuthored) ? null : parseSelectedTextEnvelope(text)
   const renderedText = parsedQuote?.message ?? text
   // 历史路径的图只带 path（内容寻址池），在这里转成 klaus-media:// 的 src；
   // 本地乐观气泡的 attachments 已携 objectUrl，不动。
@@ -949,7 +957,11 @@ export function buildUserBubbleHtml(msg: any, composerAuthored: boolean, session
   // Optimistic snapshots can precede session creation. Bind missing owners so
   // previews and file actions use this transcript's scope.
   const localAttachments = (Array.isArray(local?.attachments) ? local.attachments : [])
-    .map((entry: any) => entry ? { ...entry, sessionId: entry.sessionId || sessionId } : entry)
+    .map((entry: any) => entry ? {
+      ...entry,
+      sessionId: entry.sessionId || sessionId,
+      ...(entry.src || !entry.path ? {} : { src: mediaUrl(entry.path, sessionId) }),
+    } : entry)
   let attachments = mergeSubmittedAttachments(localAttachments, replayAttachments)
   // Pasted cards render from their record, never from a size guess: the send
   // snapshot carries them, and histories written after references existed carry
@@ -4605,7 +4617,10 @@ function projectLiveTurn(
   let pastFinal = false
   for (const unit of liveUnits) {
     if (unit === final) { pastFinal = true; continue }
-    if (unit.type === 'live-user' && unit.msg.localRender?.delegationKind === 'initial-input') {
+    if (unit.type === 'live-user' && (unit.msg.localRender?.delegationKind === 'initial-input'
+      || (unit.msg.localRender?.inputPresentation?.kind === 'turn'
+        && !unit.msg.steered && !unit.msg.questionAnswer
+        && unit.msg.localRender?.externalFriendMessage !== true))) {
       leading.push({ kind: 'unit', key: unit.key, unit })
       continue
     }

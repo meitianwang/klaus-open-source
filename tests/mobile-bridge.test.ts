@@ -796,14 +796,14 @@ void (async () => {
       { turnId: 't', item: { id: 'tool', type: 'tool_call', status: 'completed', result: 'covered' } },
     ] }, 's1').length, 0);
   });
-  await h.test('tool coverage is scoped by turn and never erases the diff snapshot', () => {
+  await h.test('tool coverage is scoped by turn and omits file_change diff frames from mobile snapshots', () => {
     const rows = activeFollowEvents({ coveredToolResults: [{ turnId: 'past', toolUseId: 'recycled' }], activeItems: [
       { turnId: 'current', item: { id: 'recycled', type: 'tool_call', toolName: 'Bash', arguments: {}, result: 'new output', status: 'completed' } },
       { turnId: 'past', item: { id: 'recycled-progress-file', type: 'tool_progress', toolUseId: 'recycled', event: { type: 'file_change', change: { path: '/changed.ts', kind: 'modified', added: 3, removed: 1 } } } },
       { turnId: 'current', item: { id: 'recycled-progress-stdout', type: 'tool_progress', toolUseId: 'recycled', truncated: true, event: { type: 'stdout', chunk: 'retained tail' } } },
     ] }, 's1').map(row => object(row.event));
     assert.equal(rows.find(row => row.type === 'tool_end')?.content, 'new output');
-    assert.equal(object((rows.find(row => row.type === 'diff_update')?.changes as Json[])?.[0]).path, '/changed.ts');
+    assert.equal(rows.some(row => row.type === 'diff_update'), false);
     assert.equal(rows.find(row => row.type === 'progress')?.content, '[output truncated]\nretained tail');
   });
   await h.test('active task followers retain runtime interest through hydration and independent phone cleanup', async () => {
@@ -1958,6 +1958,7 @@ void (async () => {
         messages: [
           { id: 'u1', role: 'user', turnId: 't1', text: 'Run checks and update app.ts' },
           { id: 'cs-hidden', role: 'assistant', kind: 'compact-summary', turnId: 't1', text: 'Internal checkpoint summary' },
+          { id: 'cfr-hidden', role: 'user', kind: 'compact-file-restore', turnId: 't1', text: 'Restored secret file contents\napps/ios/KlausMobile/LiveTranscript.swift' },
           {
             id: 'a1',
             role: 'assistant',
@@ -2034,11 +2035,27 @@ void (async () => {
         ],
         turnStatuses: { t1: 'completed', t2: 'failed' },
         turnDurations: { t1: 4200 },
+        turnStartedAtMs: { t1: 1763800000000 },
+        turnFinishedAtMs: { t1: 1763800004200 },
         turnErrors: { t2: 'Gateway timeout' },
+        turnErrorKinds: { t2: 'timeout' },
       };
       f.intercept(async channel => {
         if (channel === 'session:history') return richHistory;
         if (channel === 'session:follow') return { mode: 'snapshot', streamId: 'stream-compact', revision: 0, ...richHistory };
+        if (channel === 'tasks:list') {
+          return {
+            available: true,
+            planId: 'plan-1',
+            planKind: 'tasks',
+            total: 2,
+            status: 'current',
+            tasks: [
+              { id: '1', subject: 'Audit layout', status: 'completed', blockedBy: [] },
+              { id: '2', subject: 'Wire capsule', status: 'in_progress', blockedBy: [] },
+            ],
+          };
+        }
         return undefined;
       });
       await f.enable();
@@ -2050,7 +2067,13 @@ void (async () => {
       assert(!serialized.includes('Compiling target...'));
       assert(!serialized.includes('Block reasoning'));
       assert(!serialized.includes('Internal checkpoint summary'));
+      assert(!serialized.includes('Restored secret file contents'));
+      assert(!serialized.includes('compact-file-restore'));
       assert.deepEqual(httpHistory.body.turnErrors, { t2: 'Gateway timeout' });
+      assert.deepEqual(httpHistory.body.turnErrorKinds, { t2: 'timeout' });
+      assert.deepEqual(httpHistory.body.turnStartedAtMs, { t1: 1763800000000 });
+      assert.deepEqual(httpHistory.body.turnFinishedAtMs, { t1: 1763800004200 });
+      assert.equal((object(httpHistory.body.taskList).tasks as Json[]).length, 2);
 
       const assistant = object((httpHistory.body.messages as Json[]).find(row => object(row).id === 'a1'));
       assert.equal(assistant.thinking, undefined);
@@ -2074,10 +2097,16 @@ void (async () => {
       client.socket.send(JSON.stringify({ type: 'follow_task', sessionId: 's1' }));
       const snapshot = await client.next('task_snapshot');
       assert(!JSON.stringify(snapshot).includes('const line = 1;'));
+      const snapshotEvents = (snapshot.activeEvents as JsonObject[] ?? []).map(row => object(row.event));
+      const recoveredTasks = snapshotEvents.find(ev => ev.type === 'task_list');
+      assert(recoveredTasks, 'task_snapshot must recover the session task list');
+      assert.equal((recoveredTasks!.tasks as Json[]).length, 2);
 
       f.bridge.publishEngineEvent({ type: 'thinking_delta', sessionId: 's1', turnId: 't-live', thinking: 'Hidden thought '.repeat(200) }, f.owner());
       f.bridge.publishEngineEvent({ type: 'tool_start', sessionId: 's1', turnId: 't-live', toolCallId: 'live-edit', toolName: 'edit', args: { file_path: 'src/live.ts', oldString: 'old\n'.repeat(200), newString: 'new\n'.repeat(250) } }, f.owner());
       f.bridge.publishEngineEvent({ type: 'progress', sessionId: 's1', turnId: 't-live', toolCallId: 'live-edit', content: 'Streaming stdout '.repeat(500) }, f.owner());
+      f.bridge.publishEngineEvent({ type: 'diff_update', sessionId: 's1', turnId: 't-live', changes: [{ path: 'src/live.ts', kind: 'modify', added: 250, removed: 200 }] }, f.owner());
+      f.bridge.publishEngineEvent({ type: 'compact_boundary', sessionId: 's1', turnId: 't-live', trigger: 'auto', summaryText: 'Huge internal compaction summary '.repeat(200), summaryUuid: 'sum-uuid-1' }, f.owner());
       f.bridge.publishEngineEvent({ type: 'tool_end', sessionId: 's1', turnId: 't-live', toolCallId: 'live-edit', toolName: 'edit', isError: false, content: 'Huge result '.repeat(500) }, f.owner());
       await waitFor(() => client.messages.some(row => row.type === 'task_patch'), 1000, 'Live compact tool patch');
       await sleep(70);
@@ -2085,16 +2114,115 @@ void (async () => {
       assert(!liveRaw.includes('Hidden thought'));
       assert(!liveRaw.includes('Streaming stdout'));
       assert(!liveRaw.includes('Huge result'));
+      assert(!liveRaw.includes('Huge internal compaction summary'));
+      assert(!liveRaw.includes('sum-uuid-1'));
       assert(!liveRaw.includes('old\\nold'));
+      assert(!liveRaw.includes('diff_update'));
       const engineEvents = client.messages
         .filter(row => row.type === 'task_patch')
         .flatMap(row => (row.patches as JsonObject[] ?? []).map(patch => object(object(patch.value).event)));
+      const liveBoundary = engineEvents.find(ev => ev.type === 'compact_boundary')!;
+      assert.equal(liveBoundary.trigger, 'auto');
+      assert.equal(liveBoundary.summaryText, undefined);
+      assert.equal(liveBoundary.summaryUuid, undefined);
       const liveStart = engineEvents.find(ev => ev.type === 'tool_start' && ev.toolCallId === 'live-edit')!;
       assert.equal(liveStart.compact, true);
       assert.deepEqual(object(liveStart.args).editedFiles, [{ path: 'src/live.ts', kind: 'update', additions: 250, deletions: 200 }]);
       const liveEnd = engineEvents.find(ev => ev.type === 'tool_end' && ev.toolCallId === 'live-edit')!;
       assert.equal(liveEnd.compact, true);
       assert.equal(liveEnd.content, '');
+      await stopSocket(client.socket);
+    } finally { await f.close(); }
+  });
+
+  await h.test('mobile session fork forwards turn cut options over HTTP and WebSocket', async () => {
+    const f = await mobileFixture();
+    const forkCalls: JsonObject[] = [];
+    let counter = 0;
+    try {
+      f.intercept(async (channel, payload) => {
+        if (channel === 'session:fork') {
+          counter += 1;
+          forkCalls.push(payload);
+          const forkedId = `forked-${counter}`;
+          const row: JsonObject = { id: forkedId, title: `Alpha · Branch ${counter}`, createdAt: Date.now(), updatedAt: Date.now() };
+          f.sessions.unshift(row);
+          return row;
+        }
+        return undefined;
+      });
+      await f.enable();
+
+      const httpFork = await f.request('POST', '/api/mobile/sessions/s1/fork', { lastTurnId: 'turn-7' });
+      assert.equal(httpFork.status, 201);
+      assert.equal(httpFork.body.ok, true);
+      assert.equal(httpFork.body.sessionId, 'forked-1');
+      assert.equal(httpFork.body.sourceSessionId, 's1');
+      assert.equal(object(httpFork.body.session).id, 'forked-1');
+      assert.deepEqual(forkCalls[0], { sessionId: 's1', lastTurnId: 'turn-7' });
+
+      const client = await f.connect(); await client.next('hello');
+      client.socket.send(JSON.stringify({
+        type: 'fork_session',
+        requestId: 'req-fork-ws',
+        sessionId: 's1',
+        afterMessageUuid: 'msg-uuid-42',
+      }));
+      const result = await client.next('action_result');
+      assert.equal(result.ok, true);
+      assert.equal(result.action, 'fork_session');
+      assert.equal(result.requestId, 'req-fork-ws');
+      assert.equal(result.sessionId, 's1');
+      assert.equal(result.forkedSessionId, 'forked-2');
+      assert.equal(object(result.session).id, 'forked-2');
+      assert.deepEqual(forkCalls[1], { sessionId: 's1', afterMessageUuid: 'msg-uuid-42' });
+      await stopSocket(client.socket);
+    } finally { await f.close(); }
+  });
+  await h.test('subscription usage query works over HTTP and WebSocket with session scope and force refresh', async () => {
+    const f = await mobileFixture(); try {
+      const usageCalls: JsonObject[] = [];
+      const sampleSnapshot: JsonObject = {
+        mode: 'antigravity',
+        fetchedAt: 1763801234000,
+        provider: {
+          state: 'ok',
+          plan: 'PRO',
+          windows: [
+            { id: 'w1', label: 'Gemini', groupLabel: 'Gemini', windowKind: 'duration', windowToken: '5h', usedPercent: 18, resetsAt: 1763819234000, resetNotice: true },
+          ],
+        },
+      };
+      f.intercept(async (channel, payload) => {
+        if (channel !== 'usage:subscriptions') return undefined;
+        usageCalls.push(object(payload));
+        return { ok: true, snapshot: sampleSnapshot };
+      });
+      await f.enable();
+      const boot = await f.request('GET', '/api/mobile/bootstrap');
+      assert.equal(object(boot.body.features).usageDashboard, true);
+
+      const defaultUsage = await f.request('GET', '/api/mobile/usage');
+      assert.equal(defaultUsage.status, 200);
+      assert.equal(defaultUsage.body.ok, true);
+      assert.deepEqual(defaultUsage.body.snapshot, sampleSnapshot);
+      assert.deepEqual(usageCalls[0], {});
+
+      const scopedUsage = await f.request('GET', '/api/mobile/usage?sessionId=s1&force=1');
+      assert.equal(scopedUsage.status, 200);
+      assert.deepEqual(usageCalls[1], { sessionId: 's1', force: true });
+
+      assert.equal((await f.request('GET', '/api/mobile/usage?sessionId=missing')).status, 404);
+
+      const client = await f.connect(); await client.next('hello');
+      client.socket.send(JSON.stringify({ type: 'get_usage', requestId: 'req-usage-ws', sessionId: 's1', force: true }));
+      const result = await client.next('action_result');
+      assert.equal(result.ok, true);
+      assert.equal(result.action, 'get_usage');
+      assert.equal(result.requestId, 'req-usage-ws');
+      assert.equal(result.sessionId, 's1');
+      assert.deepEqual(result.snapshot, sampleSnapshot);
+      assert.deepEqual(usageCalls[2], { sessionId: 's1', force: true });
       await stopSocket(client.socket);
     } finally { await f.close(); }
   });

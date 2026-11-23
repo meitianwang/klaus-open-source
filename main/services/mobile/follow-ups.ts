@@ -1,5 +1,6 @@
 import { readSessionModel } from '../session-store';
 import { isNativeMediaSource, mediaInputMime } from '../../../shared/media-input';
+import { encodeSelectedTextEnvelope, parseSelectedTextEnvelope } from '../../../contracts/selected-text-envelope';
 import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { open, realpath } from 'node:fs/promises';
@@ -35,16 +36,48 @@ export function mobileFollowUpIntent(payload: JsonObject): MobileFollowUpIntent 
   return intent;
 }
 
+function buildFollowUpTextAndMetadata(text: string, referenced: JsonObject[]): {
+  finalText: string;
+  displayText: string;
+  displayMetadata?: JsonObject;
+} {
+  const referenceBlock = referenced.length ? ['Attached:', ...referenced.map(item => '- ' + string(item.path))].join('\n') : '';
+  const parsed = parseSelectedTextEnvelope(text);
+  const displayText = parsed ? parsed.message : text;
+  const finalText = parsed && referenceBlock
+    ? encodeSelectedTextEnvelope([parsed.message, referenceBlock].filter(Boolean).join('\n\n'), parsed.selectedTextAttachments)
+    : [text, referenceBlock].filter(Boolean).join('\n\n');
+  if (!parsed && !referenced.length) return { finalText, displayText };
+  const displayMetadata: JsonObject = { displayText };
+  if (parsed) {
+    displayMetadata.selectedTextAttachments = parsed.selectedTextAttachments.map((entry, index) => ({
+      text: entry.text,
+      ...(entry.requestOffset !== undefined ? { requestOffset: entry.requestOffset } : {}),
+      displayOrder: index,
+    }));
+  }
+  if (referenced.length) {
+    displayMetadata.attachments = referenced.map(item => ({
+      type: 'file',
+      name: string(item.name),
+      path: string(item.path),
+      mimeType: string(item.mimeType),
+    }));
+  }
+  return { finalText, displayText, displayMetadata };
+}
+
 /** Ordinary phone attachments retain their established image-or-path projection. */
 function ordinaryFollowUpPayload(text: string, descriptors: JsonObject[]): JsonObject {
   const inline = descriptors.filter(item => string(item.mimeType).startsWith('image/'));
   const referenced = descriptors.filter(item => !inline.includes(item));
-  const referenceBlock = referenced.length ? ['Attached:', ...referenced.map(item => '- ' + string(item.path))].join('\n') : '';
+  const { finalText, displayText, displayMetadata } = buildFollowUpTextAndMetadata(text, referenced);
   return {
-    finalText: [text, referenceBlock].filter(Boolean).join('\n\n'), displayText: text,
+    finalText, displayText,
     media: inline, mobileAttachments: descriptors,
-    liveAttachments: descriptors.map(item => ({ type: inline.includes(item) ? 'image' : 'file', name: string(item.name), src: '' })),
-    ...(referenced.length ? { displayMetadata: { displayText: text, attachments: referenced.map(item => ({ type: 'file', name: string(item.name) })) } } : {}),
+    liveAttachments: descriptors.map(item => ({ type: inline.includes(item) ? 'image' : 'file', name: string(item.name), path: string(item.path),
+      mimeType: string(item.mimeType), src: '' })),
+    ...(displayMetadata ? { displayMetadata } : {}),
   };
 }
 
@@ -57,14 +90,13 @@ export function followUpPayload(text: string, descriptors: JsonObject[], source 
     return mimeType ? [{ ...item, type: 'media', mimeType }] : [];
   });
   const referenced = descriptors.filter(item => !inline.includes(item));
-  const referenceBlock = referenced.length ? ['Attached:', ...referenced.map(item => '- ' + string(item.path))].join('\n') : '';
+  const { finalText, displayText, displayMetadata } = buildFollowUpTextAndMetadata(text, referenced);
   return {
-    finalText: [text, referenceBlock].filter(Boolean).join('\n\n'), displayText: text,
+    finalText, displayText,
     media, mobileAttachments: descriptors,
     liveAttachments: descriptors.map(item => ({ type: inline.includes(item) ? 'image' : 'file', name: string(item.name), path: string(item.path),
       mimeType: string(item.mimeType), src: '' })),
-    ...(referenced.length ? { displayMetadata: { displayText: text, attachments: referenced.map(item => ({ type: 'file', name: string(item.name),
-      path: string(item.path), mimeType: string(item.mimeType) })) } } : {}),
+    ...(displayMetadata ? { displayMetadata } : {}),
   };
 }
 export async function uploadFollowUpMedia(call: MobileCall, media: IncomingMedia[]): Promise<JsonObject[]> {
@@ -131,8 +163,11 @@ export class MobileFollowUpControls {
     const answer = queueReply(await call('chat:client-queue-add', { sessionId, id: queueId, item, ...anchors, dispatchIfIdle: true }), { allowMissingSnapshot: true });
     return { followUpMode: 'queue', queueId, ...(answer.snapshot === undefined ? {} : { snapshot: answer.snapshot }) };
   }
-  async steer(call: MobileCall, sessionId: string, projected: JsonObject, expectedTurnId: string): Promise<JsonObject> {
-    const result = object(await call('chat:follow-up', { sessionId, text: projected.finalText!, media: projected.media!, displayText: projected.displayText!, ...(projected.displayMetadata ? { displayMetadata: projected.displayMetadata } : {}), mobileAttachments: projected.mobileAttachments!, expectedTurnId }));
+  async steer(call: MobileCall, sessionId: string, projected: JsonObject, expectedTurnId: string, clientMessageId?: string | null): Promise<JsonObject> {
+    const displayMetadata: JsonObject | undefined = clientMessageId
+      ? { ...(projected.displayMetadata ? object(projected.displayMetadata) : {}), clientMessageId }
+      : (projected.displayMetadata ? object(projected.displayMetadata) : undefined);
+    const result = object(await call('chat:follow-up', { sessionId, text: projected.finalText!, media: projected.media!, displayText: projected.displayText!, ...(displayMetadata ? { displayMetadata } : {}), mobileAttachments: projected.mobileAttachments!, expectedTurnId }));
     if (result.removed === true && string(result.messageId)) return { followUpMode: 'steer', messageId: result.messageId!, followUpState: 'removed' };
     if (result.ok !== true && result.unconfirmed !== true) throw new MobileError(409, 'steer_rejected', string(result.error) || 'The running turn rejected this follow-up');
     const messageId = required(result.messageId, 'messageId');

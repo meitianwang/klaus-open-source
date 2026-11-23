@@ -4488,10 +4488,10 @@ export class SessionService {
    * queue snapshot it pushes back, so wrapping it made `chat:queue-snapshot` answer
    * `value:[{text,type}]` where `value:"…"` is owed — a renderer-visible shape.
    */
-  async send(rendererId: string, payload: Record<string, Json>, queuedDisplayText?: string, queuedNotice?: { id: string; item: Json; retryUnconfirmed?: boolean }, hostAuthored?: { frame?: boolean }): Promise<null> {
+  async send(rendererId: string, payload: Record<string, Json>, queuedDisplayText?: string, queuedNotice?: { id: string; item: Json; retryUnconfirmed?: boolean }, hostAuthored?: { frame?: boolean; allowFriendDispatch?: boolean }): Promise<null> {
     this.sideTasks.touch(rendererId);
     const sendMetadata = object(payload.displayMetadata);
-    if (!hostAuthored && !queuedNotice && this.deps.friendDispatch && await this.deps.friendDispatch(typeof payload.text === 'string' ? payload.text : '', sendMetadata ?? {}, rendererId)) {
+    if ((!hostAuthored || hostAuthored.allowFriendDispatch) && !queuedNotice && this.deps.friendDispatch && await this.deps.friendDispatch(typeof payload.text === 'string' ? payload.text : '', sendMetadata ?? {}, rendererId)) {
       this.deps.onInput?.(rendererId);
       // A dispatched message is this conversation's accepted first content and the
       // dispatch receipt is its send acknowledgement: record the title input and run
@@ -4546,7 +4546,8 @@ export class SessionService {
       // snapshot the engine persists as its provider-invisible metadata row.
       const metadata = object(payload.displayMetadata) ?? {};
       const localRender = withInputPresentation(metadata, 'turn');
-      this.pushHostAuthoredTurnFrames(rendererId, startedTurnId, typeof payload.text === 'string' ? payload.text : '', localRender);
+      const media = Array.isArray(payload.media) ? payload.media : [];
+      this.pushHostAuthoredTurnFrames(rendererId, startedTurnId, typeof payload.text === 'string' ? payload.text : '', localRender, media);
     }
     // This is the human composer path, so it ends a `wait_threads` this
     // conversation may be running. `deliverDelegation` reaches `startTurn`
@@ -4793,8 +4794,28 @@ export class SessionService {
     check();
   }
 
-  private pushHostAuthoredTurnFrames(rendererId: string, submissionId: string, text: string, localRender: Json | undefined): void {
+  private hostAuthoredFrameContent(text: string, media: Json[], localRender?: Json): Json {
+    const recordedPaths = new Set(
+      (Array.isArray(object(localRender)?.attachments) ? (object(localRender)!.attachments as Json[]) : [])
+        .map(item => object(item)?.path)
+        .filter((value): value is string => typeof value === 'string' && value.length > 0),
+    );
+    const mediaBlocks = media.flatMap((entry): JsonObject[] => {
+      const row = object(entry);
+      const path = typeof row?.path === 'string' ? row.path : '';
+      if (!row || !path || recordedPaths.has(path)) return [];
+      const mimeType = typeof row.mimeType === 'string' ? row.mimeType : '';
+      const kind = row.type === 'image' || mimeType.startsWith('image/') ? 'image' : 'media';
+      const name = typeof row.name === 'string' && row.name ? row.name : (typeof row.fileName === 'string' ? row.fileName : undefined);
+      return [{ type: kind, path, ...(name ? { name } : {}), ...(mimeType ? { mimeType } : {}) }];
+    });
+    if (!mediaBlocks.length) return text;
+    return [...(text ? [{ type: 'text', text }] : []), ...mediaBlocks];
+  }
+
+  private pushHostAuthoredTurnFrames(rendererId: string, submissionId: string, text: string, localRender: Json | undefined, media: Json[] = []): void {
     const now = Date.now();
+    const submittedClientId = clientMessageId(localRender);
     const events: Json[] = [];
     // `turn/submit` resolves once the engine admits the turn, before session MCP
     // servers finish initializing and before `turn/started` names the engine turn
@@ -4809,6 +4830,7 @@ export class SessionService {
         turnId: null,
         startedAtMs: now,
         inputOrigin: 'user',
+        ...(submittedClientId ? { clientMessageId: submittedClientId } : {}),
       });
     }
     events.push({
@@ -4817,10 +4839,11 @@ export class SessionService {
       message: {
         type: 'user',
         uuid: randomMessageId(),
+        ...(submittedClientId ? { clientMessageId: submittedClientId } : {}),
         timestamp: new Date(now).toISOString(),
         message: {
           role: 'user',
-          content: text,
+          content: this.hostAuthoredFrameContent(text, media, localRender),
           ...(localRender ? { localRender } : {}),
         },
       },
@@ -5235,7 +5258,7 @@ export class SessionService {
     return this.resolveLiveSession(rendererId);
   }
 
-  async followUp(rendererId: string, payload: Record<string, Json>): Promise<Json> {
+  async followUp(rendererId: string, payload: Record<string, Json>, hostAuthored?: { frame?: boolean }): Promise<Json> {
     const text = typeof payload.text === 'string' ? payload.text : '';
     if (payload.displayMetadata != null && (!object(payload.displayMetadata) || Array.isArray(payload.displayMetadata))) return { ok: false, error: 'displayMetadata must be an object' };
     const metadata = object(payload.displayMetadata);
@@ -5304,9 +5327,10 @@ export class SessionService {
       const originalDisplayMetadata = object(payload.displayMetadata) ?? (browserTabReferencesIn(text).length ? { displayText: text } : undefined);
       this.deps.onUserAttachments?.(rendererId, originalDisplayMetadata);
       const displayMetadata = withInputPresentation(originalDisplayMetadata, 'steer');
+      const submittedClientId = clientMessageId(displayMetadata) ?? messageId;
       this.deps.state.noteSubmittedMessage(rendererId, engineId, `steer-${messageId}`,
-        clientMessageId(displayMetadata) ?? messageId, displayMetadata ?? { clientMessageId: messageId }, messageId);
-      return this.followUps.submit({ client, sessionId: rendererId, engineSessionId: engineId, messageId, targetTurnId, text, input,
+        submittedClientId, displayMetadata ?? { clientMessageId: messageId }, messageId);
+      const reply = await this.followUps.submit({ client, sessionId: rendererId, engineSessionId: engineId, messageId, targetTurnId, text, input,
         ...(originalDisplayMetadata ? { displayMetadata: originalDisplayMetadata } : {}),
         delivery: 'user',
         ...(typeof payload.queueOwnerId === 'string' ? { submitInput: (request: TurnInputRequest, onIssue: () => void) => this.clientQueue.start(rendererId, payload.queueOwnerId as string, request, 30_000, payload.retryUnconfirmed === true, onIssue) } : {}),
@@ -5316,6 +5340,30 @@ export class SessionService {
           this.assertFollowUpBinding(rendererId, engineId, client);
         },
       });
+      if (hostAuthored?.frame) {
+        const outcome = object(reply);
+        if (outcome && (outcome.ok === true || outcome.unconfirmed === true)) {
+          const turnId = this.deps.state.runningTurnId(rendererId) ?? undefined;
+          this.deps.pushChatEvents([{
+            type: 'user_message',
+            sessionId: rendererId,
+            ...(turnId ? { turnId } : {}),
+            message: {
+              type: 'user',
+              uuid: messageId,
+              clientMessageId: submittedClientId,
+              timestamp: new Date().toISOString(),
+              message: {
+                role: 'user',
+                content: this.hostAuthoredFrameContent(text, media, displayMetadata),
+                steered: true,
+                ...(displayMetadata ? { localRender: displayMetadata } : {}),
+              },
+            },
+          }]);
+        }
+      }
+      return reply;
     });
   }
 

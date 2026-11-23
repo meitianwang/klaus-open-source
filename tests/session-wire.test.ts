@@ -115,6 +115,72 @@ h.test('a host-authored send pushes the user frame no composer owns', async () =
   assert(!pushed.some(event => (event as Record<string, Json>).type === 'user_message'), 'renderer-authored sends keep their own optimistic bubble');
 });
 
+h.test('mobile sends and mid-turn steers push live desktop user frames with client identity and attachments', async () => {
+  const root = byoRoot();
+  const imagePath = join(root, 'capture.jpg');
+  writeFileSync(imagePath, Buffer.from([0xff, 0xd8, 0xff, 0xd9]));
+  const notePath = join(root, 'notes.txt');
+  writeFileSync(notePath, 'fixture');
+  const client = new FakeClient().reply('session/start', { sessionId: 'mobile-frame-live' })
+    .replySubmit('start-if-idle', 'mobile-submission-1').replySubmit('steer');
+  const { service, state, pushed } = serviceWith(client, root);
+  const registry = new ChannelRegistry();
+  registerSessionHandlers(registry, {
+    sessions: service, state, events: {} as SessionEventPump, configRoot: root, chooseExportPath: async () => undefined,
+  });
+  const session = await service.newSession() as Record<string, Json>;
+  const id = String(session.id);
+  const sendHandler = registry.lookup('chat:send')!;
+  await sendHandler({
+    channel: 'chat:send',
+    role: 'mobile',
+    senderId: 0,
+    args: [{
+      sessionId: id,
+      text: 'Check this rendering\n\nAttached:\n- ' + notePath,
+      media: [{ type: 'image', path: imagePath, name: 'capture.jpg', mimeType: 'image/jpeg' }],
+      displayMetadata: {
+        clientMessageId: 'mobile-client-msg-1',
+        displayText: 'Check this rendering',
+        attachments: [{ type: 'file', name: 'notes.txt', path: notePath, mimeType: 'text/plain' }],
+      },
+    }],
+  });
+  const turnFrame = pushed.find(event => (event as Record<string, Json>).type === 'user_message') as Record<string, any> | undefined;
+  assert(turnFrame, 'mobile turn start pushes a live user frame for the desktop transcript');
+  assertEqual(turnFrame.message.clientMessageId, 'mobile-client-msg-1', 'frame carries clientMessageId for live and saved deduplication');
+  assertDeepEqual(turnFrame.message.message.content, [
+    { type: 'text', text: 'Check this rendering\n\nAttached:\n- ' + notePath },
+    { type: 'image', path: imagePath, name: 'capture.jpg', mimeType: 'image/jpeg' },
+  ], 'uploaded image block rides the live frame while referenced files stay in display metadata');
+  assertEqual(turnFrame.message.message.localRender.inputPresentation.kind, 'turn', 'mobile turn opener is marked as a turn input');
+
+  pushed.length = 0;
+  state.markTurnRunning(id, 'mobile-core-turn-1', 'mobile-submission-1');
+  const followUpHandler = registry.lookup('chat:follow-up')!;
+  const steered = object(await followUpHandler({
+    channel: 'chat:follow-up',
+    role: 'mobile',
+    senderId: 0,
+    args: [{
+      sessionId: id,
+      text: 'Also inspect dark mode',
+      media: [{ type: 'image', path: imagePath, name: 'capture.jpg', mimeType: 'image/jpeg' }],
+      displayText: 'Also inspect dark mode',
+      displayMetadata: { clientMessageId: 'mobile-client-steer-1' },
+      mobileAttachments: [],
+      expectedTurnId: 'mobile-submission-1',
+    }],
+  }))!;
+  assertEqual(steered.ok, true, 'mobile steer succeeds');
+  const steerFrame = pushed.find(event => (event as Record<string, Json>).type === 'user_message') as Record<string, any> | undefined;
+  assert(steerFrame, 'mobile steer pushes an inline steered user frame for the desktop transcript');
+  assertEqual(steerFrame.turnId, 'mobile-core-turn-1', 'steered frame binds to the active engine turn');
+  assertEqual(steerFrame.message.clientMessageId, 'mobile-client-steer-1', 'steered frame carries clientMessageId');
+  assertEqual(steerFrame.message.message.steered, true, 'steered frame is marked steered');
+  assertEqual(steerFrame.message.message.localRender.inputPresentation.kind, 'steer', 'steered frame carries steer input presentation');
+});
+
 h.test('browser tab references reach normal and mid-turn input through the named facade while keeping display metadata', async () => {
   const client = new FakeClient().reply('session/start', { sessionId: 'browser-mention-live' }).replySubmit('start-if-idle', 'browser-mention-turn').replySubmit('steer');
   const root = byoRoot();

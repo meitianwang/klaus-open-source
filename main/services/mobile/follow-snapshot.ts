@@ -58,8 +58,9 @@ export function activeFollowEvents(snapshot: JsonObject, sessionId: string, spli
     if (!turnId || !type) continue;
     const textItem = ['agent_message', 'stream_text', 'reasoning', 'stream_reasoning'].includes(type);
     if (textItem && covered.has(string(item.id))) continue;
-    const domain = object(item.event), fileChange = type === 'tool_progress' && domain.type === 'file_change';
-    if (!textItem && !fileChange && coveredResults.has(JSON.stringify([turnId, string(item.toolUseId) || string(item.id)]))) continue;
+    const domain = object(item.event);
+    if (type === 'tool_progress' && domain.type === 'file_change') continue;
+    if (!textItem && coveredResults.has(JSON.stringify([turnId, string(item.toolUseId) || string(item.id)]))) continue;
     const add = (event: JsonObject): void => {
       if (!startedTurns.has(turnId)) { startedTurns.add(turnId); events.push({ type: 'engine_event', event: { type: 'stream_mode', mode: 'requesting', sessionId, turnId } }); }
       events.push({ type: 'engine_event', event: { ...event, sessionId, turnId } }); };

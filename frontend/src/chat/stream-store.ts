@@ -679,7 +679,7 @@ function patchSession(sessionId: string, patch: (prev: SessionStreamState) => Pa
           if (pending?.accepted && pending.observedTurnId === unit.turnId) adopted.add(pending)
           return unit
         }
-        if (clientId) {
+        if (clientId && (pending || unit.optimisticUser || unit.pendingUserTurn)) {
           if (!pending?.observedTurnId) return unit
           if (pending.accepted) adopted.add(pending)
           return { ...unit, turnId: pending.observedTurnId }
@@ -1539,9 +1539,11 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
           return { history: prev.history.map(row => row.role === 'user' && sameUserMessage(row, canonical)
             ? { ...row, localRender: { ...canonical.localRender, ...row.localRender } } : row) }
         }
+        const hasLocalPending = !!submittedId
+          && [...(pendingUserTurns.get(sessionId)?.values() ?? [])].some(record => record.clientMessageId === submittedId)
         return { ...(!capturedTurn || capturedTurn === prev.activeTurnId ? { goalContinuationId: null } : {}), liveUnits: [...sealTail(prev.liveUnits), {
           type: 'live-user', key: nextKey('u'), msg: canonical,
-          turnId: capturedTurn || (!submittedId ? prev.activeTurnId || undefined : undefined),
+          turnId: capturedTurn || (!hasLocalPending ? prev.activeTurnId || undefined : undefined),
         }] }
       })
       break

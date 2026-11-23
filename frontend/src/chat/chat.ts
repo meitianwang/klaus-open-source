@@ -16038,6 +16038,12 @@ function handleChatEvent(event: ChatEvent) {
   // 镜像层：全事件先进 stream store（React 侧消费面），再走既有 DOM 渲染管线。
   // userInterrupted 上下文供 api_error 卡的抑制判定（对齐下方 case 的守卫）。
   ingestChatFrameEvent(event, { userInterrupted: userInterruptedSessions.has(event.sessionId) })
+  if (event.type === 'user_message' && event.sessionId
+      && (event.message?.message as { steered?: boolean } | undefined)?.steered === true
+      && typeof event.message?.uuid === 'string') {
+    noteLocallySentSteer(event.sessionId, event.message.uuid)
+    repaintQueueIslands(event.sessionId)
+  }
   if (event.type === 'session_runtime_status' && event.source === 'session') scheduleSessionRuntimeAudit({ once: true, sessionId: event.sessionId })
   if (event.type === 'model_update') refreshContextAfterModelUpdate(event.sessionId, previousModelUpdate)
   if (event.type === 'done' && event.sessionId && !foreignTerminalTurn(event)) {

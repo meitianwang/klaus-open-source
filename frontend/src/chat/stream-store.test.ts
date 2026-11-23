@@ -1517,3 +1517,78 @@ test('notice_retract removes only the keyed false-alarm interrupt notice', () =>
   store.ingestChatEvent({ type: 'notice_retract', sessionId, noticeId: 'interrupt-unconfirmed:turn-2' })
   expect(store.getSessionStream(sessionId).liveUnits.filter(unit => unit.type === 'live-notice')).toHaveLength(1)
 })
+
+test('mobile-authored user frame with clientMessageId adopts engine turnId, survives compaction, and hands off without duplication', async () => {
+  const sessionId = 'mobile-authored-live-turn'
+  const clientId = '9EB14D91-A140-4D45-B715-436D27045F9B'
+  const engineTurnId = '7bf72f53-da17-40f5-afc9-6e694389e348'
+  store.ingestChatEvent({
+    type: 'session_runtime_status',
+    sessionId,
+    status: 'active',
+    turnId: null,
+    startedAtMs: 1_000,
+    inputOrigin: 'user',
+    clientMessageId: clientId,
+  })
+  store.ingestChatEvent({
+    type: 'user_message',
+    sessionId,
+    message: {
+      uuid: 'host-synthetic-user-1',
+      clientMessageId: clientId,
+      timestamp: '2026-11-22T08:00:00.000Z',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'text', text: 'Mobile user prompt' },
+          { type: 'image', path: '/fixture/uploads/photo.jpg', name: 'photo.jpg' },
+        ],
+        localRender: {
+          clientMessageId: clientId,
+          inputPresentation: { version: 1, kind: 'turn' },
+        },
+      },
+    },
+  })
+  expect(userBubbles(sessionId)).toHaveLength(1)
+
+  store.ingestChatEvent({ type: 'stream_mode', sessionId, mode: 'requesting', turnId: engineTurnId })
+  expect(userBubbles(sessionId)[0]?.turnId).toBe(engineTurnId)
+
+  store.ingestChatEvent({ type: 'text_delta', sessionId, turnId: engineTurnId, messageId: 'm-1', text: 'Investigating...', phase: 'commentary' })
+  store.ingestChatEvent({ type: 'compaction_start', sessionId, turnId: engineTurnId, trigger: 'auto' })
+  store.ingestChatEvent({ type: 'compaction_end', sessionId, turnId: engineTurnId, trigger: 'auto', preTokens: 120_000 })
+  expect(userBubbles(sessionId)).toHaveLength(1)
+  expect(userBubbles(sessionId)[0]?.turnId).toBe(engineTurnId)
+
+  respond = async () => ({
+    messages: [
+      {
+        id: 'persisted-user-1',
+        uuid: '2d9e83c6-0100-4a3f-ba50-56f4e3eb2fcd',
+        role: 'user',
+        turnId: engineTurnId,
+        text: 'Mobile user prompt',
+        contentBlocks: [{ type: 'image', path: '/fixture/uploads/photo.jpg', name: 'photo.jpg' }],
+        localRender: { clientMessageId: clientId, inputPresentation: { version: 1, kind: 'turn' } },
+      },
+      {
+        id: 'persisted-assistant-1',
+        uuid: 'assistant-final-1',
+        role: 'assistant',
+        turnId: engineTurnId,
+        text: 'Fixed.',
+        phase: 'final_answer',
+        isFinalReply: true,
+      },
+    ],
+  })
+  store.ingestChatEvent({ type: 'done', sessionId, turnId: engineTurnId })
+  await flush()
+  await flush()
+
+  const settled = store.getSessionStream(sessionId)
+  expect(settled.liveUnits.filter(unit => unit.type === 'live-user')).toHaveLength(0)
+  expect(settled.history?.filter(row => row.role === 'user')).toHaveLength(1)
+})

@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "reason": "Read-first recovery must preserve canonical history, rebuild active items at the source cut, and prevent late covered deltas or stale running snapshots from regressing completed items. Scoped completed-tool coverage must also suppress ahead-of-cut tool notifications without hiding file diffs or a reused tool ID in another turn.",
+  "reason": "Read-first recovery must preserve canonical history, rebuild active items at the source cut, and prevent late covered deltas or stale running snapshots from regressing completed items. Scoped completed-tool coverage must also suppress ahead-of-cut tool notifications without hiding a reused tool ID in another turn, while ignoring diff_update frames so mobile never synthesizes file-change transcript rows.",
   "cases": {
     "sourceCutActiveProjection": {
       "steps": [
@@ -335,7 +335,6 @@
             }
           ],
           "texts": [
-            "",
             ""
           ],
           "working": true,
@@ -344,9 +343,6 @@
           ],
           "toolResults": [
             "saved output"
-          ],
-          "diffPaths": [
-            "/repo/file.ts"
           ]
         },
         {
@@ -373,7 +369,6 @@
             }
           ],
           "texts": [
-            "",
             ""
           ],
           "working": false,
@@ -382,9 +377,6 @@
           ],
           "toolResults": [
             "saved output"
-          ],
-          "diffPaths": [
-            "/repo/file.ts"
           ]
         },
         {
@@ -438,7 +430,6 @@
           ],
           "texts": [
             "",
-            "",
             ""
           ],
           "working": true,
@@ -449,9 +440,6 @@
           "toolResults": [
             "saved output",
             "second output"
-          ],
-          "diffPaths": [
-            "/repo/file.ts"
           ]
         }
       ]

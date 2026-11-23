@@ -456,7 +456,12 @@ function compactContentBlock(rawBlock: Json): Json | null {
 export function compactMobileMessage(rawMessage: Json): Json {
   const message = object(rawMessage);
   if (!message || Object.keys(message).length === 0) return rawMessage;
-  if (message.kind === 'compact-summary') return null;
+  if (
+    message.kind === 'compact-summary'
+    || message.kind === 'compact-file-restore'
+    || message.kind === 'file-changes'
+    || message.kind === 'diff-update'
+  ) return null;
   let changed = false;
   const next: JsonObject = { ...message };
 
@@ -489,14 +494,18 @@ export function compactMobileHistory(history: JsonObject): JsonObject {
   }
   const { activeItems: _activeItems, coveredMessageIds: _coveredIds, coveredToolResults: _coveredResults, mode: _mode, ...rest } = history;
   const turnErrors = object(history.turnErrors);
+  const turnErrorKinds = object(history.turnErrorKinds);
   const turnStartedAtMs = object(history.turnStartedAtMs);
+  const turnFinishedAtMs = object(history.turnFinishedAtMs);
   return {
     ...rest,
     messages,
     turnStatuses: object(history.turnStatuses),
     turnDurations: object(history.turnDurations),
     ...(Object.keys(turnErrors).length > 0 ? { turnErrors } : {}),
+    ...(Object.keys(turnErrorKinds).length > 0 ? { turnErrorKinds } : {}),
     ...(Object.keys(turnStartedAtMs).length > 0 ? { turnStartedAtMs } : {}),
+    ...(Object.keys(turnFinishedAtMs).length > 0 ? { turnFinishedAtMs } : {}),
   };
 }
 
@@ -506,8 +515,18 @@ export function compactMobileHistory(history: JsonObject): JsonObject {
  */
 export function compactMobileEngineEvent(event: JsonObject): JsonObject | null {
   const type = string(event.type);
-  if (type === 'progress' || type === 'thinking_delta' || type === 'tool_input_delta' || type === 'input_json_delta') {
+  if (
+    type === 'progress'
+    || type === 'thinking_delta'
+    || type === 'tool_input_delta'
+    || type === 'input_json_delta'
+    || type === 'diff_update'
+  ) {
     return null;
+  }
+  if (type === 'compact_boundary') {
+    const { summaryText: _summaryText, summaryUuid: _summaryUuid, ...rest } = event;
+    return rest;
   }
   if (type === 'stream_mode' && event.mode === 'thinking') {
     return event;

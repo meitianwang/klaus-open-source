@@ -81,12 +81,12 @@ const THREAD_TOOLS_PREFIX = '/api/mobile/thread-tools/';
 export const MOBILE_DISPATCH_CHANNELS = [
   'session:list', 'projects:list', 'workspaces:list', 'settings:kv:get', 'engine:slashCommands', 'session:get-main-model', 'session:get-thinking-level', 'session:get-ultra-mode', 'session:get-orchestration-mode', 'session:get-fast-mode', 'session:get-spec-mode',
   'settings:output-styles:list', 'session:get-main-model-options', 'session:get-custom-main-model-options', 'session:new', 'projects:set-active',
-  'session:history', 'session:set-workdir', 'session:clear-workdir', 'session:rename', 'session:set-pinned', 'session:archive', 'session:unarchive', 'session:delete', 'session:export', 'feedback:submit',
+  'session:history', 'session:set-workdir', 'session:clear-workdir', 'session:rename', 'session:set-pinned', 'session:archive', 'session:unarchive', 'session:delete', 'session:export', 'session:fork', 'feedback:submit',
   'chat:follow-up', 'chat:client-queue-snapshot', 'chat:client-queue-add', 'chat:client-queue-remove', 'chat:client-queue-restore', 'chat:client-queue-reorder', 'chat:client-queue-resume', 'chat:client-queue-deliver', 'chat:client-queue-clear',
   'chat:interrupt', 'permission:respond', 'session:set-main-model', 'session:set-thinking-level', 'session:set-ultra-mode', 'session:set-orchestration-mode', 'session:set-fast-mode', 'session:set-spec-mode', 'settings:kv:set', 'settings:output-styles:set', 'chat:send', 'chat:upload',
-  'permission:pending', 'elicit:pending', 'elicit:respond', 'question:pending', 'question:answer', 'agents:snapshot', 'agents:history', 'artifacts:read',
+  'permission:pending', 'elicit:pending', 'elicit:respond', 'question:pending', 'question:answer', 'tasks:list', 'agents:snapshot', 'agents:history', 'artifacts:read',
   'session:background-processes', 'session:stop-background-process',
-  'auth:status', 'codex-auth:status', 'cursor-auth:status', 'qoder-auth:status', 'qwenwork-auth:status', 'workbuddy-auth:status', 'antigravity-auth:status', 'trae-auth:status', 'kiro-auth:status', 'kimi-auth:status', 'bailian-auth:status', 'minimax-auth:status', 'zhipu-auth:status', 'ark-auth:status', 'settings:models:list',
+  'auth:status', 'codex-auth:status', 'cursor-auth:status', 'qoder-auth:status', 'qwenwork-auth:status', 'workbuddy-auth:status', 'antigravity-auth:status', 'trae-auth:status', 'kiro-auth:status', 'kimi-auth:status', 'bailian-auth:status', 'minimax-auth:status', 'zhipu-auth:status', 'ark-auth:status', 'settings:models:list', 'usage:subscriptions',
   'git:branches', 'git:uncommitted', 'git:checkout', 'git:commit-paths', 'worktree:create-from-workdir', 'worktree:remove',
 ] as const;
 
@@ -543,9 +543,18 @@ export class MobileBridgeService {
    * stopped one, so it could not apply the desktop's collapse rule at all.
    */
   private async historyWithTurns(call: MobileCall, id: string): Promise<JsonObject> {
-    const result = object(await call('session:history', { sessionId: id }));
+    const [resultRaw, taskSnapshotRaw] = await Promise.all([
+      call('session:history', { sessionId: id }),
+      call('tasks:list', { sessionId: id }).catch(() => ({})),
+    ]);
+    const result = object(resultRaw);
     if (!Array.isArray(result.messages)) throw new MobileError(500, 'invalid_history', 'Desktop returned an invalid conversation history');
-    return compactMobileHistory({ ...result, sessionId: id });
+    const compacted = compactMobileHistory({ ...result, sessionId: id });
+    const taskSnapshot = object(taskSnapshotRaw);
+    if (taskSnapshot.available !== false && Array.isArray(taskSnapshot.tasks) && taskSnapshot.tasks.length > 0) {
+      compacted.taskList = taskSnapshot;
+    }
+    return compacted;
   }
   private async readSessionWorkMode(call: MobileCall, id: string): Promise<'default' | 'plan' | 'parallel' | 'orchestrate'> {
     const [specRaw, ultraRaw, orchestrateRaw] = await Promise.all([
@@ -596,6 +605,19 @@ export class MobileBridgeService {
       const modelConfig = await new MobileModelConfigProjection(call, () => run.modelRevision ?? 0).snapshot(sessionId, query.has('source') ? authMode(query.get('source')) : undefined);
       this.assertReadCurrent(run, owner, signal, run.account);
       return result(200, { modelConfig });
+    }
+    if (method === 'GET' && path === '/api/mobile/usage') {
+      if (query.getAll('sessionId').length > 1 || query.getAll('force').length > 1) throw badRequest('Usage query parameters must be unique');
+      const sessionId = modelConfigSession(query.has('sessionId') ? query.get('sessionId') : undefined);
+      if (sessionId) await this.knownSession(call, sessionId);
+      const rawForce = query.get('force');
+      const force = rawForce === '1' || rawForce === 'true';
+      const usagePayload: JsonObject = {};
+      if (sessionId) usagePayload.sessionId = sessionId;
+      if (force) usagePayload.force = true;
+      const answer = await call('usage:subscriptions', usagePayload);
+      this.assertReadCurrent(run, owner, signal, run.account);
+      return result(200, answer);
     }
     if (method === 'POST' && path === '/api/mobile/model-config') {
       let sourceHint: string | undefined;
@@ -686,7 +708,7 @@ export class MobileBridgeService {
       }
       throw new MobileError(404, 'not_found', 'Not found');
     }
-    const match = /^\/api\/mobile\/(sessions|permissions|elicitations)\/([^/]+)\/(history|summary|work-mode|messages|stop|respond|rename|pin|archive|workdir|delete|export|debug-report|media|file-preview|inline-visualization|background-processes|stop-background-process)$/u.exec(path);
+    const match = /^\/api\/mobile\/(sessions|permissions|elicitations)\/([^/]+)\/(history|summary|work-mode|messages|stop|respond|rename|pin|archive|workdir|delete|export|fork|debug-report|media|file-preview|inline-visualization|background-processes|stop-background-process)$/u.exec(path);
     if (!match) throw new MobileError(404, 'not_found', 'Not found');
     const id = this.pathIdentity(match[2]!);
     const action = match[3]!;
@@ -805,6 +827,27 @@ export class MobileBridgeService {
           } catch { /* Isolated test fixtures may return virtual paths without writing a disk file. */ }
         }
         Object.assign(base, { filePath: file, fileName: pathBase(file), url: pathToFileURL(file).href, ...(content === undefined ? {} : { content }) }); break;
+      }
+      case 'fork': {
+        const cutArgs: JsonObject = { sessionId: id };
+        let cutCount = 0;
+        for (const field of ['beforeMessageUuid', 'afterMessageUuid', 'lastTurnId', 'beforeTurnId'] as const) {
+          if (payload[field] === undefined || payload[field] === null) continue;
+          const cutValue = required(payload[field], field);
+          cutArgs[field] = cutValue;
+          cutCount += 1;
+        }
+        if (cutCount > 1) throw badRequest('At most one branch cut point may be specified');
+        if (payload.inheritGoal !== undefined) {
+          if (typeof payload.inheritGoal !== 'boolean') throw badRequest('inheritGoal must be a boolean');
+          cutArgs.inheritGoal = payload.inheritGoal;
+        }
+        const forked = object(await call('session:fork', cutArgs));
+        const forkedId = nonempty(forked.id);
+        if (!forkedId) throw new MobileError(500, 'fork_failed', 'Desktop did not return the forked conversation');
+        run.catalog?.invalidate(forkedId);
+        await this.broadcastState(run, call, true);
+        return result(201, { ok: true, sessionId: forkedId, sourceSessionId: id, session: forked });
       }
       case 'debug-report': {
         const report = object(await call('feedback:submit', { sessionId: id, description: short(payload.description) || 'Generated from Klaus iOS remote control.' }));
@@ -969,7 +1012,7 @@ export class MobileBridgeService {
     }
     if (intent.mode === 'steer' && name) throw new MobileError(409, 'steer_slash_command', 'Slash commands must be queued for the next turn');
     const projected = followUpPayload(text, await uploadFollowUpMedia(call, media), readSessionModel(sessionId, this.deps.configRoot).source);
-    if (intent.mode === 'steer') return run.followUps.steer(call, sessionId, projected, required(intent.expectedTurnId, 'expectedTurnId'));
+    if (intent.mode === 'steer') return run.followUps.steer(call, sessionId, projected, required(intent.expectedTurnId, 'expectedTurnId'), clientMessageId);
     const displayMetadata: JsonObject | undefined = clientMessageId
       ? { ...(projected.displayMetadata ? object(projected.displayMetadata) : {}), clientMessageId }
       : (projected.displayMetadata ? object(projected.displayMetadata) : undefined);
@@ -1406,7 +1449,25 @@ export class MobileBridgeService {
         }));
       return;
     }
-    if (!['subscribe', 'send_message', 'stop_generation', 'rename_session', 'delete_session'].includes(type)) throw new MobileError(400, 'unknown_message_type', 'Unknown message type');
+    if (type === 'get_usage') {
+      const sessionId = payload.sessionId === undefined || payload.sessionId === null ? undefined : modelConfigSession(payload.sessionId, true);
+      const query = new URLSearchParams();
+      if (sessionId) query.set('sessionId', sessionId);
+      if (payload.force === true) query.set('force', '1');
+      const response = await this.route(run, call, owner, 'GET', '/api/mobile/usage', {}, undefined, query);
+      const requestId = nonempty(payload.requestId);
+      const body = object(response.body);
+      this.sendPeer(peer, {
+        type: 'action_result',
+        action: type,
+        ok: body.ok !== false,
+        ...(sessionId ? { sessionId } : {}),
+        ...(requestId ? { requestId } : {}),
+        ...(body.snapshot !== undefined ? { snapshot: body.snapshot } : {}),
+      });
+      return;
+    }
+    if (!['subscribe', 'send_message', 'stop_generation', 'rename_session', 'delete_session', 'fork_session'].includes(type)) throw new MobileError(400, 'unknown_message_type', 'Unknown message type');
     const id = required(payload.sessionId, 'sessionId');
     if (type === 'send_message') {
       await this.knownSession(call, id);
@@ -1429,9 +1490,19 @@ export class MobileBridgeService {
       for (const frame of followQuestions(await call('question:pending', { sessionId: id }), id, []).interactions) this.sendPeer(peer, frame);
       return;
     }
-    const action = type === 'stop_generation' ? 'stop' : type === 'rename_session' ? 'rename' : 'delete';
+    const action = type === 'stop_generation' ? 'stop' : type === 'rename_session' ? 'rename' : type === 'fork_session' ? 'fork' : 'delete';
     const response = await this.route(run, call, owner, 'POST', '/api/mobile/sessions/' + encodeURIComponent(id) + '/' + action, payload);
-    this.sendPeer(peer, { type: 'action_result', action: type, ok: true, sessionId: id, ...(action === 'stop' ? object(response.body) : {}) });
+    const requestId = nonempty(payload.requestId);
+    const body = object(response.body);
+    this.sendPeer(peer, {
+      type: 'action_result',
+      action: type,
+      ok: true,
+      sessionId: id,
+      ...(requestId ? { requestId } : {}),
+      ...(action === 'stop' ? body : {}),
+      ...(action === 'fork' ? { forkedSessionId: body.sessionId ?? null, session: body.session ?? null } : {}),
+    });
   }
   private protectedFollow(sessionId: string): boolean {
     if (this.working.has(sessionId)) return true;
@@ -1485,11 +1556,19 @@ export class MobileBridgeService {
       }
     }
     const pendingQuestions = await call('question:pending', { sessionId });
+    const taskSnapshot = object(await call('tasks:list', { sessionId }).catch(() => ({})));
     if (peer.follows.get(sessionId) !== follow || follow.generation !== generation) return;
     const cut = this.taskStreams.snapshotCut(sessionId, follow.pending, snapshot.streamId, snapshot.revision);
     if (peer.follows.get(sessionId) !== follow || follow.generation !== generation) return;
     const questionSnapshot = followQuestions(pendingQuestions, sessionId, cut.liveEvents);
     interactions.push(...questionSnapshot.interactions);
+    const hasLiveTaskList = cut.liveEvents.some(frame => {
+      const inner = frame.type === 'engine_event' ? object(frame.event) : frame;
+      return inner.type === 'task_list';
+    });
+    const recoveredTaskEvents = !hasLiveTaskList && taskSnapshot.available !== false && Array.isArray(taskSnapshot.tasks) && taskSnapshot.tasks.length > 0
+      ? [{ type: 'engine_event', event: { ...taskSnapshot, type: 'task_list', sessionId } }]
+      : [];
     const liveInteractions = new Set(cut.liveEvents.flatMap(event => {
       const requestId = nonempty(event.requestId), type = nonempty(event.type);
       return requestId && type ? [type + ':' + requestId] : [];
@@ -1501,7 +1580,10 @@ export class MobileBridgeService {
       // history envelope requires it: the missing key made the phone throw away the whole
       // snapshot frame and spin on an empty transcript.
       revision: cut.revision, history: compactMobileHistory({ ...snapshot, sessionId }), liveEvents: compactMobileEngineFrames(cut.liveEvents),
-      activeEvents: compactMobileEngineFrames(activeFollowEvents(snapshot, sessionId, result => splitDynamicToolMedia(result, this.deps.configRoot))),
+      activeEvents: compactMobileEngineFrames([
+        ...recoveredTaskEvents,
+        ...activeFollowEvents(snapshot, sessionId, result => splitDynamicToolMedia(result, this.deps.configRoot)),
+      ]),
       coveredMessageIds: snapshot.coveredMessageIds ?? [],
       coveredToolResults: snapshot.coveredToolResults ?? [],
       working: this.working.has(sessionId), questions: questionSnapshot.questions, interactions: interactions.filter(frame => {
