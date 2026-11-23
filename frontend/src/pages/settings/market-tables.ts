@@ -302,6 +302,10 @@ const SKILL_TEXT_I18N = {
     en: ['Photo Editing', 'Edit layered photos, PSD files and raster compositions in a shared visual workspace with masks, non-destructive adjustments, smart objects, filters, CJK typography and multi-format export.'],
     zh: ['图像编辑', '在共享可视化工作区中编辑照片、PSD 分层文件与栅格合成作品，支持图层与蒙版、非破坏性调整图层、智能对象、滤镜、选区绘制、中英文排版及 PSD、PNG、JPEG、WebP、PDF、SVG 导出。'],
   },
+  'motion-graphics': {
+    en: ['Motion Graphics', 'Create and edit keyframe animations, motion graphics, 3D layers, vector shapes, text animators, expressions and visual effects in a live composition studio with MP4, WebM, MOV, GIF, PSD, Lottie and .aep export.'],
+    zh: ['动效合成', '在实时动效合成工作台中创建与编辑关键帧动画、速度曲线、矢量形状、文字动画器、JavaScript 表达式、3D 摄像机与灯光及视觉特效，支持 MP4、WebM、MOV、GIF、分层 PSD、Lottie 与 .aep 工程导入导出。'],
+  },
   'reverse-engineering': {
     en: ['Reverse Engineering', 'Inspect shipped binaries, apps and captures with the evidence behind every finding, and verify a rebuild against the original with mechanical checks.'],
     zh: ['逆向工程', '对已发布的二进制、应用与抓包做证据化逆向分析，并用机器化对照验收重建结果。'],
@@ -701,6 +705,7 @@ const PLUGIN_NAME_EN_OVERRIDES = {
   ppt: 'PPT',
   design: 'Design Canvas',
   'photo-editing': 'Photo Editing',
+  'motion-graphics': 'Motion Graphics',
   browser: 'Browser',
 }
 
@@ -768,6 +773,7 @@ const PLUGIN_NAME_ZH_OVERRIDES = {
   ppt: '演示文稿',
   design: '设计画布',
   'photo-editing': '图像编辑',
+  'motion-graphics': '动效合成',
   'netlify-skills': 'Netlify 技能',
   'netsuite-suitecloud': 'NetSuite SuiteCloud 开发',
   'oracle-ai-data-platform-workbench-spark-connectors': 'Oracle Spark 连接器',
@@ -922,6 +928,7 @@ const PLUGIN_DESCRIPTION_ZH_OVERRIDES = {
   'ppt@klaus-official': '设计并编辑有统一视觉体系的演示文稿：真实图片、可编辑图表、视觉修订与来源校验，导出 PPTX、PDF、PNG 与 HTML。',
   'design@klaus-official': '在无限多画板画布上设计与编辑网页、落地页、应用界面、可交互原型、海报、印刷文档与图表，支持实时参数微调（Tweaks）、设计系统安装与 PDF、PNG、HTML、ZIP 导出。',
   'photo-editing@klaus-official': '在共享可视化工作区中编辑照片、PSD 分层文件与栅格合成作品，支持图层与蒙版、非破坏性调整图层、智能对象、滤镜、选区绘制、中英文排版及 PSD、PNG、JPEG、WebP、PDF、SVG 导出。',
+  'motion-graphics@klaus-official': '在实时动效合成工作台中创建与编辑关键帧动画、速度曲线、矢量形状、文字动画器、JavaScript 表达式、3D 摄像机与灯光及视觉特效，支持 MP4、WebM、MOV、GIF、分层 PSD、Lottie 与 .aep 工程导入导出。',
   codex: '连接 Codex 进行代码审查、任务委托和工程协作。',
   'frontend-design': '创建具有辨识度和生产质感的前端界面，避免模板化的 AI 风格。',
   'plugin-dev': '提供插件开发、验证、钩子、MCP、命令和代理相关的工程工作流。',

@@ -80,7 +80,7 @@ function main() {
   const checkOnly = process.argv.includes('--check');
 
   const called = new Set();
-  for (const name of ['klaus-api.ts', 'artifact-api.ts', 'quick-input-api.ts', 'canvas-api.ts', 'prototype-api.ts', 'video-editing-api.ts', 'ppt-api.ts', 'design-api.ts', 'photo-editing-api.ts', 'pet-api.ts', 'voice-chat-api.ts']) {
+  for (const name of ['klaus-api.ts', 'artifact-api.ts', 'quick-input-api.ts', 'canvas-api.ts', 'prototype-api.ts', 'video-editing-api.ts', 'ppt-api.ts', 'design-api.ts', 'photo-editing-api.ts', 'motion-graphics-api.ts', 'pet-api.ts', 'voice-chat-api.ts']) {
     const source = fs.readFileSync(path.join(BRIDGE, name), 'utf8');
     for (const match of source.matchAll(/\b(?:call|post)\(\s*['"]([^'"]+)['"]/g)) called.add(match[1]);
   }
@@ -204,6 +204,16 @@ function main() {
     entry: 'runtime/dist/index.html',
     bundle: 'bridge/photo-editing-api.ts',
     invoke: [...photoEditing].filter(channel => invokeSet.has(channel)).sort(),
+    push: [],
+  });
+
+  const motionGraphics = channelsIn(path.join(BRIDGE, 'motion-graphics-api.ts'));
+  roles.push({
+    role: 'motion-graphics',
+    label: 'motion-graphics-panel',
+    entry: 'runtime/dist/index.html',
+    bundle: 'bridge/motion-graphics-api.ts',
+    invoke: [...motionGraphics].filter(channel => invokeSet.has(channel)).sort(),
     push: [],
   });
 

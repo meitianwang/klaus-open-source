@@ -14,7 +14,7 @@ import { object } from '../services/service-types';
  * artifact that no projection layer was taught to recognise, so the card never
  * appeared and the panel could only be opened by a route the user could not see.
  */
-export type VisualArtifactKind = 'diagram' | 'model3d' | 'prototype' | 'video-editing' | 'ppt' | 'design' | 'photo-editing';
+export type VisualArtifactKind = 'diagram' | 'model3d' | 'prototype' | 'video-editing' | 'ppt' | 'design' | 'photo-editing' | 'motion-graphics';
 
 export interface VisualArtifact {
   kind: VisualArtifactKind;
@@ -60,11 +60,12 @@ const SURFACES: readonly Surface[] = [
   { kind: 'ppt', server: 'mcp__klaus-ppt__', bare: 'ppt_', defaultTitle: 'Presentation' },
   { kind: 'design', server: 'mcp__klaus-design__', bare: 'design_', defaultTitle: 'Design Canvas' },
   { kind: 'photo-editing', server: 'mcp__klaus-photo-editing__', bare: 'photo_', defaultTitle: 'Photo Editing' },
+  { kind: 'motion-graphics', server: 'mcp__klaus-motion-graphics__', bare: 'motion_', defaultTitle: 'Motion Graphics' },
 ];
 
 const MAX_ID_LENGTH = 160;
 const MAX_TEXT_BYTES = 20 * 1024 * 1024;
-const PROJECTED_HOST_MCP_SERVER = /^mcp__host-(browser|prototype|digram|video-editing|design|ppt|photo-editing|model3d|macos-[a-z0-9-]+)__/i;
+const PROJECTED_HOST_MCP_SERVER = /^mcp__host-(browser|prototype|digram|video-editing|design|ppt|photo-editing|motion-graphics|model3d|macos-[a-z0-9-]+)__/i;
 
 /**
  * Resolve the target tool name when a deferred MCP tool was invoked through the

@@ -51,7 +51,7 @@ export interface SessionRuntimeStatusEvent extends SessionScoped, GoalTurnMetada
 export interface ModelUpdateEvent extends SessionScoped, ModelUpdateState { type: 'model_update' }
 export interface ToolStartEvent extends SessionScoped { type: 'tool_start'; toolName: string; toolCallId: string; args: unknown }
 export interface ToolInputDeltaEvent extends SessionScoped { type: 'tool_input_delta'; toolCallId: string; delta: string }
-export interface VisualArtifactEvent { kind: 'diagram' | 'model3d' | 'prototype' | 'ppt' | 'design' | 'photo-editing'; id: string; title: string; ready?: boolean }
+export interface VisualArtifactEvent { kind: 'diagram' | 'model3d' | 'prototype' | 'ppt' | 'design' | 'photo-editing' | 'motion-graphics'; id: string; title: string; ready?: boolean }
 export interface ToolEndEvent extends SessionScoped {
   type: 'tool_end'
   toolCallId: string

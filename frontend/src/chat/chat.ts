@@ -207,6 +207,7 @@ import { createPptChatConsumer } from './ppt-chat'
 import type { PptChatRequest } from '../../bridge/ppt-api'
 import { initDesignPanel, hideDesignPanel, scheduleDesignBoundsSync, preferredDesignPanelWidth } from './design-panel'
 import { initPhotoEditingPanel, hidePhotoEditingPanel, schedulePhotoEditingBoundsSync, preferredPhotoEditingPanelWidth } from './photo-editing-panel'
+import { initMotionGraphicsPanel, hideMotionGraphicsPanel, scheduleMotionGraphicsBoundsSync, preferredMotionGraphicsPanelWidth } from './motion-graphics-panel'
 import { createDesignChatConsumer } from './design-chat'
 import type { DesignChatRequest } from '../../bridge/design-api'
 import { initBackgroundProcessMonitor } from './background-process-monitor'
@@ -17244,7 +17245,7 @@ function suspendNativeViewsForUserSubmenu() {
   if (resumeNativeForUserSubmenu) return
   const host = window as unknown as Record<string, (() => Promise<void> | void) | undefined>
   const resumes: Array<() => Promise<void> | void> = []
-  for (const name of ['Browser', 'Canvas', 'Prototype', 'VideoEditing', 'Ppt', 'Design', 'PhotoEditing']) {
+  for (const name of ['Browser', 'Canvas', 'Prototype', 'VideoEditing', 'Ppt', 'Design', 'PhotoEditing', 'MotionGraphics']) {
     const suspend = host[`klausSuspend${name}ForOverlay`]
     const resume = host[`klausResume${name}AfterOverlay`]
     if (typeof suspend !== 'function' || typeof resume !== 'function') continue
@@ -19405,16 +19406,17 @@ initVideoEditingPanel()
 initPptPanel()
 initDesignPanel()
 initPhotoEditingPanel()
+initMotionGraphicsPanel()
 
 // The panel's modes, in one place. Three separate ternary chains used to spell
 // this list out, and each of them silently coerced any mode it had not been
 // taught to 'monitor' — so adding a surface meant remembering all three or
 // watching the new tab open on the summary instead.
-const PANEL_MODES = new Set(['monitor', 'workspace', 'diff', 'browser', 'terminal', 'digram', 'model3d', 'side-chat', 'subagent', 'background-process', 'spec', 'canvas', 'prototype', 'video-editing', 'ppt', 'design', 'photo-editing', 'planning', 'goal'])
+const PANEL_MODES = new Set(['monitor', 'workspace', 'diff', 'browser', 'terminal', 'digram', 'model3d', 'side-chat', 'subagent', 'background-process', 'spec', 'canvas', 'prototype', 'video-editing', 'ppt', 'design', 'photo-editing', 'motion-graphics', 'planning', 'goal'])
 // Modes whose open/collapsed state is NOT the summary's persisted preference:
 // they are surfaces the user entered on purpose, so leaving one must not teach
 // the panel to come back collapsed next session.
-const TRANSIENT_PANEL_MODES = new Set(['browser', 'terminal', 'digram', 'model3d', 'side-chat', 'subagent', 'background-process', 'spec', 'canvas', 'prototype', 'video-editing', 'ppt', 'design', 'photo-editing', 'planning', 'goal'])
+const TRANSIENT_PANEL_MODES = new Set(['browser', 'terminal', 'digram', 'model3d', 'side-chat', 'subagent', 'background-process', 'spec', 'canvas', 'prototype', 'video-editing', 'ppt', 'design', 'photo-editing', 'motion-graphics', 'planning', 'goal'])
 // Modes whose open/collapsed state is NOT the summary's persisted preference:
 // they are surfaces the user entered on purpose, so leaving one must not teach
 // the panel to come back collapsed next session.
@@ -19434,6 +19436,7 @@ function setArtifactsPanelMode(mode: string) {
   if (next !== 'ppt') void hidePptPanel()
   if (next !== 'design') void hideDesignPanel()
   if (next !== 'photo-editing') void hidePhotoEditingPanel()
+  if (next !== 'motion-graphics') void hideMotionGraphicsPanel()
   if (next !== 'diff' && !TRANSIENT_PANEL_MODES.has(next)) persistLocalValue(windowStateKey('klaus_artifacts_mode'), next)
   // Whoever moved the panel (tab click, side rail, engine event, restore), the
   // strip follows: the registry re-derives which tab is active from the mode
@@ -19486,6 +19489,11 @@ function openArtifactsPanel(mode: string = 'monitor') {
     const widened = preferredPhotoEditingPanelWidth(rightPanelRatioToWidth(rightPanelWidthRatio, wsWidth), wsWidth)
     if (widened !== null) setRightPanelWidthPx(widened, { updateRatio: true })
   }
+  if (nextMode === 'motion-graphics' && !document.body.classList.contains('artifacts-maximized')) {
+    const wsWidth = currentWorkspaceWidth()
+    const widened = preferredMotionGraphicsPanelWidth(rightPanelRatioToWidth(rightPanelWidthRatio, wsWidth), wsWidth)
+    if (widened !== null) setRightPanelWidthPx(widened, { updateRatio: true })
+  }
   if (nextMode === 'monitor') chatMonitorExpanded = true
   if (nextMode === 'diff') {
     diffFilesPanelCollapsed = false
@@ -19534,6 +19542,7 @@ function closeArtifactsPanel() {
   if (mode === 'ppt') void hidePptPanel()
   if (mode === 'design') void hideDesignPanel()
   if (mode === 'photo-editing') void hidePhotoEditingPanel()
+  if (mode === 'motion-graphics') void hideMotionGraphicsPanel()
   if (mode === 'terminal') setTerminalOpen(false)
   syncArtifactsToggleVisibility()
 }
@@ -19597,6 +19606,7 @@ window.klausOnArtifactsLayoutChange = () => {
   schedulePptBoundsSync()
   scheduleDesignBoundsSync()
   schedulePhotoEditingBoundsSync()
+  scheduleMotionGraphicsBoundsSync()
   scheduleTerminalResize()
 }
 artifactsToggleBtnInner?.addEventListener('click', closeArtifactsPanel)
@@ -19615,6 +19625,7 @@ function hideArtifactsPanelForNonChatView() {
   void hidePptPanel()
   void hideDesignPanel()
   void hidePhotoEditingPanel()
+  void hideMotionGraphicsPanel()
   artifactsPanel.classList.add('collapsed')
   syncArtifactsToggleVisibility()
 }

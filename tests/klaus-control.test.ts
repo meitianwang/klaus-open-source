@@ -284,7 +284,8 @@ void (async () => {
       // active-account switch across an Antigravity account pool.
       // 775 adds the eleven `design:*` owner-panel transport channels for Design Canvas.
       // 783 adds the eight `photo-editing:*` owner-panel transport channels for Photo Editing.
-      assert.equal(channels.size, 783);
+      // 791 adds the eight `motion-graphics:*` owner-panel transport channels for Motion Graphics.
+      assert.equal(channels.size, 791);
       const companionChannels = [...channels].filter(channel => channel.startsWith('desktop-pet:'));
       assert.equal(companionChannels.length, 58);
       for (const channel of companionChannels) {

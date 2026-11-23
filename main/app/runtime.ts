@@ -244,6 +244,7 @@ import { VideoEditingService } from '../video-editing/service';
 import { PptService } from '../ppt/service';
 import { DesignService } from '../design/service';
 import { PhotoEditingService } from '../photo-editing/service';
+import { MotionGraphicsService } from '../motion-graphics/service';
 import { ComposerEditCommands } from './composer-edit-commands';
 import { createOwnedEditMenu } from './owned-edit-menu';
 import { installTextContextMenu } from './text-context-menu';
@@ -260,6 +261,7 @@ import { registerVideoEditingHandlers } from '../ipc/handlers/video-editing';
 import { registerPptHandlers } from '../ipc/handlers/ppt';
 import { registerDesignHandlers } from '../ipc/handlers/design';
 import { registerPhotoEditingHandlers } from '../ipc/handlers/photo-editing';
+import { registerMotionGraphicsHandlers } from '../ipc/handlers/motion-graphics';
 import { registerDigramHandlers } from '../ipc/handlers/digram';
 import { isFailure, kvGet, kvSet, kvSnapshot } from '../services/settings';
 import { klausAuthStatus, readStoredAuth } from '../services/auth';
@@ -278,6 +280,7 @@ export interface DesktopRuntime {
   ppt: PptService;
   design: DesignService;
   photoEditing: PhotoEditingService;
+  motionGraphics: MotionGraphicsService;
   digram: DigramService;
   model3d: Model3DService;
   show(): void;
@@ -537,6 +540,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   let ppt: PptService;
   let design: DesignService;
   let photoEditing: PhotoEditingService;
+  let motionGraphics: MotionGraphicsService;
   let digramEnabled = false;
   let mcp: McpConfigurationService;
   let mcpRuntime: ReturnType<typeof createMcpRuntime> | undefined;
@@ -567,6 +571,8 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   let designEnabled = false;
   let photoEditingPluginPath: string | undefined;
   let photoEditingEnabled = false;
+  let motionGraphicsPluginPath: string | undefined;
+  let motionGraphicsEnabled = false;
   const refreshDigramEnabled = async (snapshot?: Record<string, Json>): Promise<void> => {
     const values = snapshot ?? await readHostConfiguration();
     const plugins = object(values?.plugins) ?? {};
@@ -598,6 +604,10 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     photoEditingPluginPath = typeof photo.installPath === 'string' ? photo.installPath : undefined;
     photoEditingEnabled = photoEditingPluginPath !== undefined && photo.enabled !== false
       && existsSync(join(photoEditingPluginPath, 'runtime', 'dist', 'runtime-manifest.json'));
+    const motion = object(plugins['motion-graphics@klaus-official']) ?? {};
+    motionGraphicsPluginPath = typeof motion.installPath === 'string' ? motion.installPath : undefined;
+    motionGraphicsEnabled = motionGraphicsPluginPath !== undefined && motion.enabled !== false
+      && existsSync(join(motionGraphicsPluginPath, 'runtime', 'dist', 'runtime-manifest.json'));
   };
   let hooksStyles: HookStyleService;
   let plugins: PluginService;
@@ -892,7 +902,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       const declarations = await mcp.resolvedServerSet(cwd, values, workspaces.extraRoots(id));
       await refreshDigramEnabled(values);
       for (const skipped of declarations.skipped) if (skipped.reason !== 'disabled') log.write('mcp-declaration', `${skipped.scope}/${skipped.name}: ${skipped.reason}`);
-      return combineHostCapabilities(declarations.servers, await Promise.all([browserMcp.hostCapabilities(id), digram.hostCapabilities(id), model3d.hostCapabilities(id), prototype.hostCapabilities(id), videoEditing.hostCapabilities(id), ppt.hostCapabilities(id), design.hostCapabilities(id), photoEditing.hostCapabilities(id), computerUse!.hostCapabilities(id), connectors!.hostCapabilities(id)]));
+      return combineHostCapabilities(declarations.servers, await Promise.all([browserMcp.hostCapabilities(id), digram.hostCapabilities(id), model3d.hostCapabilities(id), prototype.hostCapabilities(id), videoEditing.hostCapabilities(id), ppt.hostCapabilities(id), design.hostCapabilities(id), photoEditing.hostCapabilities(id), motionGraphics.hostCapabilities(id), computerUse!.hostCapabilities(id), connectors!.hostCapabilities(id)]));
     },
     projectHistory: (history, id, scope) => {
       // Reopening a conversation must not blank images that rendered fine before
@@ -926,12 +936,13 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       await ppt.releaseSession(id);
       await design.releaseSession(id);
       photoEditing.releaseSession(id);
+      motionGraphics.releaseSession(id);
       runPreview?.releaseSession(id);
       widgets.releaseSession(id);
       await browserMcp.releaseSession(id);
       await agentTasks?.remove(id);
     },
-    onClosed: async id => { await ppt.releaseSession(id); await design.releaseSession(id); photoEditing.releaseSession(id); dream?.forget(id); memorySnapshots?.forget(id); pip?.service.removeSession(id, false); await computerUse?.releaseSession(id); await connectors?.releaseSession(id); await mediaGeneration?.releaseSession(id); events.agentTasks.forget(id); files?.stopWatching(id); media.revokeSession(id); digram.releaseSession(id); model3d.releaseSession(id); runPreview?.releaseSession(id); widgets.releaseSession(id); await browserMcp.releaseSession(id); },
+    onClosed: async id => { await ppt.releaseSession(id); await design.releaseSession(id); photoEditing.releaseSession(id); motionGraphics.releaseSession(id); dream?.forget(id); memorySnapshots?.forget(id); pip?.service.removeSession(id, false); await computerUse?.releaseSession(id); await connectors?.releaseSession(id); await mediaGeneration?.releaseSession(id); events.agentTasks.forget(id); files?.stopWatching(id); media.revokeSession(id); digram.releaseSession(id); model3d.releaseSession(id); runPreview?.releaseSession(id); widgets.releaseSession(id); await browserMcp.releaseSession(id); },
     browserTurnStarted: (id, turnId) => browserMcp.chrome.turnStarted(id, turnId),
     browserTurnEnded: id => browserMcp.chrome.turnEnded(id),
     onClosing: async (id, engineId, generation) => { state.markModelChanged(id); await Promise.all([mcpRuntime?.retire(id, engineId, generation), computerUse?.releaseSession(id), connectors?.releaseSession(id), mediaGeneration?.releaseSession(id)]); },
@@ -1460,6 +1471,19 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   });
   early.add(() => photoEditing.dispose());
   registerPhotoEditingHandlers(registry, { service: photoEditing });
+  motionGraphics = new MotionGraphicsService({
+    configRoot, window, enabled: () => motionGraphicsEnabled, pluginRoot: () => motionGraphicsPluginPath,
+    language: () => { const value = kvGet('language', configRoot); return typeof value === 'string' && value ? value : edition.defaultLanguage || app.getLocale(); },
+    windowForOwner: id => sessionMainWindow(id), windowForSender: id => mainWindows.get(id),
+    emit: (channel, payload, windowId) => { const target = mainWindows.get(windowId ?? window.webContents.id); if (target && !target.isDestroyed()) sendToMainWindow(target, channel, payload); },
+    readRoots: id => [workspaces.resolveSessionDirectory(id), ...workspaces.extraRoots(id), join(configRoot, 'uploads')],
+    writeRoots: id => [workspaces.resolveSessionDirectory(id), ...workspaces.extraRoots(id)],
+    registerRenderer: (id, role) => windows.register(id, role),
+    unregisterRenderer: id => { subscriptions.clearOwner(id); windows.unregister(id); },
+    log: (event, data) => log.write(event, JSON.stringify(data)),
+  });
+  early.add(() => motionGraphics.dispose());
+  registerMotionGraphicsHandlers(registry, { service: motionGraphics });
   const publishAuthoringActivity = () => {
     const running = state.runningSessions();
     ppt.setAuthoringActivity(running);
@@ -1978,6 +2002,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
         ppt.refreshLanguage();
         design.refreshLanguage();
         photoEditing.refreshLanguage();
+        motionGraphics.refreshLanguage();
       }
       if (key === 'desktop_pet.realtime_provider') {
         const value = kvGet(key, configRoot);
@@ -3378,6 +3403,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     await ppt.prepareToClose();
     await design.prepareToClose();
     await photoEditing.prepareToClose();
+    await motionGraphics.prepareToClose();
     closing = true;
     stopResponsivenessMonitor();
     invokeLease.close();
@@ -3454,6 +3480,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       prototype.abortClosePreparation();
       videoEditing.abortClosePreparation();
       photoEditing.abortClosePreparation();
+      motionGraphics.abortClosePreparation();
       drainPromise = undefined;
     }
     throw error;
@@ -3473,7 +3500,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
         () => updater.dispose(),
         () => delivery.close(), () => ipcMain.removeListener(HOST_CHANNELS.deliveryAck, acknowledge),
         () => subscriptions.close(), () => ipcMain.removeListener(HOST_CHANNELS.listenerState, listenerState),
-        () => prototype.dispose(), () => videoEditing.dispose(), () => ppt.dispose(), () => design.dispose(), () => photoEditing.dispose(),
+        () => prototype.dispose(), () => videoEditing.dispose(), () => ppt.dispose(), () => design.dispose(), () => photoEditing.dispose(), () => motionGraphics.dispose(),
         () => menuDiagnostics.close(),
         () => nativeContentFind.close(),
         () => Promise.all([...canvasByWindow.values()].map(service => service.dispose())), () => browser.dispose(), () => chat.close(), () => tray?.destroy(), closePreviews,
@@ -3501,6 +3528,11 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     ...(developmentOfficialPlugins ? [resolve(developmentOfficialPlugins, 'plugins', 'photo-editing')] : []),
   ].find(path => existsSync(join(path, 'runtime', 'dist', 'runtime-manifest.json')));
   if (bundledPhotoEditing) await plugins.ensureBundledOfficial('photo-editing', bundledPhotoEditing);
+  const bundledMotionGraphics = [
+    ...resourceDirs.map(directory => join(directory, 'plugins-official', 'motion-graphics')),
+    ...(developmentOfficialPlugins ? [resolve(developmentOfficialPlugins, 'plugins', 'motion-graphics')] : []),
+  ].find(path => existsSync(join(path, 'runtime', 'dist', 'runtime-manifest.json')));
+  if (bundledMotionGraphics) await plugins.ensureBundledOfficial('motion-graphics', bundledMotionGraphics);
   await refreshDigramEnabled();
   // Discover catalog changes in the background while retaining cached content offline.
   pluginMarketplaces.startUpdateChecks();
@@ -3536,7 +3568,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   void channels.startConfigured().then(results => { for (const result of results) if (result.ok !== true) log.write('channel-startup', JSON.stringify(result)); }).catch(error => log.write('channel-startup', String(error)));
   log.write('ready', JSON.stringify({ version: app.getVersion(), node: process.versions.node, electron: process.versions.electron, implementedChannels: registry.size() }));
   return {
-    window, registry, sessions, engine, browser, canvas, prototype, videoEditing, ppt, design, photoEditing, digram, model3d, nativeCounts: native.counts,
+    window, registry, sessions, engine, browser, canvas, prototype, videoEditing, ppt, design, photoEditing, motionGraphics, digram, model3d, nativeCounts: native.counts,
     show, openMainWindow, focusedMainWindow, runMainWindowCommand, showQuickInput, deliver: (id, channel, value) => delivery.deliver(id, channel, value),
     openDeepLink: url => {
       const action = parseDeepLink(url, edition.protocol);

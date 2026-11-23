@@ -3476,6 +3476,7 @@ const VISUAL_ARTIFACT_SURFACE = {
   ppt: { icon: 'canvas', readyKey: 'ppt_artifact_ready', createdKey: 'ppt_artifact_created', openKey: 'ppt_artifact_open', open: 'klausOpenPptPanel' },
   design: { icon: 'canvas', readyKey: 'design_artifact_ready', createdKey: 'design_artifact_created', openKey: 'design_artifact_open', open: 'klausOpenDesignPanel' },
   'photo-editing': { icon: 'tool-generate-image', readyKey: 'photo_editing_artifact_ready', createdKey: 'photo_editing_artifact_created', openKey: 'photo_editing_artifact_open', open: 'klausOpenPhotoEditingPanel' },
+  'motion-graphics': { icon: 'tool-generate-video', readyKey: 'motion_graphics_artifact_ready', createdKey: 'motion_graphics_artifact_created', openKey: 'motion_graphics_artifact_open', open: 'klausOpenMotionGraphicsPanel' },
 } as const
 
 function VisualArtifactsBlock({ sessionId, artifacts }: { sessionId: string; artifacts: VisualArtifact[] }) {

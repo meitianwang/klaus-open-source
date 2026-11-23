@@ -80,7 +80,7 @@ function fixture() {
     contains: (name: string) => classes.has(name),
   }
   const window: any = { dispatchEvent() {}, addEventListener() {}, requestIdleCallback() {}, klaus: { browserUse: { hide: async () => {} } } }
-  for (const name of ['Canvas', 'Prototype', 'VideoEditing', 'Ppt', 'Design', 'PhotoEditing']) {
+  for (const name of ['Canvas', 'Prototype', 'VideoEditing', 'Ppt', 'Design', 'PhotoEditing', 'MotionGraphics']) {
     window[`klausSuspend${name}ForOverlay`] = () => {
       calls.push(`suspend:${name}`)
       const operation = name === 'Ppt' ? surface.suspend() : Promise.resolve()
@@ -141,7 +141,7 @@ test('settings tab changes and repeated closes balance every native editor suspe
   f.settings.closeSettings()
   f.settings.closeSettings()
   await f.flush()
-  for (const name of ['Canvas', 'Prototype', 'VideoEditing', 'Ppt', 'Design', 'PhotoEditing']) {
+  for (const name of ['Canvas', 'Prototype', 'VideoEditing', 'Ppt', 'Design', 'PhotoEditing', 'MotionGraphics']) {
     expect(f.calls.filter(call => call === `suspend:${name}`)).toHaveLength(1)
     expect(f.calls.filter(call => call === `resume:${name}`)).toHaveLength(1)
   }

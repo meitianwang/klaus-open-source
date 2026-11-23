@@ -6,9 +6,9 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 783,
-    "registeredPush": 84,
-    "roles": 13
+    "registeredInvoke": 791,
+    "registeredPush": 85,
+    "roles": 14
   },
   "pushChannels": [
     "agents:progress",
@@ -62,6 +62,7 @@
     "memory:snapshot:prompt",
     "model3d:changed",
     "model3d:render-request",
+    "motion-graphics:open-panel",
     "notify:sound",
     "onboarding-guide:updated",
     "permission:request",
@@ -532,6 +533,13 @@
         "model3d:list",
         "model3d:mesh",
         "model3d:render-result",
+        "motion-graphics:list",
+        "motion-graphics:open",
+        "motion-graphics:open-result",
+        "motion-graphics:panel-close",
+        "motion-graphics:panel-hide",
+        "motion-graphics:panel-set-bounds",
+        "motion-graphics:panel-show",
         "onboardingGuide:snapshot",
         "permission:pending",
         "permission:respond",
@@ -942,6 +950,7 @@
         "memory:snapshot:prompt",
         "model3d:changed",
         "model3d:render-request",
+        "motion-graphics:open-panel",
         "notify:sound",
         "onboarding-guide:updated",
         "permission:request",
@@ -1081,6 +1090,16 @@
       "bundle": "bridge/photo-editing-api.ts",
       "invoke": [
         "photo-editing:runtime-action"
+      ],
+      "push": []
+    },
+    {
+      "role": "motion-graphics",
+      "label": "motion-graphics-panel",
+      "entry": "runtime/dist/index.html",
+      "bundle": "bridge/motion-graphics-api.ts",
+      "invoke": [
+        "motion-graphics:runtime-action"
       ],
       "push": []
     },

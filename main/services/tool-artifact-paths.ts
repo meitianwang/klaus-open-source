@@ -10,6 +10,8 @@ const EXPORT_TOOLS = new Set([
   'design_export', 'mcp__klaus-design__design_export',
   'photo_export', 'mcp__klaus-photo-editing__photo_export',
   'photo_preview', 'mcp__klaus-photo-editing__photo_preview',
+  'motion_export', 'mcp__klaus-motion-graphics__motion_export',
+  'motion_preview', 'mcp__klaus-motion-graphics__motion_preview',
 ]);
 const READ_TOOLS = new Set(['read', 'Read']);
 

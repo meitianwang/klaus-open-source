@@ -16,7 +16,7 @@ export interface UnwrappedToolCall {
   unwrapped: boolean
 }
 
-const PROJECTED_HOST_MCP_SERVER = /^mcp__host-(browser|prototype|digram|video-editing|design|ppt|photo-editing|model3d|macos-[a-z0-9-]+)__/i
+const PROJECTED_HOST_MCP_SERVER = /^mcp__host-(browser|prototype|digram|video-editing|design|ppt|photo-editing|motion-graphics|model3d|macos-[a-z0-9-]+)__/i
 
 /**
  * Unwrap an indirect `call_mcp_tool` invocation into its target tool name and
@@ -111,6 +111,13 @@ const ACTIONS: Record<string, ActionText> = {
   photo_place: ['tool-generate-image', '置入图像图层', 'Placing image layer', 'Placed image layer', 'place image layer'],
   photo_preview: ['tool-generate-image', '生成图像预览', 'Rendering photo preview', 'Rendered photo preview', 'render photo preview'],
   photo_export: ['tool-generate-image', '导出图像', 'Exporting photo', 'Exported photo', 'export photo'],
+  motion_open: ['tool-generate-video', '打开动效合成', 'Opening motion composition', 'Opened motion composition', 'open motion composition'],
+  motion_inspect: ['tool-generate-video', '查看动效工程', 'Inspecting motion composition', 'Inspected motion composition', 'inspect motion composition'],
+  motion_commands: ['tool-generate-video', '查找动效命令', 'Finding motion commands', 'Found motion commands', 'find motion commands'],
+  motion_execute: ['tool-generate-video', '编辑动效合成', 'Updating motion composition', 'Updated motion composition', 'update motion composition'],
+  motion_import_footage: ['tool-generate-video', '导入动效素材', 'Importing footage', 'Imported footage', 'import footage'],
+  motion_preview: ['tool-generate-video', '生成动效预览', 'Rendering motion preview', 'Rendered motion preview', 'render motion preview'],
+  motion_export: ['tool-generate-video', '导出动效作品', 'Exporting motion composition', 'Exported motion composition', 'export motion composition'],
   video_editing_open: ['tool-generate-video', '打开视频工程', 'Opening video project', 'Opened video project', 'open video project'],
   video_editing_inspect: ['tool-generate-video', '查看视频工程', 'Inspecting video project', 'Inspected video project', 'inspect video project'],
   video_editing_execute: ['tool-generate-video', '编辑视频', 'Editing video', 'Edited video', 'edit video'],
@@ -220,8 +227,8 @@ export function semanticActivity(toolName: string, input?: unknown, output?: str
   toolName = effective.toolName
   input = effective.args
   let name = browserActivityToolName(toolName)
-  const ownedMcp = /^mcp__(klaus-prototype|klaus-digram|klaus-video-editing|klaus-photo-editing)__(.+)$/.exec(name)
-  if (ownedMcp && ((ownedMcp[1] === 'klaus-prototype' && ownedMcp[2].startsWith('prototype_')) || (ownedMcp[1] === 'klaus-digram' && ownedMcp[2].startsWith('digram_')) || (ownedMcp[1] === 'klaus-video-editing' && ownedMcp[2].startsWith('video_editing_')) || (ownedMcp[1] === 'klaus-photo-editing' && ownedMcp[2].startsWith('photo_')))) name = ownedMcp[2]
+  const ownedMcp = /^mcp__(klaus-prototype|klaus-digram|klaus-video-editing|klaus-photo-editing|klaus-motion-graphics)__(.+)$/.exec(name)
+  if (ownedMcp && ((ownedMcp[1] === 'klaus-prototype' && ownedMcp[2].startsWith('prototype_')) || (ownedMcp[1] === 'klaus-digram' && ownedMcp[2].startsWith('digram_')) || (ownedMcp[1] === 'klaus-video-editing' && ownedMcp[2].startsWith('video_editing_')) || (ownedMcp[1] === 'klaus-photo-editing' && ownedMcp[2].startsWith('photo_')) || (ownedMcp[1] === 'klaus-motion-graphics' && ownedMcp[2].startsWith('motion_')))) name = ownedMcp[2]
   if (name === 'websearch') name = 'web_search'
   if (name === 'webfetch' || name === 'fetch_url') name = 'web_fetch'
   if (!Object.hasOwn(ACTIONS, name)) return null
@@ -246,9 +253,9 @@ export function semanticActivity(toolName: string, input?: unknown, output?: str
   }
   if (name === 'web_search') target = String(args.query ?? args.search_query ?? args.q ?? '').trim().slice(0, 160)
   if (name === 'browser_click' || name === 'browser_locator') target = String(args.name ?? args.label ?? '').trim().slice(0, 100)
-  if (name.startsWith('prototype_') || name.startsWith('photo_') || name.startsWith('video_editing_') || name === 'digram_open') target = typeof args.title === 'string' ? args.title.slice(0, 100) : ''
+  if (name.startsWith('prototype_') || name.startsWith('photo_') || name.startsWith('motion_') || name.startsWith('video_editing_') || name === 'digram_open') target = typeof args.title === 'string' ? args.title.slice(0, 100) : ''
   return { action: name, icon: ACTIONS[name][0], target, ...(friendOutcome ? { friendOutcome } : {}), category: name.startsWith('browser_') ? 'browser' : name.startsWith('web_') ? 'web'
-    : name.startsWith('prototype_') || name.startsWith('photo_') ? 'design' : name.startsWith('digram_') ? 'diagram' : name.startsWith('video_editing_') ? 'video' : name.startsWith('cron') || name === 'automation_update' ? 'schedule'
+    : name.startsWith('prototype_') || name.startsWith('photo_') || name.startsWith('motion_') ? 'design' : name.startsWith('digram_') ? 'diagram' : name.startsWith('video_editing_') ? 'video' : name.startsWith('cron') || name === 'automation_update' ? 'schedule'
       : FRIEND_TOOLS.has(name) ? 'friend' : name === 'save_memory' ? 'memory' : 'dependencies' }
 }
 

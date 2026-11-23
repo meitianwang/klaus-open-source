@@ -9047,7 +9047,8 @@ body.artifacts-maximized .artifacts-panel > .artifacts-body {
 .artifacts-panel[data-mode="video-editing"],
 .artifacts-panel[data-mode="ppt"],
 .artifacts-panel[data-mode="design"],
-.artifacts-panel[data-mode="photo-editing"] {
+.artifacts-panel[data-mode="photo-editing"],
+.artifacts-panel[data-mode="motion-graphics"] {
   transition: none;
 }
 
@@ -9296,6 +9297,14 @@ body.artifacts-maximized .artifacts-panel > .artifacts-body {
   display: flex;
   flex-direction: column;
 }
+.artifacts-panel[data-mode="motion-graphics"] .artifacts-section { display: none; }
+.artifacts-panel:not([data-mode="motion-graphics"]) #motion-graphics-panel { display: none; }
+.artifacts-panel[data-mode="motion-graphics"] .artifacts-body {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
 .canvas-panel,
 .canvas-panel-host,
 .prototype-panel,
@@ -9307,7 +9316,9 @@ body.artifacts-maximized .artifacts-panel > .artifacts-body {
 .design-panel,
 .design-panel-host,
 .photo-editing-panel,
-.photo-editing-panel-host {
+.photo-editing-panel-host,
+.motion-graphics-panel,
+.motion-graphics-panel-host {
   position: relative;
   flex: 1;
   min-width: 0;

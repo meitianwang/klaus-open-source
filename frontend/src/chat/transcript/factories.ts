@@ -86,7 +86,7 @@ export interface ReplayToolMedia { path: string; mimeType?: string; sourcePath?:
  * in-app panel it opens and which copy it shows; the host is the only thing that
  * can mint one, and it only does so for a built-in visual tool it recognises.
  */
-export type VisualArtifactKind = 'diagram' | 'model3d' | 'prototype' | 'video-editing' | 'ppt' | 'design' | 'photo-editing'
+export type VisualArtifactKind = 'diagram' | 'model3d' | 'prototype' | 'video-editing' | 'ppt' | 'design' | 'photo-editing' | 'motion-graphics'
 export interface VisualArtifact {
   kind: VisualArtifactKind
   id: string
@@ -108,8 +108,8 @@ export interface ReplayToolResult {
   taskControl?: ReplayTaskControl
 }
 
-const VISUAL_ARTIFACT_KINDS: readonly string[] = ['diagram', 'model3d', 'prototype', 'video-editing', 'ppt', 'design', 'photo-editing']
-const VISUAL_ARTIFACT_FALLBACK_TITLE: Record<VisualArtifactKind, string> = { diagram: 'Diagram', model3d: '3D scene', prototype: 'Prototype', 'video-editing': 'Video Editing', ppt: 'PPT', design: 'Design Canvas', 'photo-editing': 'Photo Editing' }
+const VISUAL_ARTIFACT_KINDS: readonly string[] = ['diagram', 'model3d', 'prototype', 'video-editing', 'ppt', 'design', 'photo-editing', 'motion-graphics']
+const VISUAL_ARTIFACT_FALLBACK_TITLE: Record<VisualArtifactKind, string> = { diagram: 'Diagram', model3d: '3D scene', prototype: 'Prototype', 'video-editing': 'Video Editing', ppt: 'PPT', design: 'Design Canvas', 'photo-editing': 'Photo Editing', 'motion-graphics': 'Motion Graphics' }
 
 export function normalizeVisualArtifact(value: unknown): VisualArtifact | undefined {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined
@@ -134,7 +134,7 @@ export function normalizeVisualArtifact(value: unknown): VisualArtifact | undefi
  * copy for saved history that predates explicit content state.
  */
 export function visualArtifactHintState(artifact: VisualArtifact): 'created' | 'ready' {
-  return (artifact.kind === 'prototype' || artifact.kind === 'ppt' || artifact.kind === 'design' || artifact.kind === 'photo-editing') && artifact.ready === false ? 'created' : 'ready'
+  return (artifact.kind === 'prototype' || artifact.kind === 'ppt' || artifact.kind === 'design' || artifact.kind === 'photo-editing' || artifact.kind === 'motion-graphics') && artifact.ready === false ? 'created' : 'ready'
 }
 
 export function normalizeToolResultForReplay(result: any): ReplayToolResult | null {

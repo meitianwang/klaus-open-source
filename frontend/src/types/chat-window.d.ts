@@ -128,6 +128,13 @@ declare global {
     klausActivePhotoEditingId?: () => string
     klausSuspendPhotoEditingForOverlay?: () => Promise<void>
     klausResumePhotoEditingAfterOverlay?: () => Promise<void>
+    klausActivateMotionGraphicsPanel?: AnyFn
+    klausOpenMotionGraphicsPanel?: (id: string, sessionId?: string) => Promise<boolean>
+    klausHideMotionGraphicsPanel?: () => Promise<void>
+    klausCloseMotionGraphicsPanel?: AnyFn
+    klausActiveMotionGraphicsId?: () => string
+    klausSuspendMotionGraphicsForOverlay?: () => Promise<void>
+    klausResumeMotionGraphicsAfterOverlay?: () => Promise<void>
     KlausPanelTabs?: Record<string, AnyFn>
     KlausSideTasks?: Record<string, AnyFn>
     KlausSubagentPanel?: Record<string, AnyFn>

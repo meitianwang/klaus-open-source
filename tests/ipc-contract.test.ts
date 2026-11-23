@@ -235,6 +235,12 @@ h.test('each role surface matches its own bridge source, re-derived here', async
   assertDeepEqual(photoRole?.invoke, [...photo].filter((c) => invokeRegistered.has(c)).sort(),
     'photo-editing invoke surface == photo-editing-api.ts channels');
   assertDeepEqual(photoRole?.push, [], 'photo-editing listens to nothing');
+
+  const motion = channelsIn(join(BRIDGE, 'motion-graphics-api.ts'));
+  const motionRole = contract.roles.find((r) => r.role === 'motion-graphics');
+  assertDeepEqual(motionRole?.invoke, [...motion].filter((c) => invokeRegistered.has(c)).sort(),
+    'motion-graphics invoke surface == motion-graphics-api.ts channels');
+  assertDeepEqual(motionRole?.push, [], 'motion-graphics listens to nothing');
 });
 
 h.test('a dual-kind channel grants a push only to the role that SUBSCRIBES it', async () => {
@@ -421,7 +427,7 @@ h.test('the committed contract is not stale against the generator', async () => 
 h.test('the contract shape is the version this host reads', async () => {
   const contract = loadContract() as ChannelContract;
   assertEqual(contract.version, 1, 'version 1');
-  assertEqual(contract.roles.length, 13, 'thirteen isolated window roles');
+  assertEqual(contract.roles.length, 14, 'fourteen isolated window roles');
   const artifact = contract.roles.find((r) => r.role === 'artifact');
   const main = contract.roles.find((r) => r.role === 'main');
   assert(artifact!.invoke.length < main!.invoke.length, 'preview has a smaller independent capability surface');

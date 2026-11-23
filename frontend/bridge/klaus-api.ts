@@ -686,6 +686,22 @@ expose('klaus', {
     onOpenPanel: (cb: (payload: { requestId?: string; id: string; title?: string; sessionId: string }) => void) =>
       subscribe('photo-editing:open-panel', cb),
   },
+  motionGraphics: {
+    list: (sessionId: string) =>
+      call('motion-graphics:list', { sessionId }) as Promise<{ motionWorkspaces: { id: string; title: string }[]; error?: string }>,
+    open: (id: string, sessionId: string) =>
+      call('motion-graphics:open', { id, sessionId }) as Promise<{ ok?: boolean; error?: string }>,
+    openResult: (requestId: string, ok: boolean, error?: string) =>
+      call('motion-graphics:open-result', { requestId, ok, error }),
+    panelShow: (id: string, sessionId: string, bounds: { x: number; y: number; width: number; height: number }) =>
+      call('motion-graphics:panel-show', { id, sessionId, bounds }) as Promise<{ ok?: boolean; error?: string }>,
+    panelSetBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
+      call('motion-graphics:panel-set-bounds', { bounds }) as Promise<{ ok?: boolean; error?: string }>,
+    panelHide: () => call('motion-graphics:panel-hide'),
+    panelClose: () => call('motion-graphics:panel-close'),
+    onOpenPanel: (cb: (payload: { requestId?: string; id: string; title?: string; sessionId: string }) => void) =>
+      subscribe('motion-graphics:open-panel', cb),
+  },
   videoEditing: {
     list: (sessionId: string) =>
       call('video-editing:list', { sessionId }) as Promise<{ videos: { id: string; title: string }[]; error?: string }>,
