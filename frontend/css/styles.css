@@ -3039,11 +3039,7 @@ mark.spec-annotated {
   background: var(--goal-badge-hover-bg, color-mix(in srgb, currentColor 18%, transparent));
 }
 :is(#plan-mode-badge, #side-plan-mode-badge, .goal-mode-badge.is-plan) { --goal-badge-fg: #3d82e0; }
-:is(#orchestrate-mode-badge, #side-orchestrate-mode-badge, .goal-mode-badge.is-orchestrate) { --goal-badge-fg: #8b5cf6; }
-:is(#ultra-mode-badge, #side-ultra-mode-badge, .goal-mode-badge.is-ultra) { --goal-badge-fg: #d6489a; }
 [data-theme="dark"] :is(#plan-mode-badge, #side-plan-mode-badge, .goal-mode-badge.is-plan) { --goal-badge-fg: #6aa8ff; }
-[data-theme="dark"] :is(#orchestrate-mode-badge, #side-orchestrate-mode-badge, .goal-mode-badge.is-orchestrate) { --goal-badge-fg: #a98bff; }
-[data-theme="dark"] :is(#ultra-mode-badge, #side-ultra-mode-badge, .goal-mode-badge.is-ultra) { --goal-badge-fg: #f07ab8; }
 .goal-mode-badge .goal-badge-icon {
   display: inline-flex;
   align-items: center;
@@ -3260,6 +3256,26 @@ spinner (data-chat-timeline-scroll-generating): the affordance then
   white-space: nowrap;
 }
 .composer-branch-btn .branch-caret { width: 12px; height: 12px; flex-shrink: 0; }
+.composer-execution-mode-select {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
+.composer-execution-mode-select .kls-select-panel {
+  width: max-content;
+  max-width: min(332px, calc(100vw - 24px));
+}
+.composer-execution-mode-select .kls-select-item {
+  white-space: normal;
+  align-items: flex-start;
+}
+.composer-execution-mode-select .kls-select-icon {
+  margin-top: 2px;
+}
+.composer-execution-mode-select .kls-select-item-desc {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: clip;
+}
 
 /* Composer surface — one card chrome for both docks (welcome slot and chat):
    crisp elevated card with a hairline border, tidy 8px radius (radius-sm per

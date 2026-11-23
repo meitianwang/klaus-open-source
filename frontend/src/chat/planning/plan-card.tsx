@@ -148,13 +148,9 @@ export function ProposedPlanReview({ controller, active = true }: { controller: 
   if (!pending) return null
   const primaryLabelKey = state.phase === 'accepting'
     ? 'planning_starting'
-    : state.implementationMode === 'orchestrate'
-      ? 'planning_implement_orchestrate'
-      : state.implementationMode === 'ultra'
-        ? 'planning_implement_ultra'
-        : state.implementationMode === 'goal'
-          ? 'planning_implement_goal'
-          : 'planning_implement'
+    : state.implementationMode === 'goal'
+      ? 'planning_implement_goal'
+      : 'planning_implement'
   const modeOptions: Array<{ mode: PlanImplementationMode; titleKey: string; descKey: string; disabled?: boolean }> = [
     { mode: 'standard', titleKey: 'planning_implement', descKey: 'planning_implement_standard_desc' },
     ...(goalStatus.eligible ? [{
@@ -163,8 +159,6 @@ export function ProposedPlanReview({ controller, active = true }: { controller: 
       descKey: goalStatus.locked ? 'planning_implement_goal_locked' : 'planning_implement_goal_desc',
       disabled: goalStatus.locked,
     }] : []),
-    { mode: 'orchestrate', titleKey: 'planning_implement_orchestrate', descKey: 'planning_implement_orchestrate_desc' },
-    { mode: 'ultra', titleKey: 'planning_implement_ultra', descKey: 'planning_implement_ultra_desc' },
   ]
   return <section className="proposed-plan-review" aria-label={t('planning_review_question')} data-plan-id={state.plan.id} data-plan-revision={state.plan.revision} aria-busy={working}>
     <header><strong>{t('planning_review_question')}</strong><button type="button" disabled={working} aria-label={t('planning_cancel')} onClick={() => { void controller.cancel() }}><ActionIcon name="close" /></button></header>
@@ -173,9 +167,11 @@ export function ProposedPlanReview({ controller, active = true }: { controller: 
         <button ref={choice} type="button" className="proposed-plan-implement" disabled={working} aria-keyshortcuts="Meta+Enter Control+Enter" onClick={() => { setModeMenuOpen(false); void controller.accept(state.implementationMode) }}>
           <span className="proposed-plan-choice" aria-hidden="true" /><span>{t(primaryLabelKey)}</span><span className="proposed-plan-choice-arrow" aria-hidden="true">→</span>
         </button>
-        <button type="button" className="proposed-plan-implement-more" disabled={working} aria-label={t('planning_implement_more')} aria-expanded={modeMenuOpen} data-plan-implement-more onClick={event => { event.stopPropagation(); setModeMenuOpen(open => !open) }}>
-          <ActionIcon name="chevron-down" />
-        </button>
+        {modeOptions.length > 1 ? (
+          <button type="button" className="proposed-plan-implement-more" disabled={working} aria-label={t('planning_implement_more')} aria-expanded={modeMenuOpen} data-plan-implement-more onClick={event => { event.stopPropagation(); setModeMenuOpen(open => !open) }}>
+            <ActionIcon name="chevron-down" />
+          </button>
+        ) : null}
       </div>
       {modeMenuOpen ? (
         <div className="proposed-plan-implement-menu" role="menu" data-plan-implement-menu>

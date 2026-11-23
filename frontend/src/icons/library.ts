@@ -62,6 +62,8 @@ import terminalWindowSvg from '@phosphor-icons/core/assets/regular/terminal-wind
 import terminalSvg from '@phosphor-icons/core/assets/regular/terminal.svg?raw'
 import chatsSvg from '@phosphor-icons/core/assets/regular/chats.svg?raw'
 import chatCircleSvg from '@phosphor-icons/core/assets/regular/chat-circle.svg?raw'
+import flowArrowSvg from '@phosphor-icons/core/assets/regular/flow-arrow.svg?raw'
+import arrowsSplitSvg from '@phosphor-icons/core/assets/regular/arrows-split.svg?raw'
 import chatCircleTextSvg from '@phosphor-icons/core/assets/regular/chat-circle-text.svg?raw'
 import arrowBendUpLeftSvg from '@phosphor-icons/core/assets/regular/arrow-bend-up-left.svg?raw'
 import chatSvg from '@phosphor-icons/core/assets/regular/chat.svg?raw'
@@ -517,6 +519,9 @@ export const LIBRARY: Record<string, string> = {
   'workspace-file': shell(fileSvg),
   'run-mode-local': shell(desktopSvg),              // 本机直跑
   'run-mode-worktree': shell(treeStructureSvg),     // worktree 隔离跑
+  'exec-mode-default': shell(chatCircleSvg),        // 默认模式（主模型直接执行）
+  'exec-mode-orchestrate': shell(flowArrowSvg),     // 编排模式（主模型规划验收 + 执行模型写代码）
+  'exec-mode-parallel': shell(arrowsSplitSvg),      // 并行模式（多路子任务并行）
 
   // —— diff 页 ——
   'diff-clear': shell(xSvg, { cls: 'diff-clear-icon' }),

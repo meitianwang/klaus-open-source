@@ -3,11 +3,8 @@ import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import {
   activateModeToggleShortcut,
-  isOrchestrateShortcut,
-  isUltraShortcut,
-  withOrchestrateShortcut,
-  withUltraShortcut,
 } from './work-mode-shortcuts'
+import { executionModeFlags, resolveSessionExecutionMode } from '../run-context'
 import { createPlanReviewController } from '../planning/plan-controller'
 import { ProposedPlanReview } from '../planning/plan-card'
 import { GlobalModelTiers } from '../../pages/settings/global-model-tiers'
@@ -36,20 +33,10 @@ afterAll(() => {
 })
 
 describe('work mode shortcuts', () => {
-  test('deduplicates and identifies /orchestrate and /parallel (with /ultra alias) shortcuts', () => {
-    const base = [
-      { name: 'ORCHESTRATE', kind: 'command' as const, type: 'action' as const },
-      { name: 'PARALLEL', kind: 'command' as const, type: 'action' as const },
-      { name: 'ULTRA', kind: 'command' as const, type: 'action' as const },
-      { name: 'review', kind: 'command' as const, type: 'action' as const },
-    ]
-    const list = withOrchestrateShortcut(withUltraShortcut(base, 'Parallel desc'), 'Orch desc')
-    expect(list.map(item => item.name)).toEqual(['orchestrate', 'parallel', 'review'])
-    expect(list[1].aliases).toEqual(['ultra'])
-    expect(isOrchestrateShortcut(list[0])).toBe(true)
-    expect(isUltraShortcut(list[1])).toBe(true)
-    expect(isUltraShortcut({ name: 'ultra', source: list[1].source, kind: 'command', type: 'action' })).toBe(true)
-    expect(isOrchestrateShortcut(list[2])).toBe(false)
+  test('does not expose /orchestrate or /parallel slash shortcuts anymore', async () => {
+    const shortcutsModule = await import('./work-mode-shortcuts')
+    expect('withOrchestrateShortcut' in shortcutsModule).toBe(false)
+    expect('withUltraShortcut' in shortcutsModule).toBe(false)
   })
 
   test('strips only the command token when toggling succeeds without session drift', async () => {
@@ -122,32 +109,33 @@ describe('work mode shortcuts', () => {
     expect(draft).toBe('refactor plus more')
   })
 
-  test('aligns all four mode badges to concise labels and plain-language descriptions', async () => {
+  test('exposes top-right execution mode labels alongside Plan and Goal labels', async () => {
     const { I18N } = await import('../../i18n/messages')
     expect([
-      I18N.zh.composer_plan,
-      I18N.zh.composer_goal,
-      I18N.zh.composer_orchestrate,
-      I18N.zh.composer_ultra,
-    ]).toEqual(['计划', '目标', '编排', '并行'])
+      I18N.zh.exec_mode_default,
+      I18N.zh.exec_mode_orchestrate,
+      I18N.zh.exec_mode_parallel,
+    ]).toEqual(['默认模式', '编排模式', '并行模式'])
     expect([
-      I18N.en.composer_plan,
-      I18N.en.composer_goal,
-      I18N.en.composer_orchestrate,
-      I18N.en.composer_ultra,
-    ]).toEqual(['Plan', 'Goal', 'Orchestrate', 'Parallel'])
+      I18N.en.exec_mode_default,
+      I18N.en.exec_mode_orchestrate,
+      I18N.en.exec_mode_parallel,
+    ]).toEqual(['Default mode', 'Orchestrate mode', 'Parallel mode'])
+    expect([I18N.zh.composer_plan, I18N.zh.composer_goal]).toEqual(['计划', '目标'])
+    expect([I18N.en.composer_plan, I18N.en.composer_goal]).toEqual(['Plan', 'Goal'])
     expect(I18N.zh.ultra_mode_description).toBe('拆成多路子任务同时做，最后汇总结果')
     expect(I18N.zh.orchestrate_mode_description).toBe('主模型负责规划和验收，执行模型负责写代码和验证')
     expect(I18N.zh.planning_implement_goal).toBe('是，按目标实施')
-    expect(I18N.zh.planning_implement_orchestrate).toBe('是，按编排实施')
-    expect(I18N.zh.planning_implement_ultra).toBe('是，按并行实施')
+    expect('planning_implement_orchestrate' in I18N.zh).toBe(false)
+    expect('planning_implement_ultra' in I18N.zh).toBe(false)
   })
 })
 
 describe('plan implementation mode bridge', () => {
-  test('prepares Goal, Orchestrate, Ultra, and Standard modes before accepting plan', async () => {
+  test('offers only Standard and Goal implementation choices on proposed plans', async () => {
     const preparedModes: Array<{ sessionId: string; mode: string; content: string }> = []
     let acceptedCount = 0
+    let allowGoal = false
     const plan = {
       id: 'plan-1',
       threadId: 'sess-1',
@@ -179,22 +167,22 @@ describe('plan implementation mode bridge', () => {
         goalState: () => ({ eligible: true, locked: false }),
         prepareMode: async (sessionId, mode, content) => {
           preparedModes.push({ sessionId, mode, content })
-          return mode !== 'ultra'
+          return mode !== 'goal' || allowGoal
         },
       },
     )
 
-    // Cancelled mode preparation (e.g. declining Full Access dialog) aborts acceptance cleanly.
-    expect(await controller.accept('ultra')).toBe(false)
+    // Cancelled Goal preparation aborts acceptance cleanly.
+    expect(await controller.accept('goal')).toBe(false)
     expect(acceptedCount).toBe(0)
-
-    // Goal mode prepares the persistent goal before accepting the plan.
-    expect(await controller.accept('goal')).toBe(true)
-    expect(acceptedCount).toBe(1)
-    expect(preparedModes.at(-1)?.mode).toBe('goal')
 
     const markup = renderToStaticMarkup(createElement(ProposedPlanReview, { controller }))
     expect(markup).toContain('data-plan-implement-more')
+
+    allowGoal = true
+    expect(await controller.accept('goal')).toBe(true)
+    expect(acceptedCount).toBe(1)
+    expect(preparedModes.at(-1)?.mode).toBe('goal')
   })
 })
 
@@ -320,13 +308,15 @@ describe('welcome work mode draft lifecycle', () => {
   const source = createSourceFile('chat.ts', readFileSync(new URL('../chat.ts', import.meta.url), 'utf8'), ScriptTarget.ESNext, true)
   const names = [
     'toggleComposerSpecEnabled',
+    'currentComposerExecutionMode',
+    'syncExecutionModeSelect',
     'effectiveWelcomeWorkModes',
     'patchCachedSessionWorkModes',
     'seedPromotedComposerPreferences',
+    'setComposerExecutionMode',
     'setComposerOrchestrateMode',
     'setComposerUltraMode',
     'syncWorkModeBadgesFromPreferences',
-    'clearWorkModesForGoal',
     'cacheComposerPreferences',
   ]
   const declarations = names.map(name => {
@@ -341,6 +331,8 @@ describe('welcome work mode draft lifecycle', () => {
     const ultraCalls: unknown[] = []
     const ensureSessionCalls: string[] = []
     const setItems: unknown[] = []
+    const executionSelectValues: string[] = []
+    let runContextVisible = true
     const context: any = {
       window: { currentSessionId: null as string | null },
       currentSessionId: null,
@@ -354,16 +346,17 @@ describe('welcome work mode draft lifecycle', () => {
       composerPreferencesRevision: 0,
       composerPreferencesSnapshot: null,
       composerPreferencesBySession: new Map<string | null, any>(),
+      executionModeFlags,
+      resolveSessionExecutionMode,
+      isComposerRunContextVisible: () => runContextVisible,
+      executionModeApi: { setValue: (v: string) => executionSelectValues.push(v) },
       ensureSession: async () => { ensureSessionCalls.push('ensure'); context.window.currentSessionId = 'created-session'; return 'created-session' },
       showToast() {},
-      updateWorkModeBadges() {},
-      updateOrchestrateBadge() {},
-      updateUltraBadge() {},
+      updateWorkModeBadges() { api.syncExecutionModeSelect() },
       setComposerGoalEnabled(enabled: boolean) { context.composerGoalEnabled = enabled },
       applyPlanningUpdated({ planning }: { planning?: { mode?: string } }) {
         const isPlan = planning?.mode === 'plan'
         context.composerSpecEnabled = isPlan
-        if (isPlan) { context.composerOrchestrateEnabled = false; context.composerUltraEnabled = false }
       },
       tt: (key: string) => key,
       klausApi: { session: {
@@ -382,40 +375,58 @@ describe('welcome work mode draft lifecycle', () => {
       sidePaneRuntimes: new Map(),
     }
     const api = runInNewContext(script, context) as Record<string, any>
-    return { api, context, orchestrationCalls, ultraCalls, ensureSessionCalls, setItems }
+    return {
+      api,
+      context,
+      orchestrationCalls,
+      ultraCalls,
+      ensureSessionCalls,
+      setItems,
+      executionSelectValues,
+      setRunContextVisible: (next: boolean) => { runContextVisible = next },
+    }
   }
 
   test('a welcome orchestration pick persists the default without creating a session and survives an older defaults push', async () => {
     const f = fixture()
-    const ok = await f.api.setComposerOrchestrateMode(true)
+    const ok = await f.api.setComposerExecutionMode('orchestrate')
     expect(ok).toBe(true)
     expect(f.ensureSessionCalls).toEqual([])
     expect(f.orchestrationCalls).toEqual([{ enabled: true, sessionId: null }])
     expect(f.api.composerOrchestrateEnabled).toBe(true)
+    expect(f.api.currentComposerExecutionMode()).toBe('orchestrate')
+    expect(f.executionSelectValues.at(-1)).toBe('orchestrate')
+
     f.api.syncWorkModeBadgesFromPreferences({ sessionId: null, orchestrationMode: false, ultraMode: false } as any)
     expect(f.api.composerOrchestrateEnabled).toBe(true)
     expect(f.api.composerUltraEnabled).toBe(false)
+
+    // Switching back to Default clears both flags and remembered defaults.
+    expect(await f.api.setComposerExecutionMode('default')).toBe(true)
+    expect(f.api.currentComposerExecutionMode()).toBe('default')
+    expect(f.executionSelectValues.at(-1)).toBe('default')
   })
 
-  test('enabling Orchestrate or Parallel in an open session invalidates cached null draft, while Plan and Goal clear only the active session', async () => {
+  test('Plan mode composes with Orchestrate and Parallel without clearing the draft execution mode, and running sessions reject edits', async () => {
     const f = fixture()
     f.context.composerPreferencesBySession.set(null, { sessionId: null, ultraMode: false, orchestrationMode: false })
     f.context.window.currentSessionId = 'sess-1'
-    expect(await f.api.setComposerUltraMode(true)).toBe(true)
+    expect(await f.api.setComposerExecutionMode('parallel')).toBe(true)
     expect(f.ultraCalls).toEqual([{ enabled: true, sessionId: 'sess-1' }])
     expect(f.context.composerPreferencesBySession.has(null)).toBe(false)
 
     f.ultraCalls.length = 0
     await f.api.toggleComposerSpecEnabled()
-    expect(f.ultraCalls).toEqual([{ enabled: false, sessionId: 'sess-1', options: { updateDefaults: false } }])
+    expect(f.ultraCalls).toEqual([])
     expect(f.api.composerSpecEnabled).toBe(true)
-    expect(f.api.composerUltraEnabled).toBe(false)
+    expect(f.api.composerUltraEnabled).toBe(true)
+    expect(f.api.currentComposerExecutionMode()).toBe('parallel')
 
-    f.context.composerSpecEnabled = false
-    f.context.composerOrchestrateEnabled = true
-    f.api.clearWorkModesForGoal('sess-2')
-    expect(f.orchestrationCalls).toEqual([{ enabled: false, sessionId: 'sess-2', options: { updateDefaults: false } }])
-    expect(f.api.composerOrchestrateEnabled).toBe(false)
+    // Once the conversation starts running, run-context hides and rejects edits.
+    f.setRunContextVisible(false)
+    expect(await f.api.setComposerExecutionMode('orchestrate')).toBe(false)
+    expect(f.orchestrationCalls).toEqual([])
+    expect(f.api.currentComposerExecutionMode()).toBe('parallel')
   })
 
   test('promoting a welcome draft seeds the promoted session with the picked mode', () => {

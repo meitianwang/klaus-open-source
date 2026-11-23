@@ -1,33 +1,3 @@
-import type { SlashCommandInfo } from '../engine-events'
-
-export const ORCHESTRATE_SHORTCUT_SOURCE = 'client-orchestrate-shortcut'
-export const ULTRA_SHORTCUT_SOURCE = 'client-ultra-shortcut'
-
-export function withOrchestrateShortcut(commands: SlashCommandInfo[], description: string): SlashCommandInfo[] {
-  return [
-    { name: 'orchestrate', description, source: ORCHESTRATE_SHORTCUT_SOURCE, kind: 'command', type: 'action' },
-    ...commands.filter(command => command.name.toLowerCase() !== 'orchestrate'),
-  ]
-}
-
-export function isOrchestrateShortcut(command: SlashCommandInfo | null | undefined): boolean {
-  return Boolean(command && command.name === 'orchestrate' && command.source === ORCHESTRATE_SHORTCUT_SOURCE)
-}
-
-export function withUltraShortcut(commands: SlashCommandInfo[], description: string): SlashCommandInfo[] {
-  return [
-    { name: 'parallel', aliases: ['ultra'], description, source: ULTRA_SHORTCUT_SOURCE, kind: 'command', type: 'action' },
-    ...commands.filter(command => {
-      const lower = command.name.toLowerCase()
-      return lower !== 'parallel' && lower !== 'ultra'
-    }),
-  ]
-}
-
-export function isUltraShortcut(command: SlashCommandInfo | null | undefined): boolean {
-  return Boolean(command && (command.name === 'parallel' || command.name === 'ultra') && command.source === ULTRA_SHORTCUT_SOURCE)
-}
-
 /** Remove `[start, end)` and the whitespace that follows it. */
 export function stripShortcutRange(draft: string, range: { start: number; end: number }): { value: string; caret: number } {
   const before = draft.slice(0, range.start)

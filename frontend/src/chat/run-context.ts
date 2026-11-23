@@ -17,6 +17,27 @@ import { transcriptContentPresence, type TranscriptChromeInput } from './transcr
 
 export type RunTargetKind = 'none' | 'project' | 'workspace'
 
+export type SessionExecutionMode = 'default' | 'orchestrate' | 'parallel'
+
+export function resolveSessionExecutionMode(input: {
+  ultraMode?: boolean
+  orchestrationMode?: boolean
+}): SessionExecutionMode {
+  if (input.ultraMode) return 'parallel'
+  if (input.orchestrationMode) return 'orchestrate'
+  return 'default'
+}
+
+export function executionModeFlags(mode: SessionExecutionMode): {
+  orchestrationMode: boolean
+  ultraMode: boolean
+} {
+  return {
+    orchestrationMode: mode === 'orchestrate',
+    ultraMode: mode === 'parallel',
+  }
+}
+
 export interface RunContextRowInput extends Pick<TranscriptChromeInput, 'running' | 'liveUnitCount' | 'history'> {
   editable: boolean
   pendingSubmission: boolean

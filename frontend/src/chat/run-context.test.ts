@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test'
-import { runContextControls, runContextRowVisible, type RunContextInput } from './run-context'
+import { executionModeFlags, resolveSessionExecutionMode, runContextControls, runContextRowVisible, type RunContextInput } from './run-context'
 import vectors from '../../../contracts/vectors/composer-submission-vectors.json'
 
 const input = (over: Partial<RunContextInput> = {}): RunContextInput =>
@@ -75,5 +75,17 @@ describe('composer run-context gating', () => {
         }
       }
     }
+  })
+
+  test('resolves and round-trips Default, Orchestrate, and Parallel execution modes', () => {
+    expect(resolveSessionExecutionMode({})).toBe('default')
+    expect(resolveSessionExecutionMode({ orchestrationMode: false, ultraMode: false })).toBe('default')
+    expect(resolveSessionExecutionMode({ orchestrationMode: true, ultraMode: false })).toBe('orchestrate')
+    expect(resolveSessionExecutionMode({ orchestrationMode: false, ultraMode: true })).toBe('parallel')
+    expect(resolveSessionExecutionMode({ orchestrationMode: true, ultraMode: true })).toBe('parallel')
+
+    expect(executionModeFlags('default')).toEqual({ orchestrationMode: false, ultraMode: false })
+    expect(executionModeFlags('orchestrate')).toEqual({ orchestrationMode: true, ultraMode: false })
+    expect(executionModeFlags('parallel')).toEqual({ orchestrationMode: false, ultraMode: true })
   })
 })

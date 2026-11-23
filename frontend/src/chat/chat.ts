@@ -71,7 +71,6 @@ import { mountPermissionSelect, permissionPresetFromResponse, type PermissionSel
 import { syntheticContextQuery, resolveSyntheticContextQuery, type SyntheticContextQuery } from './composer/context-menu-model'
 import { queryClient } from '../app/query-client'
 import { activatePlanShortcut, isPlanShortcut, withPlanShortcut } from './composer/plan-shortcut'
-import { activateModeToggleShortcut, isOrchestrateShortcut, isUltraShortcut, withOrchestrateShortcut, withUltraShortcut } from './composer/work-mode-shortcuts'
 import { configurePlanningQuestions, receivePlanningQuestion, planningQuestionReadToken, reconcilePlanningQuestionRead, pendingPlanningQuestions, subscribePlanningQuestions, PlanningQuestionView } from './planning/questions-runtime'
 import type { GoalSnapshot as GoalWireSnapshot, PlanningInputRequest } from '../../../contracts/planning-goals'
 import type { PlanningQuestionRequest } from './planning/questions-state'
@@ -222,7 +221,7 @@ import { activityToolDisplayName, activityToolPresentation } from './transcript/
 import { initApprovals, syncApprovalBadge, trackApprovalRequest, untrackApprovalRequest, untrackApprovalRequestsOfSession, restorePendingPermissions, showPermissionRequest, showElicitRequest, showMemorySnapshotPrompt, parkOrchestratorFallbackPrompts, type ApprovalRequest } from './approvals'
 import { createQuickInputConsumer } from './quick-input-submission'
 import { shouldRestoreWelcomeRunMode, type DraftRunMode } from './draft-run-mode'
-import { runContextControls, runContextRowVisible, type RunTargetKind } from './run-context'
+import { executionModeFlags, resolveSessionExecutionMode, runContextControls, runContextRowVisible, type RunTargetKind, type SessionExecutionMode } from './run-context'
 import { initAuthScreen, hideBootScreen, showLoginScreen, hideLoginScreen, seedIdentityKv, beginAccountLogin } from './auth-screen'
 import { initGuestSignin, syncGuestSigninUi } from './sidebar/guest-signin'
 import { initFeatureGates, type FeatureGateController } from './sidebar/feature-gate'
@@ -3592,8 +3591,6 @@ window.addEventListener('klaus:settings-visibility-change', () => syncTopModeBut
 function slashCommandDisplayName(command: SlashCommandInfo | null | undefined) {
   if (isManualCompactCommand(command)) return tt('compact_command_title')
   if (isPlanShortcut(command as SlashCommandInfo)) return tt('composer_plan')
-  if (isOrchestrateShortcut(command)) return tt('composer_orchestrate')
-  if (isUltraShortcut(command)) return tt('composer_ultra')
   if (isGoalShortcut(command as SlashCommandInfo)) return tt('composer_goal')
   return slashCommandDisplayLabel(command)
 }
@@ -3601,8 +3598,6 @@ function slashCommandDisplayName(command: SlashCommandInfo | null | undefined) {
 function slashCommandDescription(command: SlashCommandInfo | null | undefined) {
   if (isManualCompactCommand(command)) return manualCompactPresentation({ sessionId: window.currentSessionId, percent: contextUsageView(ctxPanel.sessions.get(window.currentSessionId || ''))?.percent ?? null }, tt).description
   if (isPlanShortcut(command as SlashCommandInfo)) return tt('composer_plan_description')
-  if (isOrchestrateShortcut(command)) return tt('orchestrate_mode_description')
-  if (isUltraShortcut(command)) return tt('ultra_mode_description')
   if (isGoalShortcut(command as SlashCommandInfo)) return tt('composer_goal_description')
   return window.klausSlashCommandI18n?.description?.(command) || command?.description || ''
 }
@@ -3680,8 +3675,6 @@ function commandGroupClass(command: SlashCommandInfo | null | undefined) {
 function commandIconSvg(command: SlashCommandInfo | null | undefined, className = '') {
   if (isManualCompactCommand(command)) return contextPieSvg(contextUsageView(ctxPanel.sessions.get(window.currentSessionId || ''))?.percent ?? 0).replace('<svg ', `<svg${iconClassAttr(className)} `)
   if (command && isPlanShortcut(command)) return klausIcon('plan', { cls: className })
-  if (isOrchestrateShortcut(command)) return klausIcon('workflow', { cls: className })
-  if (isUltraShortcut(command)) return klausIcon('sb-nav-agents', { cls: className })
   if (command && isGoalShortcut(command)) return klausIcon('goal', { cls: className })
   switch (commandGroupKey(command)) {
     case 'skills': return skillIconSvg(className)
@@ -12003,8 +11996,6 @@ function selectSlashItem(command: SlashCommandInfo) {
   if (isApprovalReviewShortcut(command)) { activateComposerApprovalReviewShortcut(triggerRange); return }
   if (isGoalShortcut(command)) { void activateComposerGoalShortcut(triggerRange); return }
   if (isPlanShortcut(command)) { void activateComposerPlanShortcut(triggerRange); return }
-  if (isOrchestrateShortcut(command)) { void activateComposerOrchestrateShortcut(triggerRange); return }
-  if (isUltraShortcut(command)) { void activateComposerUltraShortcut(triggerRange); return }
   insertSlashCommandToken(command, triggerRange)
   focusComposerInputAfterSlashInsert()
 }
@@ -12094,8 +12085,6 @@ const COMPOSER_PLUS_ICONS = {
   slash: slashCommandIconSvg(),
   spec: klausIcon('spec'),
   plan: klausIcon('plan'),
-  orchestrate: klausIcon('workflow'),
-  ultra: klausIcon('sb-nav-agents'),
   goal: klausIcon('goal'),
   check: klausIcon('check-2'),
   manage: klausIcon('manage'),
@@ -12430,12 +12419,6 @@ configurePlanningWorkflow({
     locked: hasLiveGoal(sessionId),
   }),
   prepareMode: async (sessionId, mode, content) => {
-    if (mode === 'orchestrate') {
-      return setComposerOrchestrateMode(true, sessionId)
-    }
-    if (mode === 'ultra') {
-      return setComposerUltraMode(true, sessionId)
-    }
     if (mode === 'goal') {
       if (hasLiveGoal(sessionId)) return false
       const rawObjective = Array.from(`${tt('goal_spec_objective_prefix')}\n\n${content.trim()}`).slice(0, 3900).join('')
@@ -12447,23 +12430,10 @@ configurePlanningWorkflow({
         submit: false,
       })
       if (updated?.ok === false) throw new Error('Goal creation failed')
-      composerOrchestrateEnabled = false
-      composerUltraEnabled = false
-      void klausApi.session.setOrchestrationMode?.(false, sessionId, { updateDefaults: false }).catch(() => {})
-      void klausApi.session.setUltraMode?.(false, sessionId, { updateDefaults: false }).catch(() => {})
-      patchCachedSessionWorkModes(sessionId, { ultraMode: false, orchestrationMode: false })
       updateWorkModeBadges()
       return true
     }
-    composerOrchestrateEnabled = false
-    composerUltraEnabled = false
-    await Promise.all([
-      klausApi.session.setOrchestrationMode?.(false, sessionId, { updateDefaults: false }).catch(() => {}),
-      klausApi.session.setUltraMode?.(false, sessionId, { updateDefaults: false }).catch(() => {}),
-    ])
-    patchCachedSessionWorkModes(sessionId, { ultraMode: false, orchestrationMode: false })
     updateWorkModeBadges()
-    void refreshComposerPreferences()
     return true
   },
 })
@@ -12560,12 +12530,7 @@ function applyPlanningUpdated({ sessionId, planning }: { sessionId: string; plan
   ingestPlanningSnapshot(sessionId, planning)
   if (sessionId === window.currentSessionId) {
     composerSpecEnabled = planning.mode === 'plan'
-    if (composerSpecEnabled) {
-      if (composerGoalEnabled) setComposerGoalEnabled(false)
-      if (typeof clearWorkModesForPlan === 'function') clearWorkModesForPlan()
-    } else if (typeof syncWorkModeBadgesFromPreferences === 'function' && typeof composerPreferencesSnapshot !== 'undefined' && composerPreferencesSnapshot?.sessionId === sessionId) {
-      syncWorkModeBadgesFromPreferences(composerPreferencesSnapshot)
-    }
+    if (composerSpecEnabled && composerGoalEnabled) setComposerGoalEnabled(false)
     updateSpecBadge()
     if (composerSpecEnabled) composerPredictions?.suspend?.(sessionId)
     else void composerPredictions?.refresh?.()
@@ -12598,9 +12563,7 @@ function composerGoalEligible(sessionId: string | null = window.currentSessionId
 }
 function withComposerGoalShortcut(commands: SlashCommandInfo[]): SlashCommandInfo[] {
   const scoped = composerGoalEligible() ? withGoalShortcut(commands, tt('composer_goal')) : commands.filter(command => !isGoalShortcut(command))
-  const withReview = withApprovalReviewShortcut(scoped, tt('approval_review_shortcut'), !!window.currentSessionId && approvalReviewDenials(window.currentSessionId).length > 0)
-  const withUltra = typeof withUltraShortcut === 'function' ? withUltraShortcut(withReview, tt('ultra_mode_description')) : withReview
-  return typeof withOrchestrateShortcut === 'function' ? withOrchestrateShortcut(withUltra, tt('orchestrate_mode_description')) : withUltra
+  return withApprovalReviewShortcut(scoped, tt('approval_review_shortcut'), !!window.currentSessionId && approvalReviewDenials(window.currentSessionId).length > 0)
 }
 
 function activateComposerApprovalReviewShortcut(range: { start: number; end: number } | null) {
@@ -12648,15 +12611,8 @@ async function toggleComposerGoalEnabled(forceEnable = false): Promise<boolean> 
   if (next) {
     composerSpecEnabled = false
     updateSpecBadge()
-    if (typeof clearWorkModesForGoal === 'function') clearWorkModesForGoal(targetSessionId)
   }
   setComposerGoalEnabled(next)
-  if (!next) {
-    if (!window.currentSessionId && typeof welcomeWorkMode !== 'undefined' && welcomeWorkMode === 'off') welcomeWorkMode = null
-    if (typeof syncWorkModeBadgesFromPreferences === 'function' && typeof composerPreferencesSnapshot !== 'undefined' && composerPreferencesSnapshot?.sessionId === window.currentSessionId) {
-      syncWorkModeBadgesFromPreferences(composerPreferencesSnapshot)
-    }
-  }
   return composerGoalEnabled
 }
 
@@ -12978,17 +12934,6 @@ async function refreshComposerSpecEnabled() {
 
 async function toggleComposerSpecEnabled() {
   const sourceSessionId = window.currentSessionId
-  const hadOrchestrate = composerOrchestrateEnabled
-  const hadUltra = composerUltraEnabled
-  // Plan mode owns the composer's mode slot while it is active. Selecting it on
-  // the welcome screen therefore drops the run mode on the new session without
-  // overwriting the remembered default for subsequent chats.
-  if (!sourceSessionId && !composerSpecEnabled && (composerOrchestrateEnabled || composerUltraEnabled || welcomeWorkMode === 'orchestrate' || welcomeWorkMode === 'ultra')) {
-    welcomeWorkMode = 'off'
-    composerOrchestrateEnabled = false
-    composerUltraEnabled = false
-    patchCachedSessionWorkModes(null, { ultraMode: false, orchestrationMode: false })
-  }
   const targetSessionId = sourceSessionId || await ensureSession()
   if (!targetSessionId || sourceSessionId && sourceSessionId !== window.currentSessionId) return composerSpecEnabled
   const next = !composerSpecEnabled
@@ -12996,18 +12941,7 @@ async function toggleComposerSpecEnabled() {
   try {
     const result = await klausApi.session.setCollaborationMode(targetSessionId, next ? 'plan' : 'default')
     if (window.currentSessionId !== targetSessionId || generation !== specModeRevision) return composerSpecEnabled
-    if (next) {
-      if (composerGoalEnabled) setComposerGoalEnabled(false)
-      if (hadOrchestrate && sourceSessionId) {
-        composerOrchestrateEnabled = false
-        await klausApi.session.setOrchestrationMode?.(false, targetSessionId, { updateDefaults: false }).catch(() => {})
-      }
-      if (hadUltra && sourceSessionId) {
-        composerUltraEnabled = false
-        await klausApi.session.setUltraMode?.(false, targetSessionId, { updateDefaults: false }).catch(() => {})
-      }
-      patchCachedSessionWorkModes(targetSessionId, { ultraMode: false, orchestrationMode: false })
-    }
+    if (next && composerGoalEnabled) setComposerGoalEnabled(false)
     applyPlanningUpdated({ sessionId: targetSessionId, planning: result.planning })
   } catch { showToast(tt('planning_mode_failed')) }
   updateWorkModeBadges()
@@ -13019,6 +12953,16 @@ let composerUltraEnabled = false
 type WelcomeWorkMode = 'orchestrate' | 'ultra' | 'off' | null
 let welcomeWorkMode: WelcomeWorkMode = null
 let workModeMutationRevision = 0
+
+function currentComposerExecutionMode(): SessionExecutionMode {
+  return resolveSessionExecutionMode({ ultraMode: composerUltraEnabled, orchestrationMode: composerOrchestrateEnabled })
+}
+
+function syncExecutionModeSelect() {
+  if (typeof executionModeApi !== 'undefined' && executionModeApi) {
+    executionModeApi.setValue(currentComposerExecutionMode())
+  }
+}
 
 function effectiveWelcomeWorkModes(snapshot: { ultraMode?: boolean; orchestrationMode?: boolean }) {
   const ultraMode = welcomeWorkMode === null ? Boolean(snapshot.ultraMode) : welcomeWorkMode === 'ultra'
@@ -13035,10 +12979,15 @@ function patchCachedSessionWorkModes(sessionId: string | null, patch: { ultraMod
 }
 
 function clearUnresolvedSessionWorkModeBadges() {
-  if (window.currentSessionId === null) {
-    const resolved = effectiveWelcomeWorkModes({ ultraMode: false, orchestrationMode: false })
-    composerUltraEnabled = resolved.ultraMode && !composerSpecEnabled && !composerGoalEnabled
-    composerOrchestrateEnabled = resolved.orchestrationMode && !composerUltraEnabled && !composerSpecEnabled && !composerGoalEnabled
+  const sessionId = window.currentSessionId
+  const cached = composerPreferencesBySession.get(sessionId)
+  if (sessionId === null) {
+    const resolved = effectiveWelcomeWorkModes(cached ?? { ultraMode: false, orchestrationMode: false })
+    composerUltraEnabled = resolved.ultraMode
+    composerOrchestrateEnabled = resolved.orchestrationMode && !composerUltraEnabled
+  } else if (cached) {
+    composerUltraEnabled = Boolean(cached.ultraMode)
+    composerOrchestrateEnabled = Boolean(cached.orchestrationMode) && !composerUltraEnabled
   } else {
     composerOrchestrateEnabled = false
     composerUltraEnabled = false
@@ -13092,39 +13041,44 @@ function replaceComposerShortcutDraft(value: string, caret: number) {
   focusComposerInput(inputEl, caret)
 }
 
-async function setComposerOrchestrateMode(next: boolean, explicitSessionId?: string | null): Promise<boolean> {
+async function setComposerExecutionMode(mode: SessionExecutionMode, explicitSessionId?: string | null): Promise<boolean> {
+  if (explicitSessionId === undefined && typeof isComposerRunContextVisible === 'function' && !isComposerRunContextVisible()) {
+    syncExecutionModeSelect()
+    return false
+  }
+  const nextFlags = executionModeFlags(mode)
   const sourceSessionId = explicitSessionId ?? window.currentSessionId
   if (!sourceSessionId && explicitSessionId === undefined) {
     const revision = ++workModeMutationRevision
     const prevWelcome = welcomeWorkMode
     const prevOrchestrate = composerOrchestrateEnabled
     const prevUltra = composerUltraEnabled
-    const prevGoal = composerGoalEnabled
-    const prevSpec = composerSpecEnabled
-    if (next) {
-      composerSpecEnabled = false
-      if (composerGoalEnabled) setComposerGoalEnabled(false)
-    }
-    if (next) welcomeWorkMode = 'orchestrate'
-    else if (welcomeWorkMode === 'orchestrate' || welcomeWorkMode === null) welcomeWorkMode = 'off'
-    composerOrchestrateEnabled = next
-    if (next) composerUltraEnabled = false
-    patchCachedSessionWorkModes(null, { ultraMode: next ? false : composerUltraEnabled, orchestrationMode: next })
+    welcomeWorkMode = mode === 'orchestrate' ? 'orchestrate' : mode === 'parallel' ? 'ultra' : 'off'
+    composerOrchestrateEnabled = nextFlags.orchestrationMode
+    composerUltraEnabled = nextFlags.ultraMode
+    patchCachedSessionWorkModes(null, nextFlags)
     updateWorkModeBadges()
     try {
-      await klausApi.session.setOrchestrationMode(next, null)
+      if (mode === 'orchestrate') {
+        await klausApi.session.setOrchestrationMode(true, null)
+      } else if (mode === 'parallel') {
+        await klausApi.session.setUltraMode(true, null)
+      } else {
+        await Promise.all([
+          klausApi.session.setOrchestrationMode(false, null),
+          klausApi.session.setUltraMode(false, null),
+        ])
+      }
       return true
     } catch {
       if (revision === workModeMutationRevision && window.currentSessionId === null) {
         welcomeWorkMode = prevWelcome
         composerOrchestrateEnabled = prevOrchestrate
         composerUltraEnabled = prevUltra
-        composerSpecEnabled = prevSpec
-        if (composerGoalEnabled !== prevGoal) setComposerGoalEnabled(prevGoal)
         patchCachedSessionWorkModes(null, { ultraMode: prevUltra, orchestrationMode: prevOrchestrate })
         updateWorkModeBadges()
       }
-      showToast(tt('orchestrate_mode_failed'))
+      showToast(tt(mode === 'orchestrate' ? 'orchestrate_mode_failed' : mode === 'parallel' ? 'ultra_mode_failed' : 'exec_mode_failed'))
       return false
     }
   }
@@ -13133,245 +13087,66 @@ async function setComposerOrchestrateMode(next: boolean, explicitSessionId?: str
   const revision = ++workModeMutationRevision
   const prevOrchestrate = composerOrchestrateEnabled
   const prevUltra = composerUltraEnabled
-  const prevGoal = composerGoalEnabled
-  const prevSpec = composerSpecEnabled
   const isCurrent = explicitSessionId === undefined && targetSessionId === window.currentSessionId
   const restore = () => {
     if (revision !== workModeMutationRevision || targetSessionId !== window.currentSessionId) return
     composerOrchestrateEnabled = prevOrchestrate
     composerUltraEnabled = prevUltra
-    composerSpecEnabled = prevSpec
-    if (composerGoalEnabled !== prevGoal) setComposerGoalEnabled(prevGoal)
     patchCachedSessionWorkModes(targetSessionId, { ultraMode: prevUltra, orchestrationMode: prevOrchestrate })
     updateWorkModeBadges()
   }
-  // Turning a work mode on replaces Plan in the same frame, so the badge swaps
-  // once instead of showing Plan until the collaboration call returns.
-  if (next && prevSpec && explicitSessionId === undefined) composerSpecEnabled = false
   if (isCurrent) {
-    composerOrchestrateEnabled = next
-    if (next) composerUltraEnabled = false
-    if (next && composerGoalEnabled) setComposerGoalEnabled(false)
-    patchCachedSessionWorkModes(targetSessionId, { ultraMode: next ? false : prevUltra, orchestrationMode: next })
+    composerOrchestrateEnabled = nextFlags.orchestrationMode
+    composerUltraEnabled = nextFlags.ultraMode
+    patchCachedSessionWorkModes(targetSessionId, nextFlags)
     updateWorkModeBadges()
   }
-  if (next && prevSpec && explicitSessionId === undefined) {
-    try {
-      const result = await klausApi.session.setCollaborationMode(targetSessionId, 'default')
-      applyPlanningUpdated({ sessionId: targetSessionId, planning: result.planning })
-    } catch {
-      composerSpecEnabled = true
-      restore()
-      showToast(tt('planning_mode_failed'))
-      return false
-    }
-    if (revision !== workModeMutationRevision || targetSessionId !== window.currentSessionId) return false
-  }
   try {
-    await klausApi.session.setOrchestrationMode(next, targetSessionId)
+    if (mode === 'orchestrate') {
+      await klausApi.session.setOrchestrationMode(true, targetSessionId)
+    } else if (mode === 'parallel') {
+      await klausApi.session.setUltraMode(true, targetSessionId)
+    } else {
+      await Promise.all([
+        klausApi.session.setOrchestrationMode(false, targetSessionId),
+        klausApi.session.setUltraMode(false, targetSessionId),
+      ])
+    }
     composerPreferencesBySession.delete(null)
     if (revision === workModeMutationRevision && targetSessionId === window.currentSessionId) {
-      composerOrchestrateEnabled = next
-      if (next) composerUltraEnabled = false
-      patchCachedSessionWorkModes(targetSessionId, { ultraMode: next ? false : composerUltraEnabled, orchestrationMode: next })
+      composerOrchestrateEnabled = nextFlags.orchestrationMode
+      composerUltraEnabled = nextFlags.ultraMode
+      patchCachedSessionWorkModes(targetSessionId, nextFlags)
       updateWorkModeBadges()
     }
     return true
   } catch {
     restore()
-    showToast(tt('orchestrate_mode_failed'))
+    showToast(tt(mode === 'orchestrate' ? 'orchestrate_mode_failed' : mode === 'parallel' ? 'ultra_mode_failed' : 'exec_mode_failed'))
     return false
   }
+}
+
+async function setComposerOrchestrateMode(next: boolean, explicitSessionId?: string | null): Promise<boolean> {
+  return setComposerExecutionMode(next ? 'orchestrate' : 'default', explicitSessionId)
 }
 
 async function setComposerUltraMode(next: boolean, explicitSessionId?: string | null): Promise<boolean> {
-  const sourceSessionId = explicitSessionId ?? window.currentSessionId
-  if (!sourceSessionId && explicitSessionId === undefined) {
-    const revision = ++workModeMutationRevision
-    const prevWelcome = welcomeWorkMode
-    const prevOrchestrate = composerOrchestrateEnabled
-    const prevUltra = composerUltraEnabled
-    const prevGoal = composerGoalEnabled
-    const prevSpec = composerSpecEnabled
-    if (next) {
-      composerSpecEnabled = false
-      if (composerGoalEnabled) setComposerGoalEnabled(false)
-    }
-    if (next) welcomeWorkMode = 'ultra'
-    else if (welcomeWorkMode === 'ultra' || welcomeWorkMode === null) welcomeWorkMode = 'off'
-    composerUltraEnabled = next
-    if (next) composerOrchestrateEnabled = false
-    patchCachedSessionWorkModes(null, { ultraMode: next, orchestrationMode: next ? false : composerOrchestrateEnabled })
-    updateWorkModeBadges()
-    try {
-      await klausApi.session.setUltraMode(next, null)
-      return true
-    } catch {
-      if (revision === workModeMutationRevision && window.currentSessionId === null) {
-        welcomeWorkMode = prevWelcome
-        composerOrchestrateEnabled = prevOrchestrate
-        composerUltraEnabled = prevUltra
-        composerSpecEnabled = prevSpec
-        if (composerGoalEnabled !== prevGoal) setComposerGoalEnabled(prevGoal)
-        patchCachedSessionWorkModes(null, { ultraMode: prevUltra, orchestrationMode: prevOrchestrate })
-        updateWorkModeBadges()
-      }
-      showToast(tt('ultra_mode_failed'))
-      return false
-    }
-  }
-  const targetSessionId = sourceSessionId
-  if (!targetSessionId || (explicitSessionId === undefined && sourceSessionId !== window.currentSessionId)) return false
-  const revision = ++workModeMutationRevision
-  const prevOrchestrate = composerOrchestrateEnabled
-  const prevUltra = composerUltraEnabled
-  const prevGoal = composerGoalEnabled
-  const prevSpec = composerSpecEnabled
-  const isCurrent = explicitSessionId === undefined && targetSessionId === window.currentSessionId
-  const restore = () => {
-    if (revision !== workModeMutationRevision || targetSessionId !== window.currentSessionId) return
-    composerOrchestrateEnabled = prevOrchestrate
-    composerUltraEnabled = prevUltra
-    composerSpecEnabled = prevSpec
-    if (composerGoalEnabled !== prevGoal) setComposerGoalEnabled(prevGoal)
-    patchCachedSessionWorkModes(targetSessionId, { ultraMode: prevUltra, orchestrationMode: prevOrchestrate })
-    updateWorkModeBadges()
-  }
-  // Turning a work mode on replaces Plan in the same frame, so the badge swaps
-  // once instead of showing Plan until the collaboration call returns.
-  if (next && prevSpec && explicitSessionId === undefined) composerSpecEnabled = false
-  if (isCurrent) {
-    composerUltraEnabled = next
-    if (next) composerOrchestrateEnabled = false
-    if (next && composerGoalEnabled) setComposerGoalEnabled(false)
-    patchCachedSessionWorkModes(targetSessionId, { ultraMode: next, orchestrationMode: next ? false : prevOrchestrate })
-    updateWorkModeBadges()
-  }
-  if (next && prevSpec && explicitSessionId === undefined) {
-    try {
-      const result = await klausApi.session.setCollaborationMode(targetSessionId, 'default')
-      applyPlanningUpdated({ sessionId: targetSessionId, planning: result.planning })
-    } catch {
-      composerSpecEnabled = true
-      restore()
-      showToast(tt('planning_mode_failed'))
-      return false
-    }
-    if (revision !== workModeMutationRevision || targetSessionId !== window.currentSessionId) return false
-  }
-  try {
-    await klausApi.session.setUltraMode(next, targetSessionId)
-    composerPreferencesBySession.delete(null)
-    if (revision === workModeMutationRevision && targetSessionId === window.currentSessionId) {
-      composerUltraEnabled = next
-      if (next) composerOrchestrateEnabled = false
-      patchCachedSessionWorkModes(targetSessionId, { ultraMode: next, orchestrationMode: next ? false : prevOrchestrate })
-      updateWorkModeBadges()
-    }
-    return true
-  } catch {
-    restore()
-    showToast(tt('ultra_mode_failed'))
-    return false
-  }
-}
-
-async function activateComposerOrchestrateShortcut(range: { start: number; end: number } | null) {
-  return activateModeToggleShortcut({
-    sessionId: () => window.currentSessionId,
-    readDraft: () => inputEl.value,
-    toggle: () => setComposerOrchestrateMode(!composerOrchestrateEnabled),
-    replaceDraft: replaceComposerShortcutDraft,
-  }, range)
-}
-
-async function activateComposerUltraShortcut(range: { start: number; end: number } | null) {
-  return activateModeToggleShortcut({
-    sessionId: () => window.currentSessionId,
-    readDraft: () => inputEl.value,
-    toggle: () => setComposerUltraMode(!composerUltraEnabled),
-    replaceDraft: replaceComposerShortcutDraft,
-  }, range)
-}
-
-function updateOrchestrateBadge() {
-  const inputRow = inputWrapperEl?.querySelector('.input-row')
-  if (!inputRow) return
-  let badge = document.getElementById('orchestrate-mode-badge')
-  if (!composerOrchestrateEnabled || composerSpecEnabled || composerGoalEnabled) { badge?.remove(); return }
-  if (!badge) {
-    badge = document.createElement('button')
-    badge.id = 'orchestrate-mode-badge'
-    ;(badge as HTMLButtonElement).type = 'button'
-    badge.className = 'goal-mode-badge spec-mode-badge is-orchestrate'
-    badge.onclick = () => { void setComposerOrchestrateMode(false) }
-  }
-  badge.classList.add('is-orchestrate')
-  badge.setAttribute('aria-label', tt('orchestrate_mode_off'))
-  badge.innerHTML = `<span class="goal-badge-icon" aria-hidden="true">${COMPOSER_PLUS_ICONS.orchestrate}</span><span class="goal-badge-close" aria-hidden="true">×</span><span class="goal-badge-text">${escapeHtml(tt('composer_orchestrate'))}</span>`
-  placeComposerModeBadge(inputRow, badge)
-}
-
-function updateUltraBadge() {
-  const inputRow = inputWrapperEl?.querySelector('.input-row')
-  if (!inputRow) return
-  let badge = document.getElementById('ultra-mode-badge')
-  if (!composerUltraEnabled || composerOrchestrateEnabled || composerSpecEnabled || composerGoalEnabled) { badge?.remove(); return }
-  if (!badge) {
-    badge = document.createElement('button')
-    badge.id = 'ultra-mode-badge'
-    ;(badge as HTMLButtonElement).type = 'button'
-    badge.className = 'goal-mode-badge spec-mode-badge is-ultra'
-    badge.onclick = () => { void setComposerUltraMode(false) }
-  }
-  badge.classList.add('is-ultra')
-  badge.setAttribute('aria-label', tt('ultra_mode_off'))
-  badge.innerHTML = `<span class="goal-badge-icon" aria-hidden="true">${COMPOSER_PLUS_ICONS.ultra}</span><span class="goal-badge-close" aria-hidden="true">×</span><span class="goal-badge-text">${escapeHtml(tt('composer_ultra'))}</span>`
-  placeComposerModeBadge(inputRow, badge)
+  return setComposerExecutionMode(next ? 'parallel' : 'default', explicitSessionId)
 }
 
 function updateWorkModeBadges() {
   updateGoalBadge()
   updateSpecBadge()
-  updateOrchestrateBadge()
-  updateUltraBadge()
-}
-
-function clearWorkModesForGoal(targetSessionId: string | null) {
-  if (!targetSessionId) {
-    if (composerOrchestrateEnabled || composerUltraEnabled || welcomeWorkMode === 'orchestrate' || welcomeWorkMode === 'ultra') {
-      welcomeWorkMode = 'off'
-      composerOrchestrateEnabled = false
-      composerUltraEnabled = false
-      patchCachedSessionWorkModes(null, { ultraMode: false, orchestrationMode: false })
-      updateWorkModeBadges()
-    }
-    return
-  }
-  if (composerOrchestrateEnabled) {
-    composerOrchestrateEnabled = false
-    void klausApi.session.setOrchestrationMode?.(false, targetSessionId, { updateDefaults: false }).catch(() => {})
-  }
-  if (composerUltraEnabled) {
-    composerUltraEnabled = false
-    void klausApi.session.setUltraMode?.(false, targetSessionId, { updateDefaults: false }).catch(() => {})
-  }
-  patchCachedSessionWorkModes(targetSessionId, { ultraMode: false, orchestrationMode: false })
-  updateWorkModeBadges()
-}
-
-function clearWorkModesForPlan() {
-  if (composerOrchestrateEnabled) composerOrchestrateEnabled = false
-  if (composerUltraEnabled) composerUltraEnabled = false
-  updateOrchestrateBadge()
-  updateUltraBadge()
+  document.getElementById('orchestrate-mode-badge')?.remove()
+  document.getElementById('ultra-mode-badge')?.remove()
+  syncExecutionModeSelect()
 }
 
 function syncWorkModeBadgesFromPreferences(snapshot: ComposerPreferencesSnapshot) {
-  const goalLocked = Boolean(snapshot.sessionId && typeof hasLiveGoal === 'function' && hasLiveGoal(snapshot.sessionId))
   const resolved = snapshot.sessionId === null ? effectiveWelcomeWorkModes(snapshot) : { ultraMode: Boolean(snapshot.ultraMode), orchestrationMode: Boolean(snapshot.orchestrationMode) }
-  composerUltraEnabled = resolved.ultraMode && !composerSpecEnabled && !composerGoalEnabled && !goalLocked
-  composerOrchestrateEnabled = resolved.orchestrationMode && !composerUltraEnabled && !composerSpecEnabled && !composerGoalEnabled && !goalLocked
+  composerUltraEnabled = resolved.ultraMode
+  composerOrchestrateEnabled = resolved.orchestrationMode && !composerUltraEnabled
   updateWorkModeBadges()
 }
 
@@ -13565,8 +13340,6 @@ function selectComposerCommand(command: SlashCommandInfo, triggerRange?: { start
   if (isApprovalReviewShortcut(command)) { activateComposerApprovalReviewShortcut(range || null); return }
   if (isGoalShortcut(command)) { void activateComposerGoalShortcut(range || null); return }
   if (isPlanShortcut(command)) { void activateComposerPlanShortcut(range || null); return }
-  if (isOrchestrateShortcut(command)) { void activateComposerOrchestrateShortcut(range || null); return }
-  if (isUltraShortcut(command)) { void activateComposerUltraShortcut(range || null); return }
   insertSlashCommandToken(command, range || null)
   focusComposerInputAfterSlashInsert()
 }
@@ -14828,6 +14601,7 @@ if (btnWorkdir && workdirClearEl) {
 //   受管 worktree（ensureRunModeWorkspaceForSend），会话落在隔离工作区。
 //   分支行内嵌「包括 N 个未提交的更改」开关，随创建请求传给宿主。
 const runModeSelectEl = document.getElementById('run-mode-select')
+const executionModeSelectEl = document.getElementById('execution-mode-select')
 const branchBtn = document.getElementById('branch-btn')
 const branchLabelEl = branchBtn?.querySelector<HTMLElement>('.branch-label')
 let pendingRunMode = 'local'
@@ -14912,6 +14686,30 @@ const RUN_MODE_LOCAL_ICON = klausIcon('run-mode-local')
 // 工作树专属层级树字形（根节点分叉出两个子节点），与右侧分支选择器的
 // 三节点分支字形明确区分；与项目/分支 picker 同为 path-fill 空心字形。
 const RUN_MODE_WORKTREE_ICON = klausIcon('run-mode-worktree')
+const EXEC_MODE_DEFAULT_ICON = klausIcon('exec-mode-default')
+const EXEC_MODE_ORCHESTRATE_ICON = klausIcon('exec-mode-orchestrate')
+const EXEC_MODE_PARALLEL_ICON = klausIcon('exec-mode-parallel')
+
+function executionModeItems() {
+  return [
+    { value: 'default', i18nKey: 'exec_mode_default', descriptionKey: 'exec_mode_default_desc', iconHtml: EXEC_MODE_DEFAULT_ICON },
+    { value: 'orchestrate', i18nKey: 'exec_mode_orchestrate', descriptionKey: 'orchestrate_mode_description', iconHtml: EXEC_MODE_ORCHESTRATE_ICON },
+    { value: 'parallel', i18nKey: 'exec_mode_parallel', descriptionKey: 'ultra_mode_description', iconHtml: EXEC_MODE_PARALLEL_ICON },
+  ]
+}
+
+const executionModeApi = executionModeSelectEl && window.klsSelect
+  ? window.klsSelect.bind(executionModeSelectEl, {
+      items: executionModeItems(),
+      value: currentComposerExecutionMode(),
+      align: 'end',
+      ariaLabelKey: 'exec_mode_aria_label',
+      onChange: (value: string) => {
+        const next: SessionExecutionMode = value === 'orchestrate' || value === 'parallel' ? value : 'default'
+        void setComposerExecutionMode(next)
+      },
+    })
+  : null
 
 const runModeApi = runModeSelectEl && window.klsSelect
   ? window.klsSelect.bind(runModeSelectEl, {
@@ -14980,6 +14778,22 @@ function renderComposerBranchLabel() {
   syncTruncatedTip(branchBtn, branchLabelEl, branch)
 }
 
+function isComposerRunContextVisible() {
+  const sessionId = window.currentSessionId
+  const pending = sessionId
+    ? [...pendingComposerSubmissions.values()].find(submission => submission.sessionId === sessionId)
+    : visiblePendingSubmissionId ? pendingComposerSubmissions.get(visiblePendingSubmissionId) : undefined
+  const streamId = sessionId || pending?.viewId
+  const stream = streamId ? chatStreamStore.getState().sessions[streamId] : undefined
+  return runContextRowVisible({
+    editable: canEditProjectForCurrentConversation(),
+    pendingSubmission: !!pending,
+    running: !!(stream?.running || sessionId && runningSessions.has(sessionId)),
+    liveUnitCount: stream?.liveUnits.length || 0,
+    history: stream?.history,
+  })
+}
+
 // Hide setup as soon as a submitted message owns this surface, independently
 // from the draft editability needed to finish first-turn workspace preparation.
 function syncComposerContextRowVisibility() {
@@ -14997,6 +14811,7 @@ function syncComposerContextRowVisibility() {
     liveUnitCount: stream?.liveUnits.length || 0,
     history: stream?.history,
   })
+  if (!visible && typeof executionModeApi !== 'undefined' && executionModeApi) executionModeApi.close?.()
   if (composerContextRowEl.hidden !== !visible) composerContextRowEl.hidden = !visible
 }
 

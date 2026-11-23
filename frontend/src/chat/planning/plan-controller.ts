@@ -1,6 +1,6 @@
 import type { PlanDocument, PlanningApi, PlanningSnapshot, ProposedPlan } from './types'
 
-export type PlanImplementationMode = 'standard' | 'goal' | 'orchestrate' | 'ultra'
+export type PlanImplementationMode = 'standard' | 'goal'
 
 export interface PlanImplementationHooks {
   prepareMode?(sessionId: string, mode: PlanImplementationMode, content: string): Promise<boolean>

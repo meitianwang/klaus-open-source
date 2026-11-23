@@ -3863,6 +3863,12 @@ browser_ext_connected: 'Extension connected',
     // Worktree 选项在「无单一仓库/无当前分支」目标的禁用理由（Qoder
     // `application.masterMode.execution.disabledReason`）。
     run_worktree_unavailable: 'Not available for this project',
+    exec_mode_aria_label: 'Execution mode',
+    exec_mode_default: 'Default mode',
+    exec_mode_default_desc: 'Complete the task directly with the chat model',
+    exec_mode_orchestrate: 'Orchestrate mode',
+    exec_mode_parallel: 'Parallel mode',
+    exec_mode_failed: 'Failed to switch execution mode',
     // 当前分支行上的未提交改动：本地模式只读计数，Worktree 模式是可点开关
     // （Qoder `branch.selector.uncommitted` / `includeUncommitted`）。
     branch_uncommitted_count: 'Uncommitted: {count} files',
@@ -8187,6 +8193,12 @@ browser_ext_connected: '扩展已连接',
     // Worktree 选项在「无单一仓库/无当前分支」目标的禁用理由（Qoder
     // `application.masterMode.execution.disabledReason`）。
     run_worktree_unavailable: '当前项目暂不支持',
+    exec_mode_aria_label: '运行模式',
+    exec_mode_default: '默认模式',
+    exec_mode_default_desc: '由当前主模型直接完成任务',
+    exec_mode_orchestrate: '编排模式',
+    exec_mode_parallel: '并行模式',
+    exec_mode_failed: '切换运行模式失败',
     // 当前分支行上的未提交改动：本地模式只读计数，Worktree 模式是可点开关
     // （Qoder `branch.selector.uncommitted` / `includeUncommitted`）。
     branch_uncommitted_count: '未提交：{count} 个文件',

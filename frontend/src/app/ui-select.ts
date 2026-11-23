@@ -59,12 +59,15 @@ export interface BindOptions {
   placeholder?: string
   hideSelected?: boolean
   disabled?: boolean
+  align?: 'start' | 'end'
+  ariaLabelKey?: string
 }
 
 // Position a panel below its trigger in viewport coords. Flips horizontally
-// when overflowing right, vertically when overflowing bottom. Same algorithm
-// as cron.js's positionPopup so behavior matches across the app.
-function positionPanel(trigger: HTMLElement, panel: HTMLElement) {
+// when overflowing right (or aligns right edges when align === 'end'), vertically
+// when overflowing bottom. Same algorithm as cron.js's positionPopup so behavior
+// matches across the app.
+function positionPanel(trigger: HTMLElement, panel: HTMLElement, align: 'start' | 'end' = 'start') {
   const rect = trigger.getBoundingClientRect()
   // A transformed or filtered ancestor (a modal's entrance animation carries a
   // transform; overlays carry backdrop-filter) becomes the containing block
@@ -103,7 +106,7 @@ function positionPanel(trigger: HTMLElement, panel: HTMLElement) {
   panel.style.right = 'auto'
   const pr = panel.getBoundingClientRect()
   const maxRight = effectiveViewportRight(rect.left) - 8
-  if (pr.right > maxRight) {
+  if (align === 'end' || pr.right > maxRight) {
     left = Math.max(8, Math.min(rect.right - pr.width, maxRight - pr.width)) - originX
     panel.style.left = `${left}px`
   }
@@ -120,14 +123,14 @@ function positionPanel(trigger: HTMLElement, panel: HTMLElement) {
 // is underneath. Re-position every frame while open; writes happen only when
 // the trigger actually moved or the panel drifted, so an idle open menu costs
 // one rect read per frame.
-function trackPanel(trigger: HTMLElement, panel: HTMLElement): () => void {
+function trackPanel(trigger: HTMLElement, panel: HTMLElement, align: () => 'start' | 'end'): () => void {
   let last: { x: number; y: number; w: number; h: number; top: string; left: string } | null = null
   let frame = 0
   const tick = () => {
     const rect = trigger.getBoundingClientRect()
     if (!last || last.x !== rect.left || last.y !== rect.top || last.w !== rect.width || last.h !== rect.height
       || panel.style.top !== last.top || panel.style.left !== last.left) {
-      positionPanel(trigger, panel)
+      positionPanel(trigger, panel, align())
       last = { x: rect.left, y: rect.top, w: rect.width, h: rect.height, top: panel.style.top, left: panel.style.left }
     }
     frame = requestAnimationFrame(tick)
@@ -277,9 +280,9 @@ function bind(root: HTMLElement, opts: BindOptions = {}): SelectApi {
     root.classList.add('open')
     trigger!.setAttribute('aria-expanded', 'true')
     panel!.hidden = false
-    positionPanel(trigger!, panel!)
+    positionPanel(trigger!, panel!, currentOpts.align ?? 'start')
     stopTracking?.()
-    stopTracking = trackPanel(trigger!, panel!)
+    stopTracking = trackPanel(trigger!, panel!, () => currentOpts.align ?? 'start')
   }
   function close() {
     root.classList.remove('open')
@@ -295,6 +298,9 @@ function bind(root: HTMLElement, opts: BindOptions = {}): SelectApi {
     delete (root as any).__klsSelect
   }
   function refresh() {
+    if (currentOpts.ariaLabelKey && typeof (window as any).tt === 'function') {
+      trigger!.setAttribute('aria-label', (window as any).tt(currentOpts.ariaLabelKey))
+    }
     renderItems(panel!, items!, value, resolveLabel, resolveTooltip, resolveDescription, hideSelected())
     const match = items!.find(it => String(it.value) === String(value))
     textEl!.textContent = match ? resolveLabel(match) : placeholder()
