@@ -114,20 +114,33 @@ export class PptRuntime {
     const uuid = (hex: string) => `${hex.slice(0, 8)}-${hex.slice(8, 12)}-4${hex.slice(13, 16)}-8${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
     return { account: uuid(digest.toString('hex')), organization: uuid(createHash('sha256').update('workspace:' + owner).digest('hex')), viewer: 'u_' + digest.subarray(0, 16).toString('base64url') };
   }
+  viewerAccount(owner: string): string { return this.identity(owner).account; }
+  private viewerName(): string { return this.locale() === 'zh-Hans' ? '你' : 'You'; }
   private token(owner: string, id: string, capability: string): string { return createHash('sha256').update(this.secret).update(owner).update(id).update(capability).digest('base64url'); }
+  private liveToken(owner: string, id: string): string {
+    return `${Buffer.from(this.identity(owner).account).toString('base64url')}.${this.token(owner, id, 'live')}`;
+  }
   private boot(owner: string, id: string): Data {
-    const document = this.store.get(owner, id), identity = this.identity(owner);
+    const document = this.store.get(owner, id), identity = this.identity(owner), viewerName = this.viewerName();
     const assetToken = `${randomBytes(18).toString('base64url')}.${identity.organization}.${identity.account}.${Math.floor(Date.now() / 1000) + 86400}`;
     return { kind: 'authed', ver: document.version, live: document.version, liveEntry: 'page', seq: document.seq,
-      assetToken, wsToken: this.token(owner, id, 'live'), title: document.title, favicon: '', created_at: document.createdAt, updated_at: document.updatedAt,
+      assetToken, wsToken: this.liveToken(owner, id), title: document.title, favicon: '', created_at: document.createdAt, updated_at: document.updatedAt,
       runtime: { contract: '0.2.47', changes: [] }, hot: true, typeInstance: true, type: { slug: 'slides' }, typeSlug: 'slides', typeTitle: 'PPT',
-      singleUser: true, exportSurface: true, artifactFilesEnabled: true, downloadsExtendedTypes: true,
+      singleUser: true, soleAuthor: true, exportSurface: true, artifactFilesEnabled: true, downloadsExtendedTypes: true,
       permissionsEnabled: true, reportEnabled: true, tokenExchangeEnabled: false, pregrantEnabled: false,
-      perm: { role: 'owner', mode: 'owner', users: [], version: 1, assignableReadModes: ['owner'] }, author: { account: identity.account, name: 'You' },
-      viewer: { id: identity.viewer, owner: true, can_edit: true, account: identity.account, profile: true, email: false, peers: false, role: 'owner', can: ['assets.write', 'data.write', 'files.write'] },
-      consent: {}, capabilities: {
+      commentsEnabled: true, commentsSidebarEnabled: true, commentsArtifactLevelEnabled: true,
+      commentSectionsEnabled: true, commentRegionsEnabled: true, commentComposerV2: true,
+      commentReplyDelete: true, commentMoveEnabled: true, commentPinUnderTarget: true,
+      commentPathUnreadableEnabled: true, commentClientIds: true, commentsResolveAny: true,
+      commentsSendAll: true, commentsPageSummon: true,
+      consentToken: this.token(owner, id, 'consent'), renamable: true,
+      perm: { role: 'writer', mode: 'owner', users: [], version: 1, assignableReadModes: ['owner'] }, author: { account: identity.account, account_uuid: identity.account, name: viewerName },
+      viewer: { id: identity.viewer, owner: true, can_edit: true, account: identity.account, profile: true, email: false, peers: false, role: 'owner', can: ['assets.write', 'data.write', 'files.write', 'comments.read', 'comments.write'] },
+      consent: { comments: { granted: true, revoked: false, firstPartyInstance: true }, messages: { granted: true, revoked: false, decisionSeq: 1 } },
+      capabilities: {
         self: { config: {}, policy: 'none', token: this.token(owner, id, 'self') }, downloads: { config: {}, policy: 'per-use-confirm' },
         assets: { config: {}, policy: 'none', token: this.token(owner, id, 'assets') }, room: { config: {}, policy: 'none' },
+        comments: { config: { customAnchors: true }, policy: 'none', token: this.token(owner, id, 'comments') },
         user: { config: { scopes: ['profile'] }, policy: 'none', token: this.token(owner, id, 'user') },
       } };
   }
@@ -144,11 +157,13 @@ export class PptRuntime {
   }
   private shellPage(owner: string, id: string): string {
     const nonce = randomBytes(18).toString('base64');
-    const attrs = ` data-frame-uuid="${id}" data-frame-uchost="${id}${CONTENT_SUFFIX}"`;
+    const identity = this.identity(owner);
+    const frameAttrs = ` data-frame-uuid="${id}" data-frame-uchost="${id}${CONTENT_SUFFIX}"`;
+    const htmlAttrs = `${frameAttrs} data-hostcaps="comment-summon summon-into-chat context-send vouched-send"`;
     const hash = this.shellCatalogHash();
     const meta = `<meta name="frame-shell-i18n" data-shipped="en-US${hash ? ',zh-Hans' : ''}"${hash ? ` data-catalogs="zh-Hans:${hash}"` : ''}>`;
-    const seed = `<script>try{localStorage.setItem("spa:locale",${scriptJson(this.locale())})}catch(error){}</script>`;
-    return this.source('shell/frame-shell.html').replace('<head>', `<head>${meta}${seed}`).replace('<html lang="en">', `<html lang="en"${attrs}>`).replace('<div id="frame-slot">', `<div id="frame-slot"${attrs}>`).replace(/<(script|style)(?=[\s>])/g, `<$1 nonce="${nonce}"`).replace('<title>Artifact</title>', `<title>${html(this.store.get(owner, id).title)}</title>`);
+    const seed = `<style>[data-pin-item]{display:none!important}</style><script>try{localStorage.setItem("spa:locale",${scriptJson(this.locale())});localStorage.setItem("frame_org_hints",${scriptJson(JSON.stringify({ [id]: { o: identity.organization, a: identity.account } }))});const u=new URL(location.href);if(!u.searchParams.has("org")){u.searchParams.set("org",${scriptJson(identity.organization)});history.replaceState(history.state,"",u.pathname+u.search+u.hash)}}catch(error){}</script>`;
+    return this.source('shell/frame-shell.html').replace('<head>', `<head>${meta}${seed}`).replace('<html lang="en">', `<html lang="en"${htmlAttrs}>`).replace('<div id="frame-slot">', `<div id="frame-slot"${frameAttrs}>`).replace(/<(script|style)(?=[\s>])/g, `<$1 nonce="${nonce}"`).replace('<title>Artifact</title>', `<title>${html(this.store.get(owner, id).title)}</title>`);
   }
   async page(owner: string, id: string, request: Request): Promise<Response> {
     try {
@@ -190,6 +205,9 @@ export class PptRuntime {
         files['index.html'] = { sha256: createHash('sha256').update(entry).digest('hex'), size: entry.length, contentType: 'text/html; charset=utf-8' };
         return this.json({ ver: version, files });
       }
+      if (relative === 'index.html.json' && version) {
+        return this.response(JSON.stringify({ threads: this.store.comments(owner, id) }), 200, 'application/json', { 'Access-Control-Allow-Origin': SHELL });
+      }
       if (relative.startsWith('artifact-type/')) {
         if (relative === 'artifact-type/app.js' && this.locale() === 'zh-Hans') return this.response(this.localizedEditor(), 200, 'text/javascript; charset=utf-8');
         return this.static('dist/' + relative);
@@ -216,10 +234,13 @@ export class PptRuntime {
       const document = this.store.get(owner, id), url = new URL(target, SHELL), path = url.pathname;
       if (url.origin !== new URL(SHELL).origin || !target.startsWith('/') || target.startsWith('//')) return this.response('Forbidden', 403);
       if (method === 'GET' && path === `/api/frame/${id}`) return this.json(this.boot(owner, id));
-      const identity = this.identity(owner);
-      if (method === 'GET' && path === '/api/account') return this.json({ uuid: identity.account, full_name: 'You', display_name: 'You', memberships: [{ organization: { uuid: identity.organization, name: 'Local workspace', capabilities: [] }, role: 'admin' }] });
-      if (method === 'GET' && path.startsWith(`/api/organizations/${identity.organization}/members`)) return this.json([{ uuid: identity.account, account: { uuid: identity.account, full_name: 'You', display_name: 'You' }, full_name: 'You', display_name: 'You' }]);
+      const identity = this.identity(owner), viewerName = this.viewerName();
+      if (method === 'GET' && path === '/api/account') return this.json({ uuid: identity.account, full_name: viewerName, display_name: viewerName, memberships: [{ organization: { uuid: identity.organization, name: 'Local workspace', capabilities: ['chat'] }, role: 'admin' }] });
+      if (method === 'GET' && path.startsWith(`/api/organizations/${identity.organization}/members`)) return this.json([{ uuid: identity.account, account: { uuid: identity.account, full_name: viewerName, display_name: viewerName }, full_name: viewerName, display_name: viewerName }]);
       if (method === 'POST' && ['/api/frame/track', '/api/frame/telemetry', `/api/frame/page-health/${id}`].includes(path)) return this.response(null, 204);
+      if (method === 'POST' && (path === `/api/frame/consent/${id}` || path.startsWith(`/api/frame/consent/${id}/`))) {
+        return this.json({ ok: true, granted: true, revoked: false, decisionSeq: 1 });
+      }
       if (method === 'POST' && path === `/api/frame/self/${id}`) {
         const args = this.decodeJson(body);
         if (args.token !== this.token(owner, id, 'self')) return this.json({ error: 'not_writer' }, 403);
@@ -259,7 +280,94 @@ export class PptRuntime {
         const deleted = /^([0-9a-f]{32})\/delete$/.exec(action);
         if (deleted) { this.store.deleteAsset(owner, id, deleted[1]!); return this.json({ deleted: true }); }
       }
-      if (path.startsWith('/api/frame/mcp/') || path.includes('/comments')) return this.json({ error: 'capability_disabled' }, 403);
+      const commentsBase = `/api/frame/comments/${id}`;
+      if (path === commentsBase || path.startsWith(commentsBase + '/')) {
+        const sub = path === commentsBase ? '' : path.slice(commentsBase.length + 1);
+        if (method === 'GET' && sub === '') {
+          const payload = { threads: this.store.comments(owner, id), names: { [identity.account]: viewerName }, outside: [], outsideIncomplete: false, photos: {}, photoSubjects: {}, photosIncomplete: false };
+          const serialized = JSON.stringify(payload);
+          const etag = `"${createHash('sha256').update(serialized).digest('hex').slice(0, 24)}"`;
+          if (new Headers(headers).get('If-None-Match') === etag) return this.response(null, 304, 'text/plain', { ETag: etag });
+          return this.response(serialized, 200, 'application/json', { ETag: etag });
+        }
+        if (method === 'GET' && sub === 'reads') {
+          return this.json({ ...this.store.commentReads(owner, id, identity.account), account: identity.account });
+        }
+        if (method === 'GET' && sub === 'people') {
+          return this.json({ people: [{ id: identity.account, name: viewerName, owner: true }] });
+        }
+        if (method === 'POST') {
+          const args = this.decodeJson(body);
+          if (args.token !== undefined && args.token !== this.token(owner, id, 'comments')) return this.json({ error: 'forbidden' }, 403);
+          if (sub === 'reads') {
+            return this.json({ ...this.store.commentReads(owner, id, identity.account, { threads: args.threads, seen: args.seen }), account: identity.account });
+          }
+          if (sub === '') {
+            const created = this.store.addCommentThread(owner, id, { id: args.id, text: args.text, anchor: args.anchor, account: identity.account, toAssistant: args.to_claude === true });
+            this.commentsChanged(owner, id);
+            return this.json({ payload: { threads: created.threads }, thread_id: created.threadId, comment_id: created.commentId, listeners: 1, ...(created.replayed ? { replayed: true } : {}) });
+          }
+          if (sub === 'to-claude') {
+            const sent = this.store.markAllOpenCommentsSent(owner, id, identity.account);
+            if (sent.count > 0) this.commentsChanged(owner, id);
+            return this.json({ payload: { threads: sent.threads }, summon_all: { count: sent.count, at: sent.at, open: sent.open, pending_elsewhere: 0 }, listeners: 1 });
+          }
+          const replyMatch = /^([0-9a-f-]{36})$/i.exec(sub);
+          if (replyMatch) {
+            const replied = this.store.replyCommentThread(owner, id, replyMatch[1]!, { id: args.id, text: args.text, account: identity.account, toAssistant: args.to_claude === true });
+            this.commentsChanged(owner, id);
+            return this.json({ payload: { threads: replied.threads }, thread_id: replied.threadId, comment_id: replied.commentId, listeners: 1, ...(replied.replayed ? { replayed: true } : {}) });
+          }
+          const threadAction = /^([0-9a-f-]{36})\/(resolve|delete|activate|move)$/i.exec(sub);
+          if (threadAction) {
+            const [, threadId, action] = threadAction;
+            if (action === 'resolve') {
+              if (typeof args.resolved !== 'boolean') return this.json({ error: 'invalid_request' }, 400);
+              const updated = this.store.resolveCommentThread(owner, id, threadId!, args.resolved, false);
+              this.commentsChanged(owner, id);
+              return this.json({ payload: { threads: updated.threads }, thread_id: updated.threadId });
+            }
+            if (action === 'delete') {
+              const updated = this.store.deleteCommentThread(owner, id, threadId!);
+              this.commentsChanged(owner, id);
+              return this.json({ payload: { threads: updated.threads }, thread_id: updated.threadId });
+            }
+            if (action === 'activate') {
+              if (typeof args.activated !== 'boolean') return this.json({ error: 'invalid_request' }, 400);
+              const updated = this.store.activateCommentThread(owner, id, threadId!, args.activated, identity.account);
+              this.commentsChanged(owner, id);
+              return this.json({ payload: { threads: updated.threads }, thread_id: updated.threadId });
+            }
+            if (action === 'move') {
+              const updated = this.store.moveCommentThread(owner, id, threadId!, args.anchor, identity.account, args.to_claude === true);
+              this.commentsChanged(owner, id);
+              return this.json({ payload: { threads: updated.threads }, thread_id: updated.threadId, ...(updated.commentId ? { comment_id: updated.commentId, listeners: 1 } : {}) });
+            }
+          }
+          const commentAction = /^([0-9a-f-]{36})\/([0-9a-f-]{36})\/(edit|delete|to-claude)$/i.exec(sub);
+          if (commentAction) {
+            const [, threadId, commentId, action] = commentAction;
+            if (action === 'edit') {
+              const updated = this.store.editComment(owner, id, threadId!, commentId!, args.text);
+              this.commentsChanged(owner, id);
+              return this.json({ payload: { threads: updated.threads }, thread_id: updated.threadId, comment_id: updated.commentId });
+            }
+            if (action === 'delete') {
+              const updated = this.store.deleteComment(owner, id, threadId!, commentId!);
+              this.commentsChanged(owner, id);
+              return this.json({ payload: { threads: updated.threads }, thread_id: updated.threadId });
+            }
+            if (action === 'to-claude') {
+              if (typeof args.to_claude !== 'boolean') return this.json({ error: 'invalid_request' }, 400);
+              const updated = this.store.markCommentSent(owner, id, threadId!, commentId!, args.to_claude, identity.account);
+              this.commentsChanged(owner, id);
+              return this.json({ payload: { threads: updated.threads }, thread_id: updated.threadId, comment_id: updated.commentId, listeners: 1 });
+            }
+          }
+        }
+        return this.response('Not found', 404);
+      }
+      if (path.startsWith('/api/frame/mcp/')) return this.json({ error: 'capability_disabled' }, 403);
       return this.response('Not found', 404);
     } catch (error) {
       const fields = error as { code?: string; live?: string; paths?: unknown };
@@ -282,7 +390,8 @@ export class PptRuntime {
         }, error => send({ kind: 'reply', id: request.id, status: 500, headers: [], body: message(error), end: true }));
       } else if (request.kind === 'socket.make' && typeof request.sid === 'string') {
         const path = `/edge-api/frame-live/${id}/ws`, protocols = Array.isArray(request.protocols) ? request.protocols : [];
-        if (typeof request.url !== 'string' || request.url.split('?')[0] !== path || !protocols.includes(this.token(owner, id, 'live')) || connection.sockets.size >= 8) { send({ kind: 'socket.onclose', sid: request.sid, code: 1008, wasClean: true }); return; }
+        const allowed = protocols.includes(this.liveToken(owner, id)) || protocols.includes(this.token(owner, id, 'live'));
+        if (typeof request.url !== 'string' || request.url.split('?')[0] !== path || !allowed || connection.sockets.size >= 8) { send({ kind: 'socket.onclose', sid: request.sid, code: 1008, wasClean: true }); return; }
         connection.sockets.set(request.sid, path); send({ kind: 'socket.onopen', sid: request.sid }); live(request.sid);
       } else if (request.kind === 'socket.send' && typeof request.sid === 'string' && connection.sockets.has(request.sid)) {
         if (request.data === 'ping') send({ kind: 'socket.onmessage', sid: request.sid, data: 'pong' });
@@ -294,6 +403,9 @@ export class PptRuntime {
   changed(owner: string, id: string): void {
     const document = this.store.get(owner, id);
     for (const connection of this.connections) if (!connection.closed && connection.owner === owner && connection.id === id) for (const sid of connection.sockets.keys()) connection.port.postMessage({ kind: 'socket.onmessage', sid, data: JSON.stringify({ ver: document.version }) });
+  }
+  commentsChanged(owner: string, id: string): void {
+    for (const connection of this.connections) if (!connection.closed && connection.owner === owner && connection.id === id) for (const sid of connection.sockets.keys()) connection.port.postMessage({ kind: 'socket.onmessage', sid, data: JSON.stringify({ kind: 'comment' }) });
   }
   release(owner?: string, id?: string): void {
     for (const connection of [...this.connections]) if ((owner === undefined || connection.owner === owner) && (id === undefined || connection.id === id)) { connection.closed = true; this.connections.delete(connection); connection.port.close(); }

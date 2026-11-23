@@ -28,6 +28,7 @@ export function presentationAuthoringActivityScript(working: boolean): string {
     const publish = () => {
       const active = state.working === true;
       page.postMessage({ __frame_chrome: true, cmd: "claude_activity", working: active }, page.location.origin);
+      page.postMessage({ __frame_chrome: true, cmd: "host_activity", busy: active }, page.location.origin);
       setTimeout(() => {
         if (state.working !== active) return;
         for (const frame of page.document.querySelectorAll("iframe")) {

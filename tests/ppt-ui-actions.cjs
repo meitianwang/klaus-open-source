@@ -118,6 +118,90 @@ async function editAndReopen(service, window, id, profile, log) {
     if (restored.isError) throw Error(JSON.stringify(restored));
     await waitFor(() => frame.executeJavaScript('!document.body.innerText.includes("Ask Klaus to fix") && document.body.innerText.includes("Agent update")'), 'valid content restored');
   }
+
+  // Real UI element-level comment + owning-chat summon + live assistant reply/resolve verification
+  const sendShell = (method, value) => contents.debugger.sendCommand(method, value);
+  const clickShell = async (x, y) => {
+    await sendShell('Input.dispatchMouseEvent', { type: 'mouseMoved', x, y });
+    await sendShell('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+    await sendShell('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+  };
+  const updatedHeading = await waitFor(() => frame.executeJavaScript(`(() => {
+    const surface = document.querySelector('[data-slides-editor] [data-slide-surface]');
+    if (!surface) return null;
+    const nodes = [...surface.querySelectorAll('*')].filter(node => node.textContent === 'Agent update' && node.getBoundingClientRect().width > 0).sort((a, b) => a.children.length - b.children.length);
+    const rect = nodes[0]?.getBoundingClientRect();
+    return rect ? { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 } : null;
+  })()`), 'heading target for element comment');
+  await click(updatedHeading.x, updatedHeading.y, 1);
+  const commentToolbarButton = await waitFor(() => frame.executeJavaScript(`(() => {
+    const btn = [...document.querySelectorAll('[data-mc-tail] button')].find(node => {
+      const label = (node.getAttribute('aria-label') || node.getAttribute('title') || node.textContent || '').trim();
+      return /^(Comment|评论)$/i.test(label) && node.getBoundingClientRect().width > 0;
+    });
+    const rect = btn?.getBoundingClientRect();
+    return rect ? { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: btn.getAttribute('aria-label') || '' } : null;
+  })()`), 'floating element comment button');
+  log('element-comment-button', commentToolbarButton);
+  await click(commentToolbarButton.x, commentToolbarButton.y, 1);
+
+  const composerBox = await waitFor(() => contents.executeJavaScript(`(() => {
+    const input = [...document.querySelectorAll('textarea, [contenteditable="true"]')].find(node => node.getBoundingClientRect().width > 0 && node.getBoundingClientRect().height > 0);
+    if (!input) return null;
+    const rect = input.getBoundingClientRect();
+    return { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, placeholder: input.getAttribute('placeholder') || '' };
+  })()`), 'shell comment composer opened');
+  log('comment-composer-opened', composerBox);
+  await clickShell(composerBox.x, composerBox.y);
+  await sendShell('Input.insertText', { text: 'Tighten this slide heading for clarity' });
+
+  let summonPayload = null;
+  const originalEmit = service.options.emit;
+  service.options.emit = (channel, payload, target) => {
+    originalEmit(channel, payload, target);
+    if (channel === 'ppt:chat-request') {
+      summonPayload = payload;
+      void service.invoke({ channel: 'ppt:chat-result', role: 'main', senderId: window.webContents.id, args: [{ requestId: payload.requestId, ok: true }] }).catch(error => log('comment-summon-ack-error', { error: String(error) }));
+    }
+  };
+  try {
+    const sendButton = await waitFor(() => contents.executeJavaScript(`(() => {
+      const btn = [...document.querySelectorAll('button')].find(node => {
+        const label = (node.getAttribute('aria-label') || node.getAttribute('title') || node.textContent || '').trim();
+        return !node.disabled && node.getBoundingClientRect().width > 0 && (/Send to Klaus|发送给 Klaus|Post comment|发布评论|Submit|Send/i.test(label));
+      });
+      const rect = btn?.getBoundingClientRect();
+      return rect ? { x: rect.x + rect.width / 2, y: rect.y + rect.height / 2, label: (btn.getAttribute('aria-label') || btn.textContent || '').trim() } : null;
+    })()`), 'comment submit button enabled');
+    log('comment-submit-button', sendButton);
+    await clickShell(sendButton.x, sendButton.y);
+    await waitFor(() => summonPayload, 'owning-chat comment summon');
+    if (summonPayload.sessionId !== 'fixture' || summonPayload.id !== id || summonPayload.submit !== true || !summonPayload.text.includes('Tighten this slide heading for clarity') || !summonPayload.text.includes('project/slides/slide-a.html')) {
+      throw Error(`Unexpected comment summon payload: ${JSON.stringify(summonPayload)}`);
+    }
+    log('comment-summon-delivered', summonPayload);
+  } finally {
+    service.options.emit = originalEmit;
+  }
+
+  const inspectedComments = await service.call('fixture', 'ppt_inspect', { id, comments: true });
+  if (inspectedComments.isError || inspectedComments.structuredContent.open_comment_count !== 1 || inspectedComments.structuredContent.comments?.[0]?.anchor?.file !== 'project/slides/slide-a.html') {
+    throw Error(`ppt_inspect did not report element comment anchor: ${JSON.stringify(inspectedComments)}`);
+  }
+  const activeThreadId = inspectedComments.structuredContent.comments[0].id;
+  const agentReply = await service.call('fixture', 'ppt_comment', {
+    id,
+    action: 'reply',
+    thread_id: activeThreadId,
+    text: 'Refined the heading hierarchy on slide 1.',
+    resolved: true,
+  });
+  if (agentReply.isError || agentReply.structuredContent.resolved !== true) {
+    throw Error(`ppt_comment reply/resolve failed: ${JSON.stringify(agentReply)}`);
+  }
+  await waitFor(() => service.store.comments('fixture', id)[0]?.resolved_by === 'claude', 'comment resolved in store');
+  log('comment-agent-resolved', agentReply.structuredContent);
+
   contents.debugger.removeListener('message', attached); contents.debugger.detach();
   await service.removeEditor(editor);
   if (editor.partition.listenerCount('will-download') !== 0) throw Error('The closed presentation retained a download listener.');

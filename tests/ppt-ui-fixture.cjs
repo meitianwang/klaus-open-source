@@ -76,7 +76,7 @@ async function run() {
   log('header-menu', headerMenu);
   if (!headerMenu.text.includes('Delete artifact') || headerMenu.deleteDisabled !== 'true' || headerMenu.favorite) throw Error('The presentation header actions changed unexpectedly.');
   const capabilities = await editor.view.webContents.executeJavaScript(`fetch('/api/frame/${id}').then(r=>r.json()).then(boot=>Object.keys(boot.capabilities??{}))`);
-  if (capabilities.includes('comments') || capabilities.includes('mcp')) throw Error('An excluded presentation capability was declared.');
+  if (!capabilities.includes('comments') || capabilities.includes('mcp')) throw Error('Presentation capabilities did not match local editor + comments contract.');
   log('local-capabilities', capabilities);
   await require('./ppt-service-assertions.cjs').assertServiceBoundaries(service, window, id, log);
   const exported = await service.call('fixture', 'ppt_export', { id, format: 'pptx', variant: 'basic' }); log('exported', exported);
@@ -93,7 +93,10 @@ async function run() {
   if (process.env.PPT_CAPTURE === '1') {
     const active = [...service.editors.values()].find(entry => entry.id === id);
     const content = active.view.webContents.mainFrame.frames.find(frame => frame.url.includes('.ppt-content/_f/') && !frame.url.includes('__frame_renew=1'));
-    await content.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))');
+    await Promise.race([
+      content.executeJavaScript('new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))'),
+      new Promise(resolve => setTimeout(resolve, 250)),
+    ]);
     let image;
     const captureDeadline = Date.now() + 5000;
     while (!image) {

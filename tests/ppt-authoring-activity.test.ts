@@ -21,6 +21,7 @@ void (async () => {
       const idle = presentationAuthoringActivityScript(false);
       assert(working.includes('state.working = true'), 'working state');
       assert(idle.includes('state.working = false'), 'idle state');
+      assert(working.includes('cmd: "host_activity", busy: active'), 'host comment activity tracks chat working state');
       assert(working.includes('__frame_claude_activity_ask'), 'a later ask is answered again');
       assert(working.includes('frame-content-mounted'), 'a newly mounted frame receives the current state');
       assert(!working.includes('state.working = false'), 'the working script does not install the idle value');

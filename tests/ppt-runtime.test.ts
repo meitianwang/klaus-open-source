@@ -49,17 +49,28 @@ function encodeLocalizedLiteral(value: string, quote: string): string {
 void (async () => {
   try {
     let boot: any;
-    await h.test('the native boot advertises only local editor capabilities', async () => {
+    await h.test('the native boot advertises local editor and element comment capabilities', async () => {
       boot = await (await call('GET', `/api/frame/${doc.id}`)).json();
       assertEqual(boot.ver, 'v1');
       assertEqual(boot.singleUser, true);
+      assertEqual(boot.commentsEnabled, true);
+      assertEqual(boot.perm.role, 'writer');
+      assertEqual(boot.renamable, true);
       assertEqual(boot.viewer.can_edit, true);
-      assert(!boot.capabilities.mcp && !boot.capabilities.comments && !boot.syncToken);
+      assert(boot.viewer.can.includes('comments.read') && boot.viewer.can.includes('comments.write'));
+      assert(!boot.capabilities.mcp && !boot.syncToken);
+      assertEqual(boot.capabilities.comments.config.customAnchors, true);
+      assert(typeof boot.capabilities.comments.token === 'string' && boot.capabilities.comments.token.length > 16);
       assert(boot.assetToken.split('.')[0].length === 24);
+      const account = await (await call('GET', '/api/account')).json() as any;
+      assert(account.memberships[0].organization.capabilities.includes('chat'));
     });
     await h.test('the shell and content use complete packaged editor assets', async () => {
       const shell = await (await page(`/code/artifact/${doc.id}`, true)).text();
       assert(shell.includes(`data-frame-uuid="${doc.id}"`) && shell.includes('frame-shell'));
+      assert(shell.includes('data-hostcaps="comment-summon summon-into-chat context-send vouched-send"'));
+      assert(shell.includes('frame_org_hints') && shell.includes('[data-pin-item]{display:none!important}'));
+      assert(!shell.includes('data-embedded='));
       const content = await (await page('/_f/v1/index.html')).text();
       assert(content.includes('__FRAME_PREAMBLE') && content.includes('artifact-type/app.js'));
       const contentCsp = (await page('/_f/v1/index.html')).headers.get('content-security-policy') ?? '';
@@ -116,6 +127,43 @@ void (async () => {
       assert(port.sent.some(event => event.kind === 'socket.onmessage' && JSON.parse(event.data).ver === 'v3'));
       runtime.release(owner, doc.id);
       assertEqual((runtime as any).connections.size, 0);
+    });
+    await h.test('comment endpoints round-trip element anchors, ETag caching and live socket updates', async () => {
+      const port = new Port(); runtime.connect(owner, doc.id, port as unknown as MessagePortMain);
+      port.emit('message', { data: { kind: 'socket.make', sid: 'comments-live', url: `/edge-api/frame-live/${doc.id}/ws`, protocols: ['frame-live.v1', boot.wsToken] } });
+      const initial = await call('GET', `/api/frame/comments/${doc.id}`);
+      assertEqual(initial.status, 200);
+      const etag = initial.headers.get('etag');
+      assert(etag && etag.length > 4);
+      assertEqual((await call('GET', `/api/frame/comments/${doc.id}`, undefined, [['If-None-Match', etag]])).status, 304);
+
+      const denied = await call('POST', `/api/frame/comments/${doc.id}`, { token: 'wrong-token', text: 'Blocked' });
+      assertEqual(denied.status, 403);
+
+      const createdRes = await call('POST', `/api/frame/comments/${doc.id}`, {
+        token: boot.capabilities.comments.token,
+        text: 'Align this table header',
+        anchor: { file: 'project/slides/s1.html', path: 'section:nth-of-type(1) > table:nth-of-type(1)', label: 'Slide 1', detail: 'Table' },
+      });
+      assertEqual(createdRes.status, 200);
+      const created = await createdRes.json() as any;
+      assertEqual(created.payload.threads.length, 1);
+      assert(port.sent.some(event => event.kind === 'socket.onmessage' && JSON.parse(event.data).kind === 'comment'));
+
+      const sendAllRes = await call('POST', `/api/frame/comments/${doc.id}/to-claude`, { token: boot.capabilities.comments.token });
+      assertEqual(sendAllRes.status, 200);
+      const sendAll = await sendAllRes.json() as any;
+      assertEqual(sendAll.summon_all.count, 1);
+      assert(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/.test(sendAll.summon_all.at));
+
+      const readsRes = await call('POST', `/api/frame/comments/${doc.id}/reads`, { seen: sendAll.summon_all.at, threads: { [created.thread_id]: sendAll.summon_all.at } });
+      assertEqual(readsRes.status, 200);
+      assertEqual((await readsRes.json() as any).seen, sendAll.summon_all.at);
+
+      const resolveRes = await call('POST', `/api/frame/comments/${doc.id}/${created.thread_id}/resolve`, { token: boot.capabilities.comments.token, resolved: true });
+      assertEqual(resolveRes.status, 200);
+      assert(Boolean((await resolveRes.json() as any).payload.threads[0].resolved_at));
+      runtime.release(owner, doc.id);
     });
     await h.test('document resources reject another origin and traversal', async () => {
       assertEqual((await runtime.page(owner, doc.id, new Request('klaus-app://foreign/_f/v1/index.html'))).status, 403);

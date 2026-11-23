@@ -7,7 +7,14 @@ const vectors = require('../contracts/vectors/presentation-editor-vectors.json')
 async function assertServiceBoundaries(service, window, id, log) {
   const current = await service.call('fixture', 'ppt_inspect', { id });
   assert.equal(current.isError, undefined);
+  assert.equal(typeof current.structuredContent.open_comment_count, 'number');
   assert(service.toolSpecs().some(tool => tool.name === 'ppt_import_asset'));
+  assert(service.toolSpecs().some(tool => tool.name === 'ppt_comment'));
+  const emptyComments = await service.call('fixture', 'ppt_comment', { id, action: 'list' });
+  assert.equal(emptyComments.isError, undefined);
+  assert.equal(emptyComments.structuredContent.open_count, 0);
+  const foreignComments = await service.call('other-fixture', 'ppt_comment', { id, action: 'list' });
+  assert.equal(foreignComments.isError, true);
   assert.equal(vectors.media.assetUrlPrefix, '/_blob/');
   const rootDir = service.options.readRoots('fixture')[0];
   const samplePng = join(rootDir, 'imported-fixture.png');
@@ -50,6 +57,35 @@ async function assertServiceBoundaries(service, window, id, log) {
     await assert.rejects(service.invoke({ channel: 'ppt:chat-result', role: 'main', senderId: extra.webContents.id, args: [{ requestId, ok: true }] }));
     await service.invoke({ channel: 'ppt:chat-result', role: 'main', senderId: window.webContents.id, args: [{ requestId, ok: false, error: 'Fixture declined' }] });
     assert.equal((await pending).ok, false);
+
+    const createdForRollback = service.store.addCommentThread('fixture', id, {
+      account: service.runtime.viewerAccount('fixture'),
+      text: 'Rollback check comment',
+      toAssistant: true,
+      anchor: { detail: 'Slide 1 #slide-a: heading', label: 'Slide 1' },
+    });
+    assert.ok(createdForRollback.threads.find(item => item.id === createdForRollback.threadId)?.comments[0]?.to_claude_at);
+    await assert.rejects(
+      service.invoke({
+        channel: 'ppt:chat-request',
+        role: 'ppt',
+        senderId: editor.view.webContents.id,
+        args: [{ uuid: id, deliver: 'send', data: { kind: 'comment_summon', threadId: createdForRollback.threadId, commentId: createdForRollback.commentId, comment: 'Rollback check comment' } }],
+      }),
+      /viewer action/,
+    );
+    const summonPending = service.invoke({
+      channel: 'ppt:chat-request',
+      role: 'ppt',
+      senderId: editor.view.webContents.id,
+      args: [{ uuid: id, deliver: 'send', senderActivated: true, data: { kind: 'comment_summon', threadId: createdForRollback.threadId, commentId: createdForRollback.commentId, comment: 'Rollback check comment' } }],
+    });
+    const summonReqId = [...service.openRequests.keys()].at(-1);
+    assert.ok(summonReqId);
+    await service.invoke({ channel: 'ppt:chat-result', role: 'main', senderId: window.webContents.id, args: [{ requestId: summonReqId, ok: false, error: 'Declined' }] });
+    assert.equal((await summonPending).ok, false);
+    assert.equal(service.store.comments('fixture', id).find(item => item.id === createdForRollback.threadId)?.comments[0]?.to_claude_at, undefined);
+    service.store.deleteCommentThread('fixture', id, createdForRollback.threadId);
   } finally { service.options.windowForSender = windowForSender; extra.destroy(); }
   log('service-boundaries', { roleIsolation: true, documentOwnership: true, publishRoots: true, staleVersionRejected: true, cancellationPreserved: true, acknowledgementWindow: true });
 }

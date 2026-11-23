@@ -11,7 +11,7 @@ import { decodeBinary } from '../ipc/binary';
 import { VisualCapabilityServer } from '../visuals/capability-server';
 import { inside, message, record, text, type Data } from '../visuals/data';
 import { canCaptureNativeViewSnapshot, captureNativeViewSnapshot } from '../utils/native-view-snapshot';
-import { PptStore, presentationContentType, type PptDocument, type PptFile, type PptValidationRecord } from './store';
+import { PptStore, presentationContentType, type PptCommentAnchor, type PptCommentThread, type PptDocument, type PptFile, type PptValidationRecord } from './store';
 import { PptRuntime } from './runtime';
 import { pptTools } from './tools';
 import { presentationAuthoringActivityScript } from './authoring-activity';
@@ -234,10 +234,112 @@ export class PptService {
       warnings: issueList(warnings),
     };
   }
+  private resolveAnchorSlideFile(owner: string, id: string, anchor: PptCommentAnchor | Data | undefined): string | undefined {
+    if (!anchor) return undefined;
+    const explicit = typeof anchor.file === 'string' ? anchor.file.trim() : '';
+    if (explicit && explicit !== 'index.html') return explicit;
+    const detail = typeof anchor.detail === 'string' ? anchor.detail : '';
+    const match = /#([A-Za-z0-9._-]+)(?=\s*:|\b)/.exec(detail);
+    if (!match) return explicit || undefined;
+    const candidate = `project/slides/${match[1]}.html`;
+    try {
+      if (this.store.files(owner, id).some(file => file.path === candidate)) return candidate;
+    } catch { /* ignore */ }
+    return explicit || undefined;
+  }
+  private formatComments(owner: string, id: string, threads: PptCommentThread[], includeResolved = false): Data[] {
+    return threads
+      .filter(thread => includeResolved || !thread.resolved_at)
+      .map(thread => {
+        const resolvedFile = this.resolveAnchorSlideFile(owner, id, thread.anchor);
+        return {
+          id: thread.id,
+          resolved: Boolean(thread.resolved_at),
+          ...(thread.resolved_at ? { resolved_at: thread.resolved_at } : {}),
+          ...(thread.resolved_by ? { resolved_by: thread.resolved_by } : {}),
+          ...(thread.anchor ? {
+            anchor: {
+              ...(thread.anchor.label ? { label: thread.anchor.label } : {}),
+              ...(thread.anchor.detail ? { detail: thread.anchor.detail } : {}),
+              ...(resolvedFile ? { file: resolvedFile } : {}),
+              ...(thread.anchor.path ? { path: thread.anchor.path } : {}),
+              ...(thread.anchor.span?.quote ? { quote: thread.anchor.span.quote } : {}),
+              ...(thread.anchor.region ? { region: thread.anchor.region } : {}),
+            },
+          } : {}),
+          comments: thread.comments.map(comment => ({
+            id: comment.id,
+            author: comment.author?.role === 'assistant' ? 'assistant' : 'user',
+            text: comment.text,
+            created_at: comment.created_at,
+            ...(comment.to_claude_at ? { sent_at: comment.to_claude_at } : {}),
+          })),
+        };
+      });
+  }
+  private describeAnchor(owner: string, id: string, anchor: PptCommentAnchor | Data | undefined): string[] {
+    if (!anchor) return [];
+    const lines: string[] = [];
+    const label = typeof anchor.label === 'string' && anchor.label.trim() ? anchor.label.trim() : undefined;
+    const detail = typeof anchor.detail === 'string' && anchor.detail.trim() ? anchor.detail.trim() : undefined;
+    if (label && detail) lines.push(`Target: ${label} — ${detail}`);
+    else if (label) lines.push(`Target: ${label}`);
+    else if (detail) lines.push(`Target: ${detail}`);
+    const resolvedFile = this.resolveAnchorSlideFile(owner, id, anchor);
+    if (resolvedFile) lines.push(`Slide file: ${resolvedFile}`);
+    if (typeof anchor.path === 'string' && anchor.path.trim()) lines.push(`Element selector: ${anchor.path.trim()}`);
+    const spanQuote = typeof (anchor as PptCommentAnchor).span?.quote === 'string'
+      ? (anchor as PptCommentAnchor).span!.quote
+      : typeof (anchor as Data).quote === 'string'
+        ? String((anchor as Data).quote)
+        : undefined;
+    if (spanQuote && spanQuote.trim()) lines.push(`Selected text: "${spanQuote.trim()}"`);
+    return lines;
+  }
+  private formatCommentSummon(owner: string, id: string, data: Data): string {
+    const threads = this.store.comments(owner, id);
+    if (data.source === 'send_all' || data.threadId === null) {
+      const open = threads.filter(thread => !thread.resolved_at);
+      if (!open.length) return `Presentation ${id}\n\nReview the open presentation comments with ppt_comment (action: "list").`;
+      const blocks = open.map((thread, index) => {
+        const target = this.describeAnchor(owner, id, thread.anchor);
+        const body = thread.comments.map(item => `${item.author?.role === 'assistant' ? 'Klaus' : 'Comment'}: ${item.text}`).join('\n');
+        return [`${index + 1}. Thread ${thread.id}`, ...target, body].join('\n');
+      });
+      return `Presentation ${id} — ${open.length} open comment thread(s):\n\n${blocks.join('\n\n')}\n\nInspect target slide files with ppt_inspect, publish requested edits with ppt_publish, and reply to or resolve each handled thread with ppt_comment.`;
+    }
+    const threadId = typeof data.threadId === 'string' ? data.threadId.toLowerCase() : '';
+    const thread = threads.find(item => item.id === threadId);
+    const targetLines = this.describeAnchor(owner, id, thread?.anchor ?? record(data.anchor));
+    const latestText = typeof data.comment === 'string' && data.comment.trim()
+      ? data.comment.trim()
+      : (thread?.comments.at(-1)?.text ?? '');
+    const prior = thread && thread.comments.length > 1
+      ? thread.comments.slice(0, -1).map(item => `${item.author?.role === 'assistant' ? 'Klaus' : 'User'}: ${item.text}`).join('\n')
+      : '';
+    const header = [`Presentation ${id}${threadId ? ` — Comment thread ${threadId}` : ''}`, ...targetLines].join('\n');
+    const historyBlock = prior ? `\n\nEarlier in thread:\n${prior}\n\nNew comment:\n${latestText}` : `\n\n${latestText}`;
+    const tail = threadId
+      ? `\n\nInspect the slide with ppt_inspect if needed, publish requested presentation edits with ppt_publish, and reply to or resolve thread ${threadId} with ppt_comment.`
+      : '';
+    return `${header}${historyBlock}${tail}`;
+  }
   private inspect(owner: string, id: string, args: Data = {}): Data {
     const document = this.store.get(owner, id), files = this.store.files(owner, id);
     const includeDiagnostics = args.diagnostics === true;
-    if (args.path === undefined) return { slug: id, version: document.version, files: files.map(file => ({ path: file.path, sha256: file.sha256, size: file.size, content_type: file.contentType })), ...(includeDiagnostics ? { diagnostics: this.diagnostics(owner, id) } : {}) };
+    const includeComments = args.comments === true || includeDiagnostics;
+    if (args.path === undefined) {
+      const threads = this.store.comments(owner, id);
+      const openCommentCount = threads.filter(thread => !thread.resolved_at).length;
+      return {
+        slug: id,
+        version: document.version,
+        open_comment_count: openCommentCount,
+        files: files.map(file => ({ path: file.path, sha256: file.sha256, size: file.size, content_type: file.contentType })),
+        ...(includeDiagnostics ? { diagnostics: this.diagnostics(owner, id) } : {}),
+        ...(includeComments ? { comments: this.formatComments(owner, id, threads) } : {}),
+      };
+    }
     const path = text(args.path, 'presentation file path'), entry = files.find(file => file.path === path);
     if (!entry) throw new Error('The presentation file does not exist.');
     if (!/^(?:text\/|application\/(?:json|javascript|xml)|image\/svg\+xml)/.test(entry.contentType)) throw new Error('Only presentation text files can be inspected.');
@@ -444,7 +546,54 @@ export class PptService {
       if (name === 'ppt_inspect') {
         if (args.path === undefined && (args.offset !== undefined || args.limit !== undefined)) throw new Error('A file path is required for a partial read.');
         if (args.diagnostics !== undefined && typeof args.diagnostics !== 'boolean') throw new Error('Presentation diagnostics must be a boolean.');
+        if (args.comments !== undefined && typeof args.comments !== 'boolean') throw new Error('Presentation comments flag must be a boolean.');
         return this.success({ id: found.id, ...this.inspect(owner, found.id, args) });
+      }
+      if (name === 'ppt_comment') {
+        const action = text(args.action, 'comment action');
+        if (action === 'list') {
+          const all = this.store.comments(owner, found.id);
+          return this.success({
+            id: found.id,
+            open_count: all.filter(item => !item.resolved_at).length,
+            threads: this.formatComments(owner, found.id, all, args.include_resolved === true),
+          });
+        }
+        if (action === 'reply') {
+          const threadId = text(args.thread_id, 'comment thread id');
+          const replyText = text(args.text, 'comment reply text');
+          let updated = this.store.replyCommentThread(owner, found.id, threadId, { text: replyText, role: 'assistant', source: 'agent' });
+          if (args.resolved === true) {
+            const resolved = this.store.resolveCommentThread(owner, found.id, threadId, true, true);
+            updated = { ...updated, threads: resolved.threads };
+          }
+          this.runtime.commentsChanged(owner, found.id);
+          const thread = updated.threads.find(item => item.id === updated.threadId);
+          return this.success({
+            id: found.id,
+            thread_id: updated.threadId,
+            comment_id: updated.commentId,
+            resolved: Boolean(thread?.resolved_at),
+            thread: thread ? this.formatComments(owner, found.id, [thread], true)[0] ?? null : null,
+          });
+        }
+        if (action === 'resolve') {
+          const threadId = text(args.thread_id, 'comment thread id');
+          if (typeof args.text === 'string' && args.text.trim()) {
+            this.store.replyCommentThread(owner, found.id, threadId, { text: args.text, role: 'assistant', source: 'agent' });
+          }
+          const resolvedFlag = args.resolved === undefined ? true : Boolean(args.resolved);
+          const updated = this.store.resolveCommentThread(owner, found.id, threadId, resolvedFlag, true);
+          this.runtime.commentsChanged(owner, found.id);
+          const thread = updated.threads.find(item => item.id === updated.threadId);
+          return this.success({
+            id: found.id,
+            thread_id: updated.threadId,
+            resolved: Boolean(thread?.resolved_at),
+            thread: thread ? this.formatComments(owner, found.id, [thread], true)[0] ?? null : null,
+          });
+        }
+        throw new Error('Unsupported presentation comment action.');
       }
       if (name === 'ppt_publish') {
         if (!Array.isArray(args.files) || args.files.length + (Array.isArray(args.remove) ? args.remove.length : 0) > 256) throw new Error('Publish at most 256 files at once.');
@@ -486,14 +635,35 @@ export class PptService {
     const editor = [...this.editors.values()].find(editor => editor.view.webContents.id === senderId);
     if (!editor || this.active.get(this.windowId(editor.window)) !== editor || !editor.view.getVisible() || args.uuid !== editor.id) throw new Error('This presentation is not active in its owning chat.');
     const data = record(args.data), serialized = JSON.stringify(data);
-    if (Buffer.byteLength(serialized) > 4096 || !['send', 'stage'].includes(String(args.deliver))) throw new Error('Invalid presentation chat request.');
+    const isCommentSummon = data.kind === 'comment_summon';
+    const maxBytes = isCommentSummon ? 32 * 1024 : 4096;
+    if (Buffer.byteLength(serialized) > maxBytes || !['send', 'stage'].includes(String(args.deliver))) throw new Error('Invalid presentation chat request.');
     if (args.deliver === 'send' && args.senderActivated !== true) throw new Error('Sending a presentation request requires a viewer action.');
-    const request = typeof data.request === 'string' ? data.request : serialized;
-    const selected = typeof data.selectedText === 'string' ? `\n\nSelected content:\n${data.selectedText}` : '';
+    let promptText: string;
+    if (isCommentSummon) {
+      promptText = this.formatCommentSummon(editor.owner, editor.id, data);
+    } else {
+      const request = typeof data.request === 'string' ? data.request : serialized;
+      const selected = typeof data.selectedText === 'string' ? `\n\nSelected content:\n${data.selectedText}` : '';
+      promptText = `Presentation ${editor.id}\n\n${request}${selected}`;
+    }
     const requestId = randomUUID();
     const result = new Promise<Data>(resolve => { this.openRequests.set(requestId, { windowId: this.windowId(editor.window), resolve, timer: setTimeout(() => { this.openRequests.delete(requestId); resolve({ ok: false, error: 'The chat did not acknowledge the presentation request.' }); }, 60_000) }); });
-    this.options.emit('ppt:chat-request', { requestId, sessionId: editor.owner, id: editor.id, text: `Presentation ${editor.id}\n\n${request}${selected}`, submit: args.deliver === 'send' }, this.windowId(editor.window));
-    return result;
+    this.options.emit('ppt:chat-request', { requestId, sessionId: editor.owner, id: editor.id, text: promptText, submit: args.deliver === 'send' }, this.windowId(editor.window));
+    const outcome = await result;
+    if (isCommentSummon && outcome.ok !== true) {
+      try {
+        if (data.source === 'send_all' || data.threadId === null) {
+          this.store.rollbackLastOpenCommentsBatch(editor.owner, editor.id);
+        } else if (typeof data.threadId === 'string') {
+          this.store.rollbackThreadSummon(editor.owner, editor.id, data.threadId, typeof data.commentId === 'string' ? data.commentId : undefined);
+        }
+        this.runtime.commentsChanged(editor.owner, editor.id);
+      } catch (error) {
+        this.log('ppt-comment-rollback-error', { id: editor.id, error: message(error) });
+      }
+    }
+    return outcome;
   }
   async invoke(context: HandlerContext): Promise<Json> {
     if (!['ppt:list', 'ppt:open', 'ppt:panel-show'].includes(context.channel)) return this.performInvoke(context);

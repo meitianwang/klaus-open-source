@@ -207,4 +207,70 @@ h.test('asset quotas preserve 1000 active files and one GiB while deleted refere
   assert.equal(store.assets(owner, doc.id).reduce((sum, asset) => sum + asset.sizeBytes, 0), 1024 * 1024 * 1024);
 }));
 
+h.test('element comment threads, reads, assistant replies and summon rollbacks persist without altering revisions', () => fixture((store, root) => {
+  const doc = store.open(owner, 'Commented presentation');
+  const saved = store.publish(owner, doc.id, { writes: [{ path: firstPath, bytes: bytes(firstHtml) }] });
+  const account = '11111111-2222-4333-8444-555555555555';
+  const clientCommentId = 'aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee';
+  const anchor = {
+    path: 'section:nth-of-type(1) > h1:nth-of-type(1)',
+    x: 0.25,
+    y: 0.2,
+    file: firstPath,
+    label: 'Slide 1',
+    detail: 'Heading',
+    span: { start: 0, quote: 'Presentation fixture' },
+    region: { x0: 0.1, y0: 0.15, x1: 0.8, y1: 0.3 },
+  };
+  const created = store.addCommentThread(owner, doc.id, { id: clientCommentId, text: 'Tighten this title', anchor, account, toAssistant: true });
+  assert.equal(created.threads.length, 1);
+  assert.equal(created.commentId, clientCommentId);
+  assert.match(created.threads[0]!.created_at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  assert.equal(created.threads[0]!.comments[0]!.to_claude_at, created.threads[0]!.created_at);
+  assert.equal(created.threads[0]!.anchor?.file, firstPath);
+
+  const replayed = store.addCommentThread(owner, doc.id, { id: clientCommentId, text: 'Duplicate retry', anchor, account, toAssistant: true });
+  assert.equal(replayed.replayed, true);
+  assert.equal(replayed.threads.length, 1);
+  assert.equal(replayed.threads[0]!.comments[0]!.text, 'Tighten this title');
+
+  store.rollbackThreadSummon(owner, doc.id, created.threadId, clientCommentId);
+  assert.equal(store.comments(owner, doc.id)[0]!.comments[0]!.to_claude_at, undefined);
+  assert.equal(store.comments(owner, doc.id)[0]!.claude_activated_at, undefined);
+
+  const batch = store.markAllOpenCommentsSent(owner, doc.id, account);
+  assert.equal(batch.count, 1);
+  assert.match(batch.at, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$/);
+  assert.equal(store.comments(owner, doc.id)[0]!.comments[0]!.sent_by_viewer, true);
+  store.rollbackLastOpenCommentsBatch(owner, doc.id);
+  assert.equal(store.comments(owner, doc.id)[0]!.comments[0]!.to_claude_at, undefined);
+
+  const assistantReply = store.replyCommentThread(owner, doc.id, created.threadId, { text: 'Updated the title on slide 1.', role: 'assistant', source: 'agent' });
+  assert.equal(assistantReply.threads[0]!.comments.length, 2);
+  assert.equal(assistantReply.threads[0]!.comments[1]!.author?.role, 'assistant');
+  assert.equal(assistantReply.threads[0]!.comments[1]!.source, 'agent');
+
+  const edited = store.editComment(owner, doc.id, created.threadId, clientCommentId, 'Tighten this slide heading');
+  assert.equal(edited.threads[0]!.comments[0]!.text, 'Tighten this slide heading');
+  assert.ok(edited.threads[0]!.comments[0]!.edited_at);
+
+  const resolved = store.resolveCommentThread(owner, doc.id, created.threadId, true, true);
+  assert.equal(resolved.threads[0]!.resolved_by, 'claude');
+  assert.ok(resolved.threads[0]!.resolved_at);
+
+  const reads = store.commentReads(owner, doc.id, account, { threads: { [created.threadId]: '2026-11-23T10:00:00.500Z' }, seen: '2026-11-23T10:00:00.500Z' });
+  assert.equal(reads.seen, '2026-11-23T10:00:00Z');
+  assert.equal(reads.threads[created.threadId], '2026-11-23T10:00:00Z');
+
+  const reopenedStore = new PptStore(root);
+  assert.equal(reopenedStore.comments(owner, doc.id).length, 1);
+  assert.equal(reopenedStore.get(owner, doc.id).version, saved.version);
+
+  const afterReplyDelete = reopenedStore.deleteComment(owner, doc.id, created.threadId, assistantReply.commentId);
+  assert.equal(afterReplyDelete.threads[0]!.comments.length, 1);
+  const afterRootDelete = reopenedStore.deleteComment(owner, doc.id, created.threadId, clientCommentId);
+  assert.equal(afterRootDelete.threads.length, 0);
+  rejects('not_found', () => reopenedStore.comments('another-chat', doc.id));
+}));
+
 void h.finish(join(logs, 'result.json'), 'ppt-store').then(code => { process.exitCode = code; });
