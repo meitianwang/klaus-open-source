@@ -112,7 +112,8 @@ export function elicitationResponse(value: unknown): JsonObject {
     }
     return { response: { kind: 'answers', answers, ...(answer.attachments === undefined ? {} : { attachments: questionAttachments(answer.attachments, answers) }) } };
   }
-  return { response: { kind: 'decline' } };
+  const reason = short(answer.reason);
+  return { response: reason ? { kind: 'decline', reason } : { kind: 'decline' } };
 }
 /** The host validates uploaded paths and the engine owns the request's lifetime. */
 function questionAttachments(value: unknown, answers: object): JsonObject {

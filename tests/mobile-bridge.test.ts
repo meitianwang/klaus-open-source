@@ -1652,6 +1652,19 @@ void (async () => {
       client.socket.send(JSON.stringify({ type: 'elicit_respond', requestId: 'mcp-url', response: { kind: 'accept' } }));
       assert.deepEqual(await client.next('action_result'), { type: 'action_result', action: 'elicit_respond', ok: true, requestId: 'mcp-url' });
       assert.deepEqual(object((await client.next('elicit_resolved')).response), { kind: 'accept' });
+
+      const fallbackMeta = { kind: 'orchestrator_fallback', failedModel: 'qfmodel', mainModel: 'gemini-4-carbon-medium', reasonCode: 'auth', reasonMessage: 'Not signed in' };
+      f.bridge.publishElicitationRequest({ requestId: 'orch-continue', sessionId: 's1', prompt: 'qfmodel is unavailable (auth).', options: ['continue_with_main', 'pause'], multiSelect: false, metadata: fallbackMeta }, f.owner());
+      assert.deepEqual(object((await client.next('elicit_pending')).metadata), fallbackMeta);
+      assert.equal((await f.request('POST', '/api/mobile/elicitations/respond', { requestId: 'orch-continue', response: { kind: 'accept', values: ['continue_with_main'] } })).status, 202);
+      assert.deepEqual(object((await client.next('elicit_resolved')).response), { kind: 'accept', values: ['continue_with_main'] });
+      assert.deepEqual(f.calls.filter(row => row.channel === 'elicit:respond').at(-1)!.payload, { requestId: 'orch-continue', response: { kind: 'accept', values: ['continue_with_main'] } });
+
+      f.bridge.publishElicitationRequest({ requestId: 'orch-pause', sessionId: 's1', prompt: 'qfmodel is unavailable (auth).', options: ['continue_with_main', 'pause'], multiSelect: false, metadata: fallbackMeta }, f.owner());
+      assert.deepEqual(object((await client.next('elicit_pending')).metadata), fallbackMeta);
+      assert.equal((await f.request('POST', '/api/mobile/elicitations/respond', { requestId: 'orch-pause', response: { kind: 'decline', reason: 'paused_by_user' } })).status, 202);
+      assert.deepEqual(object((await client.next('elicit_resolved')).response), { kind: 'decline', reason: 'paused_by_user' });
+      assert.deepEqual(f.calls.filter(row => row.channel === 'elicit:respond').at(-1)!.payload, { requestId: 'orch-pause', response: { kind: 'decline', reason: 'paused_by_user' } });
       await stopSocket(client.socket);
     } finally { await f.close(); }
   });
