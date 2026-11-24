@@ -2250,5 +2250,48 @@ void (async () => {
       await stopSocket(client.socket);
     } finally { await f.close(); }
   });
+  await h.test('session continue works over HTTP and WebSocket, marks remote origin, and surfaces rejections', async () => {
+    const f = await mobileFixture(); try {
+      const continueCalls: JsonObject[] = [];
+      let rejectNext = true;
+      f.intercept(async (channel, payload): Promise<JsonObject | undefined> => {
+        if (channel !== 'chat:continue') return undefined;
+        continueCalls.push(object(payload));
+        if (rejectNext) {
+          rejectNext = false;
+          return { ok: false, error: 'Session is already running' };
+        }
+        return { ok: true, mode: 'started' };
+      });
+      await f.enable();
+      const boot = await f.request('GET', '/api/mobile/bootstrap');
+      assert.equal(object(boot.body.features).continueGeneration, true);
+
+      const rejected = await f.request('POST', '/api/mobile/sessions/s1/continue', {});
+      assert.equal(rejected.status, 409);
+      assert.equal(object(rejected.body.error).type, 'continue_rejected');
+      assert.equal(object(rejected.body.error).message, 'Session is already running');
+      assert.equal(f.bridge.isRemoteOriginSession('s1'), false);
+      assert.deepEqual(continueCalls[0], { sessionId: 's1' });
+
+      const accepted = await f.request('POST', '/api/mobile/sessions/s1/continue', {});
+      assert.equal(accepted.status, 202);
+      assert.equal(accepted.body.ok, true);
+      assert.equal(accepted.body.sessionId, 's1');
+      assert.equal(f.bridge.isRemoteOriginSession('s1'), true);
+      assert.deepEqual(continueCalls[1], { sessionId: 's1' });
+
+      const client = await f.connect(); await client.next('hello');
+      client.socket.send(JSON.stringify({ type: 'continue_generation', requestId: 'req-continue-ws', sessionId: 's2' }));
+      const result = await client.next('action_result');
+      assert.equal(result.ok, true);
+      assert.equal(result.action, 'continue_generation');
+      assert.equal(result.requestId, 'req-continue-ws');
+      assert.equal(result.sessionId, 's2');
+      assert.equal(f.bridge.isRemoteOriginSession('s2'), true);
+      assert.deepEqual(continueCalls[2], { sessionId: 's2' });
+      await stopSocket(client.socket);
+    } finally { await f.close(); }
+  });
   process.exitCode = await h.finish(join(__dirname, 'mobile-bridge-result.json'), 'mobile-bridge'); clearTimeout(deadline);
 })().catch(error => { clearTimeout(deadline); process.stderr.write(String(error) + '\n'); process.exitCode = 1; });

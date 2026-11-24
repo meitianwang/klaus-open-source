@@ -129,6 +129,7 @@ export async function mobileFixture(options: Pick<MobileBridgeDeps, 'sessionInte
           sent.push({ payload, files }); return { ok: true };
         }
         case 'chat:interrupt': return { accepted: true };
+        case 'chat:continue': return { ok: true };
         case 'permission:respond': case 'elicit:respond': return { ok: true };
         default: throw new Error('Unexpected mobile fixture dispatch: ' + channel);
       }

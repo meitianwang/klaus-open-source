@@ -84,7 +84,7 @@ export const MOBILE_DISPATCH_CHANNELS = [
   'settings:output-styles:list', 'session:get-main-model-options', 'session:get-custom-main-model-options', 'session:new', 'projects:set-active',
   'session:history', 'session:set-workdir', 'session:clear-workdir', 'session:rename', 'session:set-pinned', 'session:archive', 'session:unarchive', 'session:delete', 'session:export', 'session:fork', 'feedback:submit',
   'chat:follow-up', 'chat:client-queue-snapshot', 'chat:client-queue-add', 'chat:client-queue-remove', 'chat:client-queue-restore', 'chat:client-queue-reorder', 'chat:client-queue-resume', 'chat:client-queue-deliver', 'chat:client-queue-clear',
-  'chat:interrupt', 'permission:respond', 'session:set-main-model', 'session:set-thinking-level', 'session:set-ultra-mode', 'session:set-orchestration-mode', 'session:set-fast-mode', 'session:set-spec-mode', 'settings:kv:set', 'settings:output-styles:set', 'chat:send', 'chat:upload',
+  'chat:interrupt', 'chat:continue', 'permission:respond', 'session:set-main-model', 'session:set-thinking-level', 'session:set-ultra-mode', 'session:set-orchestration-mode', 'session:set-fast-mode', 'session:set-spec-mode', 'settings:kv:set', 'settings:output-styles:set', 'chat:send', 'chat:upload',
   'permission:pending', 'elicit:pending', 'elicit:respond', 'question:pending', 'question:answer', 'tasks:list', 'agents:snapshot', 'agents:history', 'artifacts:read',
   'session:background-processes', 'session:stop-background-process',
   'auth:status', 'codex-auth:status', 'cursor-auth:status', 'qoder-auth:status', 'qwenwork-auth:status', 'workbuddy-auth:status', 'antigravity-auth:status', 'trae-auth:status', 'kiro-auth:status', 'kimi-auth:status', 'bailian-auth:status', 'minimax-auth:status', 'zhipu-auth:status', 'ark-auth:status', 'settings:models:list', 'usage:subscriptions',
@@ -436,7 +436,7 @@ export class MobileBridgeService {
       if (latestAccount?.userId !== run.account?.userId || latestAccount?.token !== run.account?.token) throw new MobileError(401, 'account_changed', 'Account authorization changed');
       if (!sameOwner(owner, this.deps.engineOwner())) throw new MobileError(409, 'engine_replaced', 'Desktop engine changed; retry the request');
       const row = object(answer);
-      if (row.ok === false && channel !== 'chat:follow-up' && !channel.startsWith('chat:client-queue-')) {
+      if (row.ok === false && channel !== 'chat:follow-up' && channel !== 'chat:continue' && !channel.startsWith('chat:client-queue-')) {
         const code = string(row.error) || string(object(row.error).code) || 'desktop_error';
         throw new MobileError(code === 'export_session_empty' ? 422 : 500, code, string(object(row.error).message) || 'Desktop request failed');
       }
@@ -726,7 +726,7 @@ export class MobileBridgeService {
       }
       throw new MobileError(404, 'not_found', 'Not found');
     }
-    const match = /^\/api\/mobile\/(sessions|permissions|elicitations)\/([^/]+)\/(history|summary|work-mode|messages|stop|respond|rename|pin|archive|workdir|delete|export|fork|debug-report|media|file-preview|inline-visualization|background-processes|stop-background-process)$/u.exec(path);
+    const match = /^\/api\/mobile\/(sessions|permissions|elicitations)\/([^/]+)\/(history|summary|work-mode|messages|stop|continue|respond|rename|pin|archive|workdir|delete|export|fork|debug-report|media|file-preview|inline-visualization|background-processes|stop-background-process)$/u.exec(path);
     if (!match) throw new MobileError(404, 'not_found', 'Not found');
     const id = this.pathIdentity(match[2]!);
     const action = match[3]!;
@@ -791,6 +791,24 @@ export class MobileBridgeService {
         for (const field of ['interruptionError', 'goalPauseError'] as const) if (typeof interrupted[field] === 'string') base[field] = interrupted[field];
         if (interrupted.confirmed === false || interrupted.interruptionError || interrupted.goalPauseError) base.ok = false;
         await this.broadcastState(run, call); break;
+      }
+      case 'continue': {
+        this.markRemoteOrigin(id);
+        let continued: JsonObject;
+        try {
+          continued = object(await call('chat:continue', { sessionId: id }));
+        } catch (error) {
+          this.clearRemoteOrigin(id);
+          throw error;
+        }
+        if (continued.ok === false) {
+          this.clearRemoteOrigin(id);
+          const message = string(continued.error) || string(object(continued.error).message) || 'Desktop did not accept this continue request';
+          throw new MobileError(409, 'continue_rejected', message);
+        }
+        run.catalog?.invalidate(id);
+        await this.broadcastState(run, call);
+        return result(202, base);
       }
       case 'rename': base.title = title(payload.title); await call('session:rename', { sessionId: id, title: base.title }); run.catalog?.invalidate(id); await this.broadcastState(run, call, true); break;
       case 'pin': {
@@ -1506,7 +1524,7 @@ export class MobileBridgeService {
       });
       return;
     }
-    if (!['subscribe', 'send_message', 'stop_generation', 'rename_session', 'delete_session', 'fork_session'].includes(type)) throw new MobileError(400, 'unknown_message_type', 'Unknown message type');
+    if (!['subscribe', 'send_message', 'stop_generation', 'continue_generation', 'rename_session', 'delete_session', 'fork_session'].includes(type)) throw new MobileError(400, 'unknown_message_type', 'Unknown message type');
     const id = required(payload.sessionId, 'sessionId');
     if (type === 'send_message') {
       await this.knownSession(call, id);
@@ -1529,7 +1547,10 @@ export class MobileBridgeService {
       for (const frame of followQuestions(await call('question:pending', { sessionId: id }), id, []).interactions) this.sendPeer(peer, frame);
       return;
     }
-    const action = type === 'stop_generation' ? 'stop' : type === 'rename_session' ? 'rename' : type === 'fork_session' ? 'fork' : 'delete';
+    if (type === 'continue_generation') {
+      peer.subscriptions.add(id); this.deps.sessionInterestChanged?.(id);
+    }
+    const action = type === 'stop_generation' ? 'stop' : type === 'continue_generation' ? 'continue' : type === 'rename_session' ? 'rename' : type === 'fork_session' ? 'fork' : 'delete';
     const response = await this.route(run, call, owner, 'POST', '/api/mobile/sessions/' + encodeURIComponent(id) + '/' + action, payload);
     const requestId = nonempty(payload.requestId);
     const body = object(response.body);
