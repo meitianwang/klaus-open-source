@@ -714,6 +714,20 @@ void (async () => {
       f.bridge.publishEngineEvent({ type: 'stream_mode', sessionId: 's1', mode: 'requesting' }, f.owner());
       f.bridge.publishEngineEvent({ type: 'interrupted', sessionId: 's1' }, f.owner());
       assert.deepEqual(await running(), [], 'a user stop ends the turn');
+      // Turn-level `session_runtime_status` (`status: 'active'`) opens the working state immediately
+      // upon turn admission before MCP initialization and before `stream_mode: requesting`, while
+      // broad session-scoped runtime status (`source: 'session'`) does not impersonate a turn.
+      f.bridge.publishEngineEvent({ type: 'session_runtime_status', sessionId: 's1', source: 'session', status: 'active' }, f.owner());
+      assert.deepEqual(await running(), [], 'session-wide runtime notifications must not mark a turn working');
+      f.bridge.publishEngineEvent({ type: 'session_runtime_status', sessionId: 's1', status: 'active', turnId: 'turn-admitted' }, f.owner());
+      assert.deepEqual(await running(), ['s1'], 'turn-admission runtime status marks the session working before stream_mode');
+      const follower = await f.connect(); await follower.next('hello');
+      follower.socket.send(JSON.stringify({ type: 'follow_task', sessionId: 's1', transportRequestId: 'follow-admitted' }));
+      const admittedSnapshot = await follower.next('task_snapshot');
+      assert.equal(admittedSnapshot.working, true, 'task_snapshot reports working immediately during turn startup');
+      f.bridge.publishEngineEvent({ type: 'done', sessionId: 's1', turnId: 'turn-admitted' }, f.owner());
+      assert.deepEqual(await running(), []);
+      await stopSocket(follower.socket);
     } finally { await f.close(); }
   });
   await h.test('WebSocket hello precedes requests, scopes events, accepts send and reports unknown commands', async () => {

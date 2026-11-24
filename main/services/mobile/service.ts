@@ -1792,8 +1792,12 @@ export class MobileBridgeService {
     // `stream_mode` precedes EVERY delta (`ipc/project.ts:955-959`), and its modes include
     // `responding`, `thinking`, `tool-use` and `idle`. Adding on any of them re-lit a session that
     // had already settled — including `idle`, which is the opposite of working — so only the
-    // frame that opens a turn counts.
-    const started = id && type === 'stream_mode' && event.mode === 'requesting' && !this.working.has(id);
+    // frame that opens a turn counts. `session_runtime_status` (`status === 'active'` with
+    // `source !== 'session'`) fires immediately upon turn admission before MCP initialization and
+    // before `stream_mode: requesting`.
+    const turnAdmitted = (type === 'stream_mode' && event.mode === 'requesting')
+      || (type === 'session_runtime_status' && event.source !== 'session' && event.status === 'active');
+    const started = id && turnAdmitted && !this.working.has(id);
     if (started) this.working.add(id);
     // `api_error` ends a turn ONLY when it is terminal (`contracts/vectors/turn-termination-vectors.json`:
     // `apiErrorIsTerminal`). A non-terminal one is a follow-up or compaction notice, and clearing
