@@ -2254,6 +2254,67 @@ void (async () => {
       await stopSocket(client.socket);
     } finally { await f.close(); }
   });
+  await h.test('profile activity works over HTTP and WebSocket with per-model breakdown', async () => {
+    const f = await mobileFixture(); try {
+      let activityReads = 0;
+      const sampleActivity: JsonObject = {
+        days: [{ date: '2026-11-24', tokens: 140000000 }],
+        models: [
+          {
+            model: 'claude-opus-5-5',
+            source: 'subscription',
+            tokens: 95000000,
+            inputTokens: 12000000,
+            outputTokens: 3000000,
+            cacheReadTokens: 80000000,
+            cacheWriteTokens: 0,
+            requests: 42,
+            days: [{ date: '2026-11-24', tokens: 95000000 }],
+          },
+          {
+            model: 'gpt-6.1-sol',
+            source: 'codex',
+            tokens: 45000000,
+            inputTokens: 8000000,
+            outputTokens: 2000000,
+            cacheReadTokens: 35000000,
+            cacheWriteTokens: 0,
+            requests: 19,
+            days: [{ date: '2026-11-24', tokens: 45000000 }],
+          },
+        ],
+        totalTokens: 140000000,
+        peakDailyTokens: 140000000,
+        longestTaskMs: 1800000,
+        longestStreakDays: 7,
+        currentStreakDays: 7,
+      };
+      f.intercept(async channel => {
+        if (channel !== 'profile:activity') return undefined;
+        activityReads += 1;
+        return sampleActivity;
+      });
+      await f.enable();
+      const boot = await f.request('GET', '/api/mobile/bootstrap');
+      assert.equal(object(boot.body.features).profileActivity, true);
+
+      const httpActivity = await f.request('GET', '/api/mobile/profile-activity');
+      assert.equal(httpActivity.status, 200);
+      assert.equal(httpActivity.body.ok, true);
+      assert.deepEqual(httpActivity.body.activity, sampleActivity);
+      assert.equal(activityReads, 1);
+
+      const client = await f.connect(); await client.next('hello');
+      client.socket.send(JSON.stringify({ type: 'get_profile_activity', requestId: 'req-profile-activity-ws' }));
+      const result = await client.next('action_result');
+      assert.equal(result.ok, true);
+      assert.equal(result.action, 'get_profile_activity');
+      assert.equal(result.requestId, 'req-profile-activity-ws');
+      assert.deepEqual(result.activity, sampleActivity);
+      assert.equal(activityReads, 2);
+      await stopSocket(client.socket);
+    } finally { await f.close(); }
+  });
   await h.test('session continue works over HTTP and WebSocket, marks remote origin, and surfaces rejections', async () => {
     const f = await mobileFixture(); try {
       const continueCalls: JsonObject[] = [];

@@ -1,5 +1,5 @@
 import { build } from 'esbuild'
-import { appendFileSync, copyFileSync, mkdirSync, writeFileSync } from 'node:fs'
+import { appendFileSync, copyFileSync, mkdirSync, readdirSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { spawnSync } from 'node:child_process'
@@ -21,6 +21,12 @@ try {
     platform: 'browser', format: 'iife', target: 'chrome140', jsx: 'automatic',
     loader: { '.module.css': 'local-css', '.svg': 'text', '.woff': 'file', '.woff2': 'file', '.ttf': 'file' }, logLevel: 'warning' })
   copyFileSync(join(desktop, 'frontend/css/styles.css'), join(logs, 'styles.css'))
+  const publicDir = join(desktop, 'frontend/public')
+  for (const entry of readdirSync(publicDir, { withFileTypes: true })) {
+    if (entry.isFile() && /\.(png|svg)$/i.test(entry.name)) {
+      copyFileSync(join(publicDir, entry.name), join(logs, entry.name))
+    }
+  }
   writeFileSync(join(logs, 'index.html'), `<!doctype html><html lang="zh" data-theme="light"><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none';script-src 'self';style-src 'self' 'unsafe-inline';font-src 'self';img-src 'self' data: blob:;connect-src 'none'">
 <link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="fixture.css">

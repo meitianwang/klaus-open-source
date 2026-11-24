@@ -576,6 +576,12 @@
                 "default": false,
                 "type": "boolean"
               },
+              "responsesLite": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "sessionAffinityFormat": {
                 "type": [
                   "string",
@@ -616,6 +622,14 @@
                     "type": "null"
                   }
                 ]
+              },
+              "toolOutputTokenLimit": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "uint64",
+                "minimum": 0.0
               },
               "tools": {
                 "type": [
@@ -5845,6 +5859,12 @@
             "format": "uint64",
             "minimum": 0.0
           },
+          "models": {
+            "type": "array",
+            "items": {
+              "$ref": "#/definitions/ProfileActivityModel"
+            }
+          },
           "partial": {
             "type": "boolean"
           },
@@ -5869,6 +5889,63 @@
             ],
             "properties": {
               "date": {
+                "type": "string"
+              },
+              "tokens": {
+                "type": "integer",
+                "format": "uint64",
+                "minimum": 0.0
+              }
+            },
+            "additionalProperties": false
+          },
+          "ProfileActivityModel": {
+            "type": "object",
+            "required": [
+              "cacheReadTokens",
+              "cacheWriteTokens",
+              "inputTokens",
+              "model",
+              "outputTokens",
+              "requests",
+              "tokens"
+            ],
+            "properties": {
+              "cacheReadTokens": {
+                "type": "integer",
+                "format": "uint64",
+                "minimum": 0.0
+              },
+              "cacheWriteTokens": {
+                "type": "integer",
+                "format": "uint64",
+                "minimum": 0.0
+              },
+              "days": {
+                "type": "array",
+                "items": {
+                  "$ref": "#/definitions/ProfileActivityDay"
+                }
+              },
+              "inputTokens": {
+                "type": "integer",
+                "format": "uint64",
+                "minimum": 0.0
+              },
+              "model": {
+                "type": "string"
+              },
+              "outputTokens": {
+                "type": "integer",
+                "format": "uint64",
+                "minimum": 0.0
+              },
+              "requests": {
+                "type": "integer",
+                "format": "uint64",
+                "minimum": 0.0
+              },
+              "source": {
                 "type": "string"
               },
               "tokens": {
@@ -7176,6 +7253,12 @@
                 "default": false,
                 "type": "boolean"
               },
+              "responsesLite": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "sessionAffinityFormat": {
                 "type": [
                   "string",
@@ -7216,6 +7299,14 @@
                     "type": "null"
                   }
                 ]
+              },
+              "toolOutputTokenLimit": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "uint64",
+                "minimum": 0.0
               },
               "tools": {
                 "type": [
@@ -12366,6 +12457,12 @@
                 "default": false,
                 "type": "boolean"
               },
+              "responsesLite": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "sessionAffinityFormat": {
                 "type": [
                   "string",
@@ -12406,6 +12503,14 @@
                     "type": "null"
                   }
                 ]
+              },
+              "toolOutputTokenLimit": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "uint64",
+                "minimum": 0.0
               },
               "tools": {
                 "type": [
@@ -13194,6 +13299,12 @@
                 "default": false,
                 "type": "boolean"
               },
+              "responsesLite": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "sessionAffinityFormat": {
                 "type": [
                   "string",
@@ -13234,6 +13345,14 @@
                     "type": "null"
                   }
                 ]
+              },
+              "toolOutputTokenLimit": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "uint64",
+                "minimum": 0.0
               },
               "tools": {
                 "type": [
@@ -14108,6 +14227,12 @@
                 "default": false,
                 "type": "boolean"
               },
+              "responsesLite": {
+                "type": [
+                  "boolean",
+                  "null"
+                ]
+              },
               "sessionAffinityFormat": {
                 "type": [
                   "string",
@@ -14148,6 +14273,14 @@
                     "type": "null"
                   }
                 ]
+              },
+              "toolOutputTokenLimit": {
+                "type": [
+                  "integer",
+                  "null"
+                ],
+                "format": "uint64",
+                "minimum": 0.0
               },
               "tools": {
                 "type": [

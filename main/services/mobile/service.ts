@@ -91,7 +91,7 @@ export const MOBILE_DISPATCH_CHANNELS = [
   'chat:interrupt', 'chat:continue', 'permission:respond', 'session:set-main-model', 'session:set-thinking-level', 'session:set-ultra-mode', 'session:set-orchestration-mode', 'session:set-fast-mode', 'session:set-spec-mode', 'settings:kv:set', 'settings:output-styles:set', 'chat:send', 'chat:upload',
   'permission:pending', 'elicit:pending', 'elicit:respond', 'question:pending', 'question:answer', 'tasks:list', 'agents:snapshot', 'agents:history', 'artifacts:read',
   'session:background-processes', 'session:stop-background-process',
-  'auth:status', 'codex-auth:status', 'cursor-auth:status', 'qoder-auth:status', 'qwenwork-auth:status', 'workbuddy-auth:status', 'antigravity-auth:status', 'trae-auth:status', 'kiro-auth:status', 'kimi-auth:status', 'bailian-auth:status', 'minimax-auth:status', 'zhipu-auth:status', 'ark-auth:status', 'settings:models:list', 'usage:subscriptions',
+  'auth:status', 'codex-auth:status', 'cursor-auth:status', 'qoder-auth:status', 'qwenwork-auth:status', 'workbuddy-auth:status', 'antigravity-auth:status', 'trae-auth:status', 'kiro-auth:status', 'kimi-auth:status', 'bailian-auth:status', 'minimax-auth:status', 'zhipu-auth:status', 'ark-auth:status', 'settings:models:list', 'usage:subscriptions', 'profile:activity',
   'git:branches', 'git:uncommitted', 'git:checkout', 'git:commit-paths', 'worktree:create-from-workdir', 'worktree:remove',
 ] as const;
 
@@ -689,6 +689,11 @@ export class MobileBridgeService {
       const answer = await call('usage:subscriptions', usagePayload);
       this.assertReadCurrent(run, owner, signal, run.account);
       return result(200, answer);
+    }
+    if (method === 'GET' && path === '/api/mobile/profile-activity') {
+      const activity = await call('profile:activity', {});
+      this.assertReadCurrent(run, owner, signal, run.account);
+      return result(200, { ok: true, activity });
     }
     if (method === 'POST' && path === '/api/mobile/model-config') {
       let sourceHint: string | undefined;
@@ -1611,6 +1616,19 @@ export class MobileBridgeService {
         ...(sessionId ? { sessionId } : {}),
         ...(requestId ? { requestId } : {}),
         ...(body.snapshot !== undefined ? { snapshot: body.snapshot } : {}),
+      });
+      return;
+    }
+    if (type === 'get_profile_activity') {
+      const response = await this.route(run, call, owner, 'GET', '/api/mobile/profile-activity', {});
+      const requestId = nonempty(payload.requestId);
+      const body = object(response.body);
+      this.sendPeer(peer, {
+        type: 'action_result',
+        action: type,
+        ok: body.ok !== false,
+        ...(requestId ? { requestId } : {}),
+        ...(body.activity !== undefined ? { activity: body.activity } : {}),
       });
       return;
     }
