@@ -19,7 +19,7 @@ import { genericActivityLabel, semanticActivityLabel, unwrapIndirectToolCall } f
 import { ImageActivityDetails, ScheduleActivityDetails, WebActivitySources } from './activity-rich-details'
 import { FriendActivityDetails } from './activity-friend'
 
-import { activityToolPresentation, activityToolDisplayName, activityShellResult, activityInputText, activityToolIconName, isDynamicActivityPresentation, type ActivityToolData, type ActivityToolProps, type ActivityToolPresentation, type ActivityToolState, type ActivityShellResult } from './activity-tool-model'
+import { activityToolPresentation, activityToolDisplayName, activityShellResult, activityInputText, activityToolIconName, advisorActivityLabel, isAdvisorToolName, isDynamicActivityPresentation, type ActivityToolData, type ActivityToolProps, type ActivityToolPresentation, type ActivityToolState, type ActivityShellResult } from './activity-tool-model'
 import { DELEGATION_TAG_OPEN, findEmbeddedDelegationEnvelopes } from '../../../../contracts/thread-delegation'
 export * from './activity-tool-model'
 
@@ -72,10 +72,7 @@ export function activityToolSummary(presentation: ActivityToolPresentation, stat
   }
   // The advisor row names the consultation itself; the question and the advice
   // live in the expanded card, so the headline stays a plain state sentence.
-  if (name === 'advisor') {
-    if (zh) return active ? '正在咨询顾问' : stopped ? '已停止咨询顾问' : failed ? '顾问咨询失败' : '已咨询顾问'
-    return active ? 'Consulting advisor' : stopped ? 'Stopped consulting advisor' : failed ? 'Advisor consultation failed' : 'Consulted advisor'
-  }
+  if (isAdvisorToolName(name)) return advisorActivityLabel(state, locale)
   const normalizedName = (name || '').toLowerCase().replace(/^functions[._]/, '')
   if (normalizedName === 'yield') {
     if (zh) return active ? '正在等待后台任务' : stopped ? '已停止等待后台任务' : failed ? '等待后台任务失败' : '已等待后台任务'
@@ -401,7 +398,7 @@ function accompanyingImageNotes(output: string | undefined): string {
 }
 
 function ToolDetails({ tool, presentation, locale }: { tool: ActivityToolData; presentation: ActivityToolPresentation; locale: string }) {
-  if (tool.toolName === 'advisor') return <AdvisorAdviceCard tool={tool} locale={locale} />
+  if (isAdvisorToolName(tool.toolName)) return <AdvisorAdviceCard tool={tool} locale={locale} />
   const completedImage = presentation.kind === 'image' && tool.state === 'done' && !!presentation.imagePaths?.length && !presentation.imageNotFound
   const showImageSection = presentation.kind === 'image'
     && (!!presentation.imagePaths?.length || !!presentation.imageUnsupportedByModel || (tool.state === 'done' && !presentation.imageNotFound))

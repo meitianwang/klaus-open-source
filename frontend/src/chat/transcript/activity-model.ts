@@ -1,10 +1,10 @@
-import { activityToolPresentation, isDynamicActivityPresentation } from './activity-tool-model'
+import { activityToolPresentation, isAdvisorToolName, isDynamicActivityPresentation } from './activity-tool-model'
 import { chatActivitySummaryParts, isToolDiscovery, loadedActivityToolNames, mcpActivityIsCommand, mcpActivitySource, mcpActivitySourceName, nativeActivityKind, type ChatActivityTool } from './chat-activity'
 import { semanticActivity, unwrapIndirectToolCall } from './activity-semantic'
 
 // Shared projection for streamed and replayed activity. Tool classification
 // affects the summary, never whether an ordinary tool belongs to its turn.
-export type ActivityKind = 'image' | 'read' | 'list' | 'search' | 'web' | 'edit' | 'command' | 'tool' | 'skill'
+export type ActivityKind = 'image' | 'read' | 'list' | 'search' | 'web' | 'edit' | 'command' | 'advisor' | 'tool' | 'skill'
 
 export interface ActivityAction {
   kind: ActivityKind
@@ -35,6 +35,7 @@ export interface ActivitySummary {
   web: number
   edits: number
   commands: number
+  advisors: number
   tools: Array<{ name: string; count: number }>
   sources: string[]
   skills: number
@@ -76,6 +77,10 @@ export function describeActivity(name: string, input: unknown, status: string, o
     target = presentation.kind === 'search' ? presentation.query : presentation.path
   }
   else if (/^(web_search|web_fetch|websearch|webfetch|fetch_url)$/.test(normalized)) kind = 'web'
+  else if (isAdvisorToolName(name)) {
+    kind = 'advisor'
+    target = ''
+  }
   else if (presentation.kind === 'edit') kind = 'edit'
   else if (presentation.kind === 'exec' || presentation.shellTaskControl) kind = 'command'
   else if (!isToolDiscovery(name)) {
@@ -109,7 +114,7 @@ export function summarizeActivity<T>(entries: ActivityEntry<T>[]): ActivitySumma
   const tools = new Map<string, number>()
   const loaded = new Set<string>()
   const dynamicTools: ChatActivityTool[] = []
-  const summary: ActivitySummary = { images: 0, reads: 0, lists: 0, searches: 0, web: 0, edits: 0, commands: 0, tools: [], sources: [], skills: 0, allTools: [], dynamicTools: [], loadedTools: 0, unnamedMcp: 0 }
+  const summary: ActivitySummary = { images: 0, reads: 0, lists: 0, searches: 0, web: 0, edits: 0, commands: 0, advisors: 0, tools: [], sources: [], skills: 0, allTools: [], dynamicTools: [], loadedTools: 0, unnamedMcp: 0 }
   for (const entry of entries) {
     const action = entry.action
     if (!action) continue
@@ -128,6 +133,7 @@ export function summarizeActivity<T>(entries: ActivityEntry<T>[]): ActivitySumma
       case 'web': summary.web++; break
       case 'edit': for (const path of action.paths.length ? action.paths : [entry.key]) edits.add(path); break
       case 'command': summary.commands++; break
+      case 'advisor': summary.advisors++; break
       case 'skill': skills.add(action.target.replace(/\\/g, '/')); break
       case 'tool':
         if (semanticActivity(action.name, action.tool.args)) tools.set(action.name, (tools.get(action.name) || 0) + 1)

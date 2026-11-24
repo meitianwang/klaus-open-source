@@ -135,7 +135,14 @@ describe('host activity and discovery metadata', () => {
     expect(describeActivity('NotebookRead', { notebook_path: '/a.ipynb' }, 'done').target).toBe('/a.ipynb')
     expect(describeActivity('kill_shell', {}, 'done').kind).toBe('command')
     expect(describeActivity('TaskStop', { task_id: 'shell-1' }, 'done', '{"task_type":"shell"}').kind).toBe('command')
-    expect(describeActivity('advisor', {}, 'done').kind).toBe('search')
+    const advisor = describeActivity('advisor', { question: 'Should we change DNS?' }, 'done')
+    expect(advisor.kind).toBe('advisor')
+    expect(advisor.dynamic).not.toBe(true)
+    expect(advisor.target).toBe('')
+    const advisorSummary = summarizeActivity(entries([['advisor', { question: 'Should we change DNS?' }]]))
+    expect(advisorSummary.advisors).toBe(1)
+    expect(advisorSummary.searches).toBe(0)
+    expect(advisorSummary.explorationKind).toBeUndefined()
   })
 
   test('unwraps call_mcp_tool into real MCP sources, semantic tools, and host actions in group summaries', () => {

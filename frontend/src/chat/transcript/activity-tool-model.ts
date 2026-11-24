@@ -373,6 +373,28 @@ export function activityInputText(args: unknown): string {
 
 
 
+export function isAdvisorToolName(toolName: string): boolean {
+  return (toolName || '').toLowerCase().replace(/^functions[._]/, '') === 'advisor'
+}
+
+export function advisorActivityLabel(state: string, locale: string, leading = true): string {
+  const zh = locale.startsWith('zh')
+  const active = state === 'running'
+  const failed = state === 'error'
+  const stopped = state === 'interrupted'
+  const awaiting = state === 'awaiting-approval'
+  if (zh) {
+    if (awaiting) return '等待批准咨询顾问'
+    return active ? '正在咨询顾问' : stopped ? '已停止咨询顾问' : failed ? '顾问咨询失败' : '已咨询顾问'
+  }
+  const label = awaiting ? 'Awaiting approval to consult advisor'
+    : active ? 'Consulting advisor'
+    : stopped ? 'Stopped consulting advisor'
+    : failed ? 'Advisor consultation failed'
+    : 'Consulted advisor'
+  return leading ? label : label.charAt(0).toLowerCase() + label.slice(1)
+}
+
 /** Human-readable fallback when a tool has no specialized presentation metadata. */
 export function activityToolDisplayName(name: string): string {
   return activityDisplayName(name)

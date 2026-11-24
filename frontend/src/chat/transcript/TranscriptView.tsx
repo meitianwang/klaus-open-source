@@ -32,7 +32,7 @@ import { FriendOwnerChatRequest, FriendTaskApproval } from './friend-task-approv
 import styles from './transcript.module.css'
 import chatStyles from '../chat.module.css'
 import { activityCollapseState, describeActivity, projectActivity, turnCollapseState, transcriptPageStart, type ActivityEntry, type ActivitySummary, type ActivityAction } from './activity-model'
-import { ActivityTool, activityToolDisplayName, activityToolIconName, activityToolPresentation, delegatedToolOutput, type ActivityToolData } from './activity-tool'
+import { ActivityTool, activityToolDisplayName, activityToolIconName, activityToolPresentation, advisorActivityLabel, delegatedToolOutput, isAdvisorToolName, type ActivityToolData } from './activity-tool'
 import { semanticActivity, semanticActivityLabel, unwrapIndirectToolCall } from './activity-semantic'
 import { mediaGenerationKind, mediaGenerationLabel, mediaGenerationSummaryState } from './media-generation-activity'
 import { ActivityDisclosure } from './activity-disclosure'
@@ -1908,7 +1908,7 @@ export function activityEntries(units: Unit[], turnKey: string, interrupted: boo
       return [{
         key,
         value: { kind: 'unit', unit: { ...unit, key: `tool:${key}`, segment: { kind: 'tools', tools: [tool] } } },
-        grouping: isAgentActionToolName(effectiveTool.toolName, effectiveTool.args, actionOutput) || tool.state === 'awaiting-approval' ? 'standalone' : 'tool',
+        grouping: isAgentActionToolName(effectiveTool.toolName, effectiveTool.args, actionOutput) || isAdvisorToolName(effectiveTool.toolName) || tool.state === 'awaiting-approval' ? 'standalone' : 'tool',
         action: describeActivity(effectiveTool.toolName, effectiveTool.args, tool.state, actionOutput, tool.output?.media),
       }]
     })
@@ -3231,6 +3231,10 @@ function activitySummaryParts(t: (key: string) => string, summary: ActivitySumma
   if (summary.reads || summary.searches || summary.lists) add('read')
   if (summary.commands) add('commands', summary.commands)
   if (summary.web) add('web')
+  if (summary.advisors) {
+    const calls = summary.allTools.filter(call => isAdvisorToolName(call.toolName))
+    parts.push(advisorActivityLabel(mediaGenerationSummaryState(calls.map(call => call.state)), intlLocale(), parts.length === 0))
+  }
   const semanticPart = (tool: { name: string }) => {
     const kind = mediaGenerationKind(tool.name)
     const calls = summary.allTools.filter(call => call.toolName === tool.name)
@@ -3276,6 +3280,7 @@ export function activitySummaryLabel(t: (key: string) => string, node: ActivityH
       // tool never lands here because it renders through the dynamic branch.
       return skillActivityLabel(t, skillIdentifierFromPath(action.target), action.tool.state)
     }
+    if (action?.kind === 'advisor') return advisorActivityLabel(action.tool.state, intlLocale())
     if (action?.kind === 'image') return t('activity_active_image').replace('{count}', String(action.imageCount || 1))
     if (action) return `${t(`activity_active_${action.kind}`)}${action.target ? ` ${action.target}` : action.kind === 'tool' ? ` ${action.name}` : ''}`
     return t('thinking_label')
@@ -3321,6 +3326,7 @@ export function activitySummaryIconTool(node: ActivityHeaderNode): ChatActivityT
     || allTools.find(tool => !isToolDiscovery(tool.toolName) && ['read', 'list', 'search'].includes(kind(tool)))
     || allTools.find(tool => kind(tool) === 'command')
     || allTools.find(tool => kind(tool) === 'web')
+    || allTools.find(tool => kind(tool) === 'advisor')
     || node.summary.dynamicTools[0]
     || allTools[0]
 }
@@ -4570,7 +4576,7 @@ export function liveActivityEntries(liveUnits: LiveUnit[], tools: Record<string,
       }
       return [{
         key: id, value: { ...unit, key: `tool:${id}`, order: [id] },
-        grouping: record || subagentActivityKind(effectiveCard.toolName) || isAgentActionToolName(effectiveCard.toolName, effectiveCard.args, card.content) || card.status === 'awaiting-approval' ? 'standalone' : 'tool',
+        grouping: record || subagentActivityKind(effectiveCard.toolName) || isAgentActionToolName(effectiveCard.toolName, effectiveCard.args, card.content) || isAdvisorToolName(effectiveCard.toolName) || card.status === 'awaiting-approval' ? 'standalone' : 'tool',
         action: describeActivity(effectiveCard.toolName, effectiveCard.args, card.status, card.content, card.media),
       }, ...delegations]
     })

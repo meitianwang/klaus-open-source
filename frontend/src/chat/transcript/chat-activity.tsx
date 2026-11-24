@@ -33,7 +33,7 @@ export type NativeActivityKind = 'reading' | 'search' | 'edit' | 'command'
 // In particular, a host tool containing "list" or "read" is not a file read.
 const NATIVE_ACTIVITY_KINDS = new Map<string, NativeActivityKind>([
   ...['read', 'read_file', 'glob', 'ls', 'list_files', 'file_search', 'notebookread', 'notebook_read'].map(name => [name, 'reading'] as const),
-  ...['grep', 'tool_search', 'toolsearch', 'web_search', 'websearch', 'web_fetch', 'webfetch', 'advisor'].map(name => [name, 'search'] as const),
+  ...['grep', 'tool_search', 'toolsearch', 'web_search', 'websearch', 'web_fetch', 'webfetch'].map(name => [name, 'search'] as const),
   ...['write', 'write_file', 'edit', 'multi_edit', 'multiedit', 'apply_patch', 'notebookedit', 'notebook_edit'].map(name => [name, 'edit'] as const),
   ...['bash', 'bash_output', 'bashoutput', 'exec_command', 'write_stdin', 'kill_shell', 'killshell', 'killbash'].map(name => [name, 'command'] as const),
 ])
@@ -52,7 +52,7 @@ const NATIVE_DETAIL_TOOLS = new Set([
   'browser_clipboard', 'browser_dialog', 'browser_mark_tab', 'browser_permission',
   // Native and imported aliases with an existing dedicated transcript icon.
   'task_output', 'taskoutput', 'task_stop', 'taskstop', 'taskget', 'tasklist',
-  'croncreate', 'cronlist', 'crondelete', 'think', 'pushnotification',
+  'croncreate', 'cronlist', 'crondelete', 'think', 'advisor', 'pushnotification',
   'monitor', 'remotetrigger', 'enterworktree', 'exitworktree',
 ])
 const STANDALONE_ACTIVITY_TOOLS = new Set([

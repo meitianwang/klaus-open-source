@@ -10,7 +10,7 @@ const { I18N } = await import('../../i18n')
 const skillsData = await import('../../pages/skills/data')
 const { ChatActivity, ChatActivityDisclosure, chatActivityKind, dynamicActivityLabel, isDynamicActivityTool, isExplicitMediaGenerationTool, chatActivityTarget, chatActivitySummaryLabel, navigateChatActivity } = await import('./chat-activity')
 const { activityToolPresentation, activityToolSummary } = await import('./activity-tool')
-const { describeActivity } = await import('./activity-model')
+const { describeActivity, summarizeActivity } = await import('./activity-model')
 const { HistoryToolCards, LiveToolCard, activitySummaryLabel, activitySummaryIconTool, chatGroupIcon, foldUnits: projectTurnUnits, groupLiveActivityUnits: projectLiveUnits, hasActiveChatActivitySummary, unitsFromMessages, segmentsFromBlocks } = await import('./TranscriptView')
 
 // These cases inspect tool grouping inside the process disclosure.
@@ -763,5 +763,64 @@ describe('single glyph source across surfaces', () => {
       // the compared value so a divergence names the tool that caused it.
       expect({ tool: toolName, glyph: headlinePath }).toEqual({ tool: toolName, glyph: itemPath })
     }
+  })
+
+  test('advisor stays standalone inside a turn process and keeps advisor labels in summaries', () => {
+    const messages = [
+      { role: 'user', uuid: 'u1', turnId: 'turn-advisor', text: 'Diagnose DNS' },
+      {
+        role: 'assistant', uuid: 'a1', turnId: 'turn-advisor', contentBlocks: [
+          { type: 'tool_use', name: 'read', id: 'r1', input: { path: '/etc/hosts' }, __result: { text: 'ok' } },
+          { type: 'tool_use', name: 'bash', id: 'b1', input: { command: 'scutil --dns' }, __result: { text: 'ok' } },
+          { type: 'server_tool_use', name: 'advisor', id: 'adv1', input: { question: 'Check DNS routing?' } },
+          { type: 'advisor_tool_result', tool_use_id: 'adv1', content: { type: 'advisor_result', text: 'Check fake-IP rule.' } },
+          { type: 'tool_use', name: 'REPL', id: 'rep1', input: { code: '1+1' }, __result: { text: 'err', isError: true } },
+          { type: 'tool_use', name: 'bash', id: 'b2', input: { command: 'curl -I https://example.invalid' }, __result: { text: 'ok' } },
+        ],
+      },
+      { role: 'assistant', uuid: 'a2', turnId: 'turn-advisor', phase: 'final_answer', text: 'Found the DNS issue.' },
+    ]
+    const nodes = projectTurnUnits(unitsFromMessages(messages), null, { 'turn-advisor': 'completed' }, {})
+    const turnFold = nodes.find(node => node.kind === 'turn-fold')
+    expect(turnFold?.kind).toBe('turn-fold')
+    if (turnFold?.kind !== 'turn-fold') throw new Error('Expected turn-fold')
+    expect(turnFold.open).toBe(false)
+    expect(turnFold.items.map(item => item.kind)).toEqual(['activity-fold', 'unit', 'activity-fold'])
+    const advisorItem = turnFold.items[1]
+    expect(advisorItem.kind === 'unit' && advisorItem.unit.type === 'tools' && advisorItem.unit.segment?.tools?.[0].toolName).toBe('advisor')
+
+    const liveTools = {
+      r1: { ...card('read', 'ok', 'r1'), args: { path: '/etc/hosts' } },
+      b1: card('bash', 'ok', 'b1'),
+      adv1: { ...card('advisor', 'running', 'adv1'), args: { question: 'Check DNS?' } },
+      b2: card('bash', 'ok', 'b2'),
+    }
+    const liveNodes = groupLiveActivityUnits([toolsUnit(['r1', 'b1', 'adv1', 'b2'])], liveTools, true, false)
+    expect(liveNodes.map(node => node.kind)).toEqual(['activity', 'unit', 'activity'])
+    expect(liveNodes[1].kind === 'unit' && liveNodes[1].unit.type === 'live-tools' && liveNodes[1].unit.order).toEqual(['adv1'])
+
+    const mixedSummary = summarizeActivity([
+      { key: 'r1', value: 'r1', grouping: 'tool', action: describeActivity('read', { path: '/a.ts' }, 'done') },
+      { key: 'adv1', value: 'adv1', grouping: 'tool', action: describeActivity('advisor', { question: 'Q' }, 'done') },
+    ])
+    const advisorOnlySummary = summarizeActivity([
+      { key: 'adv1', value: 'adv1', grouping: 'tool', action: describeActivity('advisor', { question: 'Q' }, 'done') },
+    ])
+    const failedAdvisorSummary = summarizeActivity([
+      { key: 'adv1', value: 'adv1', grouping: 'tool', action: describeActivity('advisor', { question: 'Q' }, 'error') },
+    ])
+    const runningAdvisor = describeActivity('advisor', { question: 'Q' }, 'running')
+    for (const [locale, expectedMixed, expectedOnly, expectedFailed, expectedActive] of [
+      ['zh', '已读取文件已咨询顾问', '已咨询顾问', '顾问咨询失败', '正在咨询顾问'],
+      ['en', 'Read files, consulted advisor', 'Consulted advisor', 'Advisor consultation failed', 'Consulting advisor'],
+    ] as const) {
+      ;(window as any).currentLang = locale
+      expect(activitySummaryLabel(translate(locale), { mode: 'summary', summary: mixedSummary })).toBe(expectedMixed)
+      expect(activitySummaryLabel(translate(locale), { mode: 'summary', summary: advisorOnlySummary })).toBe(expectedOnly)
+      expect(activitySummaryLabel(translate(locale), { mode: 'summary', summary: failedAdvisorSummary })).toBe(expectedFailed)
+      expect(activitySummaryLabel(translate(locale), { mode: 'active', activeAction: runningAdvisor, summary: advisorOnlySummary })).toBe(expectedActive)
+    }
+    ;(window as any).currentLang = 'en'
+    expect(activitySummaryIconTool({ mode: 'summary', summary: advisorOnlySummary })?.toolName).toBe('advisor')
   })
 })
