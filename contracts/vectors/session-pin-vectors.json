@@ -1,5 +1,5 @@
 {
-  "_why": "Pinning queued behind an active turn exceeded the shell's acknowledgement deadline. Historical threads also resumed unnecessarily, and concurrent list refreshes could replace a successfully pinned row. Sidebar organization must persist independently of model execution and survive list refreshes.",
+  "_why": "Pinning queued behind an active turn or session restore delayed or failed sidebar clicks, historical threads resumed unnecessarily, and concurrent list refreshes could replace a pinned row. Sidebar organization updates optimistically on click, coalesces rapid toggles without overlapping writes, rolls back only on genuine persistence failure, and survives list refreshes.",
   "request": {
     "channel": "session:set-pinned",
     "method": "session/updateThreadHostMetadata",
@@ -13,6 +13,8 @@
   "unpinnedReply": { "ok": true, "sessionId": "thread-pin", "sidebarPinnedAt": null },
   "metadata": { "forkedFrom": { "sessionId": "parent" }, "threadSource": "automation", "automation": { "taskName": "Daily report" }, "sidebarPinnedAt": 1700000000123 },
   "sidebar": {
+    "optimisticToggle": true,
+    "coalesceRapidToggles": true,
     "showOnce": true,
     "newestPinFirst": true,
     "unpinRestoresOriginalGroup": true,

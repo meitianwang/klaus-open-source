@@ -353,6 +353,29 @@ h.test('pinning settles immediately without waiting on an in-flight manual compa
   f.forwarder.close();
 });
 
+h.test('pinning falls back to cold metadata persistence when a retiring live session handle reports unknown session',async()=>{
+  const f=fixture();
+  let metadataAttempts=0;
+  f.client.respond=(method,params): Json=>{
+    if(method==='engine/readSessionSummary')return {session:{id:'renderer-id',hostMetadata:{custom:'keep'}}};
+    if(method==='session/updateThreadHostMetadata'){
+      metadataAttempts++;
+      if(metadataAttempts===1){
+        assertEqual(object(params).sessionId,'engine-id','first attempt targets the mapped live handle');
+        throw new Error('unknown session: engine-id');
+      }
+      assertEqual(object(params).sessionId,undefined,'fallback omits the retired session handle');
+      return {hostMetadataUpdated:{threadId:'renderer-id',updated:true}};
+    }
+    throw new Error(`Unexpected request: ${method}`);
+  };
+  const pinned=object(await f.service.setPinned('renderer-id',true));
+  assertEqual(pinned.ok,true,'cold metadata fallback succeeds when live handle already retired');
+  assertEqual(metadataAttempts,2,'retried once without sessionId');
+  assert(typeof pinned.sidebarPinnedAt==='number'&&pinned.sidebarPinnedAt>0,'pin timestamp returned');
+  f.forwarder.close();
+});
+
 h.test('only admitted unsolicited queue frames advance the mirror, without read polling', async () => {
   const f = fixture();
   const send = (revision: number, submissionId: string, status = 'authoritative') => f.pump.receive({ type: 'rawSessionEvent', params: {

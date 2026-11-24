@@ -1542,7 +1542,8 @@ export class SessionService {
         threadId: id, hostMetadata, ...(live ? { sessionId: live } : {}),
       }, 'hostMetadataUpdated');
     } catch (error) {
-      if (!live || this.deps.state.liveSession(id) === live || this.isSessionClosing(id) || this.deleted.has(id)) throw error;
+      const unknownLiveSession = /unknown session/i.test(String((error as Error | null)?.message ?? error ?? ''));
+      if (!live || (!unknownLiveSession && this.deps.state.liveSession(id) === live) || this.isSessionClosing(id) || this.deleted.has(id)) throw error;
       await requestAcknowledged(await this.client(), 'session/updateThreadHostMetadata', {
         threadId: id, hostMetadata,
       }, 'hostMetadataUpdated');

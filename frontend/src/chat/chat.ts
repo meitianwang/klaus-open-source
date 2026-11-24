@@ -8032,10 +8032,9 @@ async function toggleSessionPinned(session: SessionInfo) {
   try {
     await sessionPinning.toggle(session.id)
   } catch (error) {
+    console.warn('[sessions] pin update failed:', error)
     const detail = String((error as Error | null)?.message || error || '')
-    const message = sessionActionErrorText(detail, 'session_pin_failed')
-    await window.klausDialog.alert(detail && detail !== 'session_pin_failed' && detail !== message
-      ? `${message}\n\n${detail}` : message)
+    showToast(sessionActionErrorText(detail, 'session_pin_failed'))
   }
 }
 
