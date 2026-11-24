@@ -360,13 +360,13 @@ export function ExternalImportSettingsTab() {
           <div className={styles['external-import-settings-card-main']}>
             {isError
               ? <div className={`${styles['external-import-settings-card-icon']} danger`} aria-hidden="true">!</div>
-              : <div className={`${styles['external-import-settings-card-icon']} ${styles['external-import-logo-icon']} official`} aria-hidden="true"><ProviderLogo id="claude-code" /></div>}
+              : <div className={styles['external-import-settings-card-icon']} aria-hidden="true"><Raw name="settings-nav-external-import" /></div>}
             <div className={styles['external-import-settings-copy']}>
               <div className={styles['external-import-settings-card-title']}>{isError ? t('external_import_failed') : t('external_import_title')}</div>
               <div className={styles['external-import-settings-card-desc']}>{isError ? phase.message : t('external_import_subtitle')}</div>
             </div>
           </div>
-          <button type="button" className={`btn-sm btn-primary ${styles['external-import-settings-action']}`} onClick={() => { void detect() }}>
+          <button type="button" className={`btn-sm ${styles['external-import-settings-action']}`} onClick={() => { void detect() }}>
             {isError ? t('external_import_redetect') : t('external_import_detect_action')}
           </button>
         </div>
@@ -403,13 +403,13 @@ export function ExternalImportSettingsTab() {
       <SettingsShell>
         <div className={`${styles['external-import-settings-card']} ${styles['external-import-settings-action-card']}`}>
           <div className={styles['external-import-settings-card-main']}>
-            <div className={`${styles['external-import-settings-card-icon']} ${styles['external-import-logo-icon']} official`} aria-hidden="true"><ProviderLogo id="claude-code" /></div>
+            <div className={styles['external-import-settings-card-icon']} aria-hidden="true"><Raw name="settings-nav-external-import" /></div>
             <div className={styles['external-import-settings-copy']}>
               <div className={styles['external-import-settings-card-title']}>{t('external_import_none')}</div>
               <div className={styles['external-import-settings-card-desc']}>{t('external_import_native_chat_limit')}</div>
             </div>
           </div>
-          <button type="button" className={`btn-sm btn-primary ${styles['external-import-settings-action']}`} onClick={() => { void detect() }}>{t('external_import_redetect')}</button>
+          <button type="button" className={`btn-sm ${styles['external-import-settings-action']}`} onClick={() => { void detect() }}>{t('external_import_redetect')}</button>
         </div>
       </SettingsShell>
     )
