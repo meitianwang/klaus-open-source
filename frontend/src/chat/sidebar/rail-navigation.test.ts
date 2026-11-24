@@ -205,4 +205,33 @@ describe('two-level primary rail navigation', () => {
     expect(channelsSection).not.toContain('{channelSessions.length}')
     expect(channelsSection).toContain('formatChannelUnreadBadge(sumChannelUnreadCount(channelSessions))')
   })
+
+  test('win32 and darwin fullscreen titlebar controls align with the 48px primary rail', () => {
+    const here = dirname(fileURLToPath(import.meta.url))
+    const css = readFileSync(resolve(here, '../../../css/styles.css'), 'utf8')
+    const rule = (selector: string): string => {
+      const start = css.indexOf(selector)
+      expect(start).toBeGreaterThanOrEqual(0)
+      const end = css.indexOf('}', start)
+      expect(end).toBeGreaterThan(start)
+      return css.slice(start, end)
+    }
+
+    const controls = rule('.platform-win32 .app-titlebar-controls,\n.platform-darwin.window-fullscreen .app-titlebar-controls {')
+    expect(controls).toContain('padding-left: calc((var(--primary-rail-width) - 28px) / 2);')
+
+    const topTitle = rule('.platform-win32 .sidebar-top-title,\n.platform-darwin.window-fullscreen .sidebar-top-title {')
+    expect(topTitle).toContain('margin-left: calc((var(--primary-rail-width) - 28px) / 2 + var(--sidebar-gutter));')
+
+    const collapsedSearch = rule('.platform-win32 body.sidebar-collapsed .titlebar-search-btn,\n.platform-darwin.window-fullscreen body.sidebar-collapsed .titlebar-search-btn {')
+    expect(collapsedSearch).toContain('left: calc(var(--primary-rail-width) + var(--sidebar-gutter));')
+
+    const collapsedTitle = rule('.platform-win32 body.sidebar-collapsed .titlebar-session-title,\n.platform-darwin.window-fullscreen body.sidebar-collapsed .titlebar-session-title {')
+    expect(collapsedTitle).toContain('left: calc(var(--primary-rail-width) + var(--sidebar-gutter) + 40px);')
+
+    // Regression guard: prevent pre-rail offsets from returning or an unscoped
+    // .window-fullscreen rule from overriding .platform-win32 on Windows F11.
+    expect(css).not.toContain('.platform-win32 body.sidebar-collapsed .titlebar-search-btn {\n  left: 34px;')
+    expect(css).not.toContain('.window-fullscreen body.sidebar-collapsed .titlebar-search-btn {\n  left: 48px;')
+  })
 })
