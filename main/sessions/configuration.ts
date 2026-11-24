@@ -1,5 +1,5 @@
 import { isFastModePreferenceKey } from '../../shared/model-fast-mode';
-import { SIDEBAR_PROMOTE_ON_REPLY_KEY } from '../../shared/sidebar-preferences';
+import { SIDEBAR_PROMOTE_ON_REPLY_KEY, SIDEBAR_UNREAD_SESSIONS_KEY } from '../../shared/sidebar-preferences';
 import type { ModelUpdateOrigin } from './model-updates';
 import type { Json } from '../ipc/contract';
 import type { HostState } from '../services/host-state';
@@ -26,6 +26,7 @@ const UI_ONLY_SETTINGS_KEYS: readonly string[] = [
   'language', 'global_shortcut', 'quick_input_shortcut',
   'composer_predictions_enabled', 'composer_predictions_has_accepted',
   SIDEBAR_PROMOTE_ON_REPLY_KEY,
+  SIDEBAR_UNREAD_SESSIONS_KEY,
   ...SIDEBAR_UI_STATE_KEYS,
   ...FEATURE_ONBOARDING_UI_STATE_KEYS,
 ];

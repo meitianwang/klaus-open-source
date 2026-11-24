@@ -35,6 +35,8 @@ export function createMobileRuntime(deps: {
   files?: Pick<FileService, 'inlineVisualizationContent'>;
   digram?: Pick<DigramService, 'store' | 'icon'>;
   deviceStatus?: () => Promise<Record<string, string>>;
+  unreadChanged?: () => void;
+  isDesktopViewingSession?: (sessionId: string, remoteOrigin: boolean) => boolean;
 }): MobileBridgeService {
   const withCatalogOwner = async <T>(context: MobileCallContext, operation: () => Promise<T>): Promise<T> => {
     const current = deps.sessions.engine();
@@ -60,6 +62,8 @@ export function createMobileRuntime(deps: {
     hostname: deps.hostname,
     authorizationExpired: deps.authorizationExpired,
     deviceStatus: deps.deviceStatus,
+    unreadChanged: deps.unreadChanged,
+    isDesktopViewingSession: deps.isDesktopViewingSession,
     log: deps.log,
     diagnosticsEnabled: deps.diagnosticsEnabled,
     engineOwner: () => mobileEngineOwner(deps.sessions),

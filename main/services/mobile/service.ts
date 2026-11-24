@@ -1,4 +1,6 @@
 import { isFastModePreferenceKey } from '../../../shared/model-fast-mode';
+import { parseSidebarUnreadSessions, serializeSidebarUnreadSessions, SIDEBAR_UNREAD_SESSIONS_KEY } from '../../../shared/sidebar-preferences';
+import { kvGet, kvSet } from '../settings';
 import { isKiroNativeEffort } from '../../../shared/kiro-model-catalog';
 import { isTraeNativeEffort } from '../../../shared/trae-model-catalog';
 import type { FriendMessage } from '../../../shared/friends';
@@ -66,6 +68,8 @@ export interface MobileBridgeDeps {
   mediaPreview?: (sessionId: string, path: string, signal: AbortSignal) => Promise<JsonObject>;
   inlineVisualizationPreview?: (sessionId: string, path: string) => Promise<JsonObject>;
   diagramPreview?: (sessionId: string, id: string) => JsonObject | Promise<JsonObject>;
+  unreadChanged?: () => void;
+  isDesktopViewingSession?: (sessionId: string, remoteOrigin: boolean) => boolean;
 }
 interface TaskFollowState { snapshotting: boolean; revision: number; pending: JsonObject[]; pendingBytes: number; generation: number }
 /** Byte ceiling for one peer's write queue; the envelope count is the primary bound. */
@@ -75,7 +79,7 @@ interface DraftPromotion { createdAt: number; fingerprint: string; owner: Mobile
 interface RecentSend { createdAt: number; requestId: string; fingerprint: string; completion: Promise<JsonObject>; settled: boolean }
 interface PendingMobileMessage { sessionId: string; clientMessageId: string; clientSeq?: number }
 interface Run { server: Server; ws: WebSocketServer; controller: AbortController; sockets: Set<Socket>; peers: Set<Peer>; jobs: Set<Promise<unknown>>; config: MobileSettings; account?: MobileAccount; port: number; relay?: MobileRelay; recent: Map<string, RecentSend>; pendingSendBytes: number; pendingSendCount: number; promotions: Map<string, DraftPromotion>; followUps: MobileFollowUpControls; deliveries: ReliableDeliveryStore; catalog?: MobileCatalog; stateRefresh?: Promise<void>; stateRefreshAgain: boolean; idleSweep?: NodeJS.Timeout; stateIncludeSessions?: boolean; modelRefresh?: Promise<void>; modelRefreshAgain?: boolean; modelRevision?: number }
-interface PendingInteraction { owner: MobileEngineOwner; sessionId: string | null; resolving?: boolean }
+interface PendingInteraction { owner: MobileEngineOwner; sessionId: string | null; toolName?: string | null; resolving?: boolean }
 type InteractionKind = 'permission' | 'elicit';
 const MAX_UNPROTECTED_FOLLOWS = 64;
 const THREAD_TOOLS_PREFIX = '/api/mobile/thread-tools/';
@@ -111,12 +115,64 @@ export class MobileBridgeService {
   /// and inbox are projections of this set, so a desktop turn blocked on approval is visible
   /// from any screen, not only from inside the blocked session.
   private readonly awaitingInteraction = new Set<string>();
+  private readonly awaitingInput = new Set<string>();
+  private readonly unread = new Set<string>();
+  private suppressUnreadEcho = false;
   private readonly permissions = new Map<string, PendingInteraction>();
   private readonly elicitations = new Map<string, PendingInteraction>();
+  private readonly questions = new Map<string, { owner: MobileEngineOwner; sessionId: string }>();
   private observedOwner?: MobileEngineOwner;
   constructor(private readonly deps: MobileBridgeDeps) {
     this.settings = new MobileSettingsStore(deps.configRoot, deps.relayURL, deps.env);
     this.taskStreams = new MobileTaskStreams((sessionId, frame) => this.broadcastTaskPatch(sessionId, frame), id => this.protectedFollow(id));
+    this.reloadUnreadFromStore();
+  }
+  private reloadUnreadFromStore(): boolean {
+    const raw = kvGet(SIDEBAR_UNREAD_SESSIONS_KEY, this.deps.configRoot);
+    const next = parseSidebarUnreadSessions(typeof raw === 'string' ? raw : null);
+    if (next.length === this.unread.size && next.every(id => this.unread.has(id))) return false;
+    this.unread.clear();
+    for (const id of next) this.unread.add(id);
+    return true;
+  }
+  private persistUnreadToStore(): void {
+    kvSet(SIDEBAR_UNREAD_SESSIONS_KEY, serializeSidebarUnreadSessions(this.unread), this.deps.configRoot);
+    this.suppressUnreadEcho = true;
+    try { this.deps.unreadChanged?.(); }
+    finally { this.suppressUnreadEcho = false; }
+  }
+  private addUnreadSession(sessionId: string): boolean {
+    if (!sessionId || this.unread.has(sessionId)) return false;
+    this.unread.add(sessionId);
+    this.persistUnreadToStore();
+    return true;
+  }
+  private clearUnreadSessions(sessionIds: Iterable<string> | 'all'): boolean {
+    if (sessionIds === 'all') {
+      if (!this.unread.size) return false;
+      this.unread.clear();
+      this.persistUnreadToStore();
+      return true;
+    }
+    let changed = false;
+    for (const id of sessionIds) {
+      if (this.unread.delete(id)) changed = true;
+    }
+    if (changed) this.persistUnreadToStore();
+    return changed;
+  }
+  private syncAwaitingSession(sessionId: string): boolean {
+    const hasPermission = [...this.permissions.values()].some(row => row.sessionId === sessionId);
+    const hasAskPermission = [...this.permissions.values()].some(row => row.sessionId === sessionId && row.toolName === 'AskUserQuestion');
+    const hasElicit = [...this.elicitations.values()].some(row => row.sessionId === sessionId);
+    const hasQuestion = [...this.questions.values()].some(row => row.sessionId === sessionId);
+    const nextWaiting = hasPermission || hasElicit || hasQuestion;
+    const nextInput = hasAskPermission || hasElicit || hasQuestion;
+    const prevWaiting = this.awaitingInteraction.has(sessionId);
+    const prevInput = this.awaitingInput.has(sessionId);
+    if (nextWaiting) this.awaitingInteraction.add(sessionId); else this.awaitingInteraction.delete(sessionId);
+    if (nextInput) this.awaitingInput.add(sessionId); else this.awaitingInput.delete(sessionId);
+    return nextWaiting !== prevWaiting || nextInput !== prevInput;
   }
   hasSessionInterest(sessionId: string): boolean {
     const run = this.run;
@@ -399,7 +455,7 @@ export class MobileBridgeService {
           for (const id of followed) this.sendPeer(peer, this.taskStreams.gap(id));
         }
       }
-      this.working.clear(); this.permissions.clear(); this.elicitations.clear(); this.awaitingInteraction.clear(); this.observedOwner = owner;
+      this.working.clear(); this.permissions.clear(); this.elicitations.clear(); this.questions.clear(); this.awaitingInteraction.clear(); this.awaitingInput.clear(); this.observedOwner = owner;
       // The phone's working/awaiting badges are projections of these sets; without a state
       // refresh they would stay stale until the next terminal event.
       if (this.run) {
@@ -443,7 +499,9 @@ export class MobileBridgeService {
       return answer;
     };
   }
-  private projection(call: MobileCall, catalog?: MobileCatalog): MobileProjection { return new MobileProjection(call, () => this.activeSession, this.working, this.awaitingInteraction, catalog ? () => catalog.cached() : undefined); }
+  private projection(call: MobileCall, catalog?: MobileCatalog): MobileProjection {
+    return new MobileProjection(call, () => this.activeSession, this.working, this.awaitingInteraction, catalog ? () => catalog.cached() : undefined, this.unread, this.awaitingInput);
+  }
   private catalog(run: Run): MobileCatalog {
     return run.catalog ??= new MobileCatalog({
       page: async (cursor, signal) => {
@@ -651,8 +709,28 @@ export class MobileBridgeService {
     if (method === 'GET' && path === '/api/mobile/runtime-config') return result(200, { runtimeConfig: await projection.runtimeConfig() });
     if (method === 'POST' && path === '/api/mobile/runtime-config') return result(202, { ok: true, runtimeConfig: await this.setRuntime(run, call, payload) });
     if (method === 'POST' && path === '/api/mobile/questions/answer') {
-      const answer = questionAnswer(payload); await this.knownSession(call, string(answer.sessionId));
-      return result(202, await call('question:answer', answer));
+      const answer = questionAnswer(payload), sessionId = string(answer.sessionId);
+      await this.knownSession(call, sessionId);
+      const answered = await call('question:answer', answer);
+      const answerState = string(object(answered).state);
+      const key = `${string(answer.turnId)}:${string(answer.requestId)}`;
+      if (answerState !== 'pending' && this.questions.delete(key) && this.syncAwaitingSession(sessionId)) {
+        this.scheduleState(run, owner, true);
+      }
+      return result(202, answered);
+    }
+    if (method === 'POST' && path === '/api/mobile/sessions/read') {
+      const markAll = payload.all === true;
+      let ids: string[] = [];
+      if (!markAll) {
+        if (!Array.isArray(payload.sessionIds)) throw badRequest('sessionIds must be an array unless all is true');
+        if (payload.sessionIds.length > 500) throw badRequest('Too many sessionIds');
+        ids = payload.sessionIds.map(value => required(value, 'sessionId'));
+        if (ids.some(id => id.length > 512 || id.includes('\0'))) throw badRequest('sessionId is invalid');
+      }
+      const changed = this.clearUnreadSessions(markAll ? 'all' : ids);
+      if (changed) await this.broadcastState(run, call);
+      return result(200, { ok: true, unreadSessionIds: [...this.unread] });
     }
     if (method === 'POST' && path === '/api/mobile/attachments') return result(201, await call('chat:upload', attachmentUpload(payload)));
     if (method === 'POST' && path === '/api/mobile/new-chat/context') {
@@ -1119,6 +1197,13 @@ export class MobileBridgeService {
   }
   /** Preference payloads contain a key only; re-read every followed scope from the host. */
   notePreferencesChanged(key: string): void {
+    if (key === SIDEBAR_UNREAD_SESSIONS_KEY) {
+      if (this.suppressUnreadEcho) return;
+      if (!this.reloadUnreadFromStore()) return;
+      const run = this.run, owner = this.deps.engineOwner();
+      if (run && owner) this.scheduleState(run, owner);
+      return;
+    }
     if (key === FOLLOW_UP_MODE_KEY) {
       const run = this.run;
       if (run) for (const peer of run.peers) if (peer.ready) this.scheduleComposer(run, peer);
@@ -1211,8 +1296,7 @@ export class MobileBridgeService {
     if (entries.get(id) !== pending) throw new MobileError(409, kind + '_expired', 'The request is no longer available');
     entries.delete(id);
     if (pending.sessionId) this.publishPushNotice(pending.sessionId, kind === 'permission' ? 'permission' : 'elicitation', id, true);
-    if (pending.sessionId && ![...entries.values()].some(row => row.sessionId === pending.sessionId)) {
-      this.awaitingInteraction.delete(pending.sessionId);
+    if (pending.sessionId && this.syncAwaitingSession(pending.sessionId)) {
       this.scheduleState(run, owner, true);
     }
     const frame = { type: kind + '_resolved', sessionId: pending.sessionId, requestId: id, ...response };
@@ -1445,6 +1529,12 @@ export class MobileBridgeService {
         this.sendWire(peer, { type: 'client_ack', seq });
       }); return;
     }
+    if (type === 'mark_sessions_read') {
+      const requestId = short(payload.requestId);
+      const readResult = object((await this.route(run, call, owner, 'POST', '/api/mobile/sessions/read', payload, peer.controller.signal)).body);
+      this.sendPeer(peer, { type: 'action_result', action: type, ok: true, ...(requestId ? { requestId } : {}), unreadSessionIds: readResult.unreadSessionIds ?? [] });
+      return;
+    }
     if (type === 'set_runtime_config') { await this.setRuntime(run, call, payload); this.sendPeer(peer, { type: 'action_result', action: type, ok: true }); return; }
     if (type === 'permission_respond') { const id = required(payload.requestId, 'requestId'); await this.respond(run, call, owner, id, permissionResponse(payload)); this.sendPeer(peer, { type: 'action_result', action: type, ok: true, requestId: id }); return; }
     if (type === 'elicit_respond') { const id = required(payload.requestId, 'requestId'); await this.respond(run, call, owner, id, elicitationResponse(payload), 'elicit'); this.sendPeer(peer, { type: 'action_result', action: type, ok: true, requestId: id }); return; }
@@ -1568,6 +1658,7 @@ export class MobileBridgeService {
     if (this.working.has(sessionId)) return true;
     for (const pending of this.permissions.values()) if (pending.sessionId === sessionId) return true;
     for (const pending of this.elicitations.values()) if (pending.sessionId === sessionId) return true;
+    for (const pending of this.questions.values()) if (pending.sessionId === sessionId) return true;
     return false;
   }
   private async followTask(peer: Peer, call: MobileCall, owner: MobileEngineOwner, sessionId: string, cursor?: { streamId: string; revision: number }, transportRequestId?: string, historyRead = false, signal?: AbortSignal, priority: 'interactive' | 'background' = 'background', diagnostic?: DiagnosticMetadata): Promise<void> {
@@ -1622,6 +1713,11 @@ export class MobileBridgeService {
     if (peer.follows.get(sessionId) !== follow || follow.generation !== generation) return;
     const questionSnapshot = followQuestions(pendingQuestions, sessionId, cut.liveEvents);
     interactions.push(...questionSnapshot.interactions);
+    for (const item of questionSnapshot.questions) {
+      const row = object(item), requestId = nonempty(row.requestId), turnId = nonempty(row.turnId);
+      if (requestId) this.questions.set(`${turnId ?? ''}:${requestId}`, { owner, sessionId });
+    }
+    if (questionSnapshot.questions.length && this.syncAwaitingSession(sessionId) && this.run) this.scheduleState(this.run, owner, true);
     const hasLiveTaskList = cut.liveEvents.some(frame => {
       const inner = frame.type === 'engine_event' ? object(frame.event) : frame;
       return inner.type === 'task_list';
@@ -1796,6 +1892,7 @@ export class MobileBridgeService {
       this.activeSession = id;
       const owner = this.deps.engineOwner(); if (this.run && owner) this.scheduleState(this.run, owner);
     }
+    if (id && (channel === 'session:archive' || channel === 'session:delete')) this.clearUnreadSessions([id]);
     if (id && channel && ['session:rename', 'session:set-pinned', 'session:set-workdir', 'session:clear-workdir', 'session:archive', 'session:unarchive'].includes(channel)) this.noteSessionMetadata(id);
     const workspaceMutation = channel === 'workspaces:save' || channel === 'workspaces:delete';
     if (workspaceMutation) this.run?.catalog?.invalidate();
@@ -1812,8 +1909,7 @@ export class MobileBridgeService {
     if (!run || !pending || !sameOwner(pending.owner, this.deps.engineOwner())) return;
     entries.delete(id);
     if (pending.sessionId) this.publishPushNotice(pending.sessionId, kind === 'permission' ? 'permission' : 'elicitation', id, true);
-    if (pending.sessionId && ![...entries.values()].some(row => row.sessionId === pending.sessionId)) {
-      this.awaitingInteraction.delete(pending.sessionId);
+    if (pending.sessionId && this.syncAwaitingSession(pending.sessionId)) {
       this.scheduleState(run, pending.owner, true);
     }
     const frame = { type: kind + '_resolved', sessionId: pending.sessionId, requestId: id,
@@ -1836,6 +1932,9 @@ export class MobileBridgeService {
     this.taskStreams.forget(id);
     for (const [key, entry] of this.permissions) if (entry.sessionId === id) this.permissions.delete(key);
     for (const [key, entry] of this.elicitations) if (entry.sessionId === id) this.elicitations.delete(key);
+    for (const [key, entry] of this.questions) if (entry.sessionId === id) this.questions.delete(key);
+    this.syncAwaitingSession(id);
+    this.clearUnreadSessions([id]);
   }
   publishTaskNotice(sessionId: string, turnId: string, failed: boolean): void {
     this.publishPushNotice(sessionId, failed ? 'failed' : 'done', turnId);
@@ -1857,14 +1956,24 @@ export class MobileBridgeService {
     // before `stream_mode: requesting`.
     const turnAdmitted = (type === 'stream_mode' && event.mode === 'requesting')
       || (type === 'session_runtime_status' && event.source !== 'session' && event.status === 'active');
-    const started = id && turnAdmitted && !this.working.has(id);
-    if (started) this.working.add(id);
+    const started = Boolean(id && turnAdmitted && !this.working.has(id));
+    if (started && id) { this.working.add(id); this.clearUnreadSessions([id]); }
     // `api_error` ends a turn ONLY when it is terminal (`contracts/vectors/turn-termination-vectors.json`:
     // `apiErrorIsTerminal`). A non-terminal one is a follow-up or compaction notice, and clearing
     // here published a `desktop_state_changed` that told the phone the turn was over while the
     // desktop was still running it.
     const settled = type === 'done' || type === 'interrupted' || (type === 'api_error' && event.terminal === true);
-    if (id && settled) { this.working.delete(id); this.clearRemoteOrigin(id); }
+    const completedUnreadCandidate = type === 'done' || (type === 'api_error' && event.terminal === true);
+    if (id && settled) {
+      const wasRemote = this.isRemoteOriginSession(id);
+      this.working.delete(id);
+      this.clearRemoteOrigin(id);
+      for (const [key, entry] of this.questions) if (entry.sessionId === id) this.questions.delete(key);
+      this.syncAwaitingSession(id);
+      if (completedUnreadCandidate && this.deps.catalogVisible?.(id) !== false && !this.deps.isDesktopViewingSession?.(id, wasRemote)) {
+        this.addUnreadSession(id);
+      }
+    }
     const run = this.run; if (!run) return;
     const compactedEvent = compactMobileEngineEvent(event);
     if (compactedEvent) {
@@ -1875,8 +1984,7 @@ export class MobileBridgeService {
     if (type === 'permission_cancelled' || type === 'elicit_cancelled') {
       const requestId = string(event.requestId); this.pending(type === 'permission_cancelled' ? 'permission' : 'elicit').delete(requestId);
       if (id) this.publishPushNotice(id, type === 'permission_cancelled' ? 'permission' : 'elicitation', requestId, true);
-      if (id && ![...this.pending(type === 'permission_cancelled' ? 'permission' : 'elicit').values()].some(row => row.sessionId === id)) {
-        this.awaitingInteraction.delete(id);
+      if (id && this.syncAwaitingSession(id)) {
         this.scheduleState(run, owner, true);
       }
       const frame = { type, sessionId: id, requestId };
@@ -1904,7 +2012,14 @@ export class MobileBridgeService {
     if ((type === 'question_requested' || type === 'question_resolved' && ['answered', 'expired', 'cancelled'].includes(string(payload.state))
       || type === 'planning_input_requested' || type === 'planning_input_resolved' && ['answered', 'skipped', 'expired', 'cancelled'].includes(string(payload.status))) && sessionId) {
       const requestId = nonempty(payload.requestId), turnId = nonempty(payload.turnId);
-      if (requestId && turnId) this.publishPushNotice(sessionId, 'question', `${turnId}:${requestId}`, type === 'question_resolved' || type === 'planning_input_resolved');
+      const resolved = type === 'question_resolved' || type === 'planning_input_resolved';
+      if (requestId) {
+        const key = `${turnId ?? ''}:${requestId}`;
+        if (resolved) this.questions.delete(key);
+        else this.questions.set(key, { owner, sessionId });
+        if (this.syncAwaitingSession(sessionId)) this.scheduleState(run, owner, true);
+      }
+      if (requestId && turnId) this.publishPushNotice(sessionId, 'question', `${turnId}:${requestId}`, resolved);
     }
     const frame = { type: 'engine_event', event: { ...payload, type } };
     this.broadcast(run, frame, sessionId ?? undefined);
@@ -1914,10 +2029,11 @@ export class MobileBridgeService {
     if (!sameOwner(owner, this.deps.engineOwner())) return; this.owner();
     const requestId = nonempty(card.requestId); if (!requestId) return;
     const sessionId = nonempty(card.sessionId), entries = this.pending(kind);
+    const toolName = kind === 'permission' ? nonempty(card.toolName) : null;
     if (!entries.has(requestId)) {
-      entries.set(requestId, { owner, sessionId });
+      entries.set(requestId, { owner, sessionId, toolName });
       const run = this.run;
-      if (sessionId && run) { this.awaitingInteraction.add(sessionId); this.scheduleState(run, owner, true); }
+      if (sessionId && run && this.syncAwaitingSession(sessionId)) this.scheduleState(run, owner, true);
     }
     return { ...(kind === 'permission' ? { toolName: null, message: null } : {}), ...card, ...(kind === 'elicit' && card.type ? { elicitationType: card.type } : {}),
       type: kind + '_pending', sessionId, requestId, responseChannel: kind };

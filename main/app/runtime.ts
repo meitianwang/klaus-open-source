@@ -76,6 +76,7 @@ import { DreamService } from '../services/dream';
 import { MemorySnapshotService } from '../services/memory-snapshots';
 import { registerUsageHandlers } from '../ipc/handlers/usage';
 import { createMobileRuntime, mobileEngineOwner } from './mobile-runtime';
+import { SIDEBAR_UNREAD_SESSIONS_KEY } from '../../shared/sidebar-preferences';
 import { createConnectorsRuntime } from './connectors-runtime';
 import { MOBILE_DISPATCH_CHANNELS, type MobileBridgeService } from '../services/mobile/service';
 import { claudeUsageCacheKey, readAntigravityUsageCacheKey, UsageService } from '../services/usage';
@@ -2319,6 +2320,11 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   early.add(() => remoteThreads?.close());
   mobile = createMobileRuntime({ registry, router, sessions, threadTools,
     connectionChanged: () => powerRuntime?.changed(),
+    unreadChanged: () => emit('app:preferences-changed', { key: SIDEBAR_UNREAD_SESSIONS_KEY }),
+    isDesktopViewingSession: (sessionId, remoteOrigin) => sessions.retainedViewOwners(sessionId).some(ownerId => {
+      const owner = mainWindows.get(ownerId);
+      return !!owner && !owner.isDestroyed() && owner.isVisible() && !owner.isMinimized() && (!remoteOrigin || owner.isFocused());
+    }),
     friendMessage: (message, signal) => friends!.receive(message, signal), media, files, digram, configRoot, relayURL: account.serverUrl,
     hostname: profileScopedDevice ? `${hostname()} (dev preview)` : undefined,
     friendRevoked: friendshipId => friends!.revokeIncoming(friendshipId),

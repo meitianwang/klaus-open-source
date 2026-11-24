@@ -29,6 +29,8 @@ import { WorkspaceStore } from '../main/services/workspaces';
 import { registerMobileModelConfigTests } from './mobile-model-config-tests';
 import { registerMobileNewChatTests } from './mobile-new-chat-tests';
 import { registerMobileFollowUpTests } from './mobile-follow-up-tests';
+import { registerMobileUnreadActivityTests } from './mobile-unread-activity-tests';
+
 
 const h = new Harness(), deadline = setTimeout(() => { process.stderr.write('Mobile fixture exceeded 90 seconds\n'); process.exit(1); }, 90_000);
 
@@ -83,6 +85,8 @@ void (async () => {
   await registerMobileFollowUpTests(h);
   await registerMobileNewChatTests(h);
   await registerMobileModelConfigTests(h);
+  await registerMobileUnreadActivityTests(h);
+
 
   await h.test('session action vectors keep work modes session scoped and return shareable exports', async () => {
     const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/mobile-runtime-scope-vectors.json'), 'utf8')).sessionActions;

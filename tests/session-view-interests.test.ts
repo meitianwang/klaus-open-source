@@ -28,4 +28,19 @@ h.test('duplicate retains are idempotent and owner cleanup tolerates missing tok
   views.releaseOwner(1); views.releaseOwner(999); views.retain(2, 'chat', 'next'); views.clear();
   assertEqual(views.has('chat'), false, 'shutdown drops every owner');
 });
+h.test('ownersOf reports each window retaining a conversation until released', () => {
+  const views = new SessionViewInterests(() => {});
+  assertDeepEqual(views.ownersOf('chat'), [], 'no window initially retains chat');
+  views.retain(10, 'chat', 'main');
+  views.retain(10, 'chat', 'side');
+  views.retain(20, 'chat', 'main');
+  views.retain(30, 'other', 'main');
+  assertDeepEqual(views.ownersOf('chat'), [10, 20], 'each retaining window appears once');
+  views.release(10, 'chat', 'main');
+  assertDeepEqual(views.ownersOf('chat'), [10, 20], 'second surface in window 10 still retains chat');
+  views.release(10, 'chat', 'side');
+  assertDeepEqual(views.ownersOf('chat'), [20], 'only window 20 retains chat');
+  views.releaseOwner(20);
+  assertDeepEqual(views.ownersOf('chat'), [], 'owner release removes the last window');
+});
 void h.finish(join(__dirname, 'session-view-interests-result.json'), 'session-view-interests').then(code => { process.exitCode = code; });

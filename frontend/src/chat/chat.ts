@@ -169,6 +169,7 @@ import {
   type CollapsedBadge, type SectionsCollapsed, type SidebarSectionKey,
 } from './sidebar/collapse'
 import { SIDEBAR_PROJECT_EXPANDED_KEY, SIDEBAR_PROJECT_ORDER_CHANGED_KEY, SIDEBAR_SECTIONS_COLLAPSED_KEY } from '../../../contracts/sidebar-collapse'
+import { parseSidebarUnreadSessions, serializeSidebarUnreadSessions, SIDEBAR_UNREAD_SESSIONS_KEY } from '../../../shared/sidebar-preferences'
 import { bootFeatureOnboarding } from '../app/feature-onboarding'
 import { parseStoredOrder, reconcileOrder } from './sidebar/project-order'
 import { SessionPinning } from './sidebar/pinning'
@@ -415,9 +416,10 @@ const clientQueueMutationsInFlight = new Set<string>()
 // payload across reloads, until the host can replay its durable receipt.
 const pendingQueueAdditions = loadPendingQueueAdditions()
 const sidebarListedWorkingSessions = new Set<string>()
+const SIDEBAR_COMPLETED_MIRROR_KEY = 'klaus_sidebar_completed_sessions'
 const sidebarCompletedSessions = (() => {
-  try { return new Set(JSON.parse(localStorage.getItem('klaus_sidebar_completed_sessions') || '[]')) }
-  catch { return new Set() }
+  try { return new Set<string>(parseSidebarUnreadSessions(localStorage.getItem(SIDEBAR_COMPLETED_MIRROR_KEY))) }
+  catch { return new Set<string>() }
 })()
 const reloadOnMessageCompleteSessions = new Set()
 // The preview limit lives in sidebar/collapse.ts (PROJECT_THREAD_PREVIEW_LIMIT)
@@ -1462,7 +1464,10 @@ function isSidebarSessionWorking(sessionId: string) {
 }
 
 function isSessionOpenInChatView(sessionId: string) {
-  return !!sessionId && sessionId === window.currentSessionId && !currentNonChatView
+  return !!sessionId
+    && sessionId === window.currentSessionId
+    && !currentNonChatView
+    && (typeof document === 'undefined' || document.visibilityState !== 'hidden')
 }
 
 function isSidebarSessionCompleteUnread(sessionId: string) {
@@ -1475,12 +1480,81 @@ function sidebarSessionStatusKind(sessionId: string) {
   return 'none'
 }
 
+let sidebarUnreadRevision = 0
+
+function writeSidebarCompletedMirror() {
+  persistLocalValue(SIDEBAR_COMPLETED_MIRROR_KEY, serializeSidebarUnreadSessions(sidebarCompletedSessions))
+}
+
 function persistSidebarCompletedSessions() {
-  persistLocalValue('klaus_sidebar_completed_sessions', JSON.stringify([...sidebarCompletedSessions]))
+  sidebarUnreadRevision += 1
+  unreadSessionsQueue.commit(serializeSidebarUnreadSessions(sidebarCompletedSessions))
+}
+
+function replaceSidebarCompletedSessions(ids: Iterable<string>): boolean {
+  const next = parseSidebarUnreadSessions([...ids])
+  if (next.length === sidebarCompletedSessions.size && next.every(id => sidebarCompletedSessions.has(id))) return false
+  sidebarCompletedSessions.clear()
+  for (const id of next) sidebarCompletedSessions.add(id)
+  writeSidebarCompletedMirror()
+  return true
+}
+
+async function hydrateSidebarUnreadSessions() {
+  const revision = sidebarUnreadRevision
+  let stored: unknown
+  try { stored = await klausApi.settings?.kv?.get?.(SIDEBAR_UNREAD_SESSIONS_KEY) } catch { return }
+  if (!mayApplyAsyncState(revision, sidebarUnreadRevision)) return
+  if (stored === null || stored === undefined) {
+    if (sidebarCompletedSessions.size > 0) {
+      await seedSidebarUiState(unreadSessionsQueue, SIDEBAR_UNREAD_SESSIONS_KEY, serializeSidebarUnreadSessions(sidebarCompletedSessions), SIDEBAR_COMPLETED_MIRROR_KEY)
+    }
+    return
+  }
+  const parsed = parseSidebarUnreadSessions(stored)
+  const openId = window.currentSessionId || ''
+  const filtered = openId && isSessionOpenInChatView(openId) ? parsed.filter(id => id !== openId) : parsed
+  const changed = replaceSidebarCompletedSessions(filtered)
+  unreadSessionsQueue.noteDurable(serializeSidebarUnreadSessions(parsed))
+  if (filtered.length !== parsed.length) persistSidebarCompletedSessions()
+  if (changed) {
+    renderSessionList()
+    syncSidebarToolbar()
+    syncApprovalBadge()
+  }
+}
+
+async function applyRemoteSidebarUnreadChange() {
+  const revision = sidebarUnreadRevision
+  let stored: unknown
+  try { stored = await klausApi.settings?.kv?.get?.(SIDEBAR_UNREAD_SESSIONS_KEY) } catch { return }
+  if (!mayApplyAsyncState(revision, sidebarUnreadRevision)) return
+  const parsed = parseSidebarUnreadSessions(stored)
+  const openId = window.currentSessionId || ''
+  const filtered = openId && isSessionOpenInChatView(openId) && (typeof document === 'undefined' || document.hasFocus())
+    ? parsed.filter(id => id !== openId)
+    : parsed
+  const nextSet = new Set(filtered)
+  let clearedFriendUnread = false
+  for (const prevId of [...sidebarCompletedSessions]) {
+    if (!nextSet.has(prevId) && sharedFriendUnread().clearSession(prevId)) clearedFriendUnread = true
+  }
+  const changed = replaceSidebarCompletedSessions(filtered)
+  unreadSessionsQueue.noteDurable(serializeSidebarUnreadSessions(parsed))
+  if (filtered.length !== parsed.length) persistSidebarCompletedSessions()
+  if (changed || clearedFriendUnread) {
+    renderSessionList()
+    syncSidebarToolbar()
+    syncApprovalBadge()
+  }
 }
 
 function markSidebarSessionCompleted(sessionId: string) {
-  if (!sessionId || isSessionOpenInChatView(sessionId)) return
+  if (!sessionId) return
+  if (isSessionOpenInChatView(sessionId)) {
+    if (sidebarCompletedSessions.has(sessionId)) markSidebarSessionSeen(sessionId)
+    return
+  }
   const before = sidebarSessionStatusKind(sessionId)
   sidebarCompletedSessions.add(sessionId)
   persistSidebarCompletedSessions()
@@ -5342,12 +5416,16 @@ function applyCollapseRow(key: string, value: string) {
   const parsed = safeJsonParse(value)
   if (key === SIDEBAR_PROJECT_EXPANDED_KEY) sidebarProjectExpansion = parseProjectExpansionMap(parsed)
   else if (key === SIDEBAR_SECTIONS_COLLAPSED_KEY) sidebarSectionsCollapsed = parseSectionsCollapsed(parsed)
+  else if (key === SIDEBAR_UNREAD_SESSIONS_KEY) {
+    sidebarCompletedSessions.clear()
+    for (const id of parseSidebarUnreadSessions(parsed)) sidebarCompletedSessions.add(id)
+  }
 }
 
 function currentCollapseRow(key: string): string {
-  return key === SIDEBAR_PROJECT_EXPANDED_KEY
-    ? JSON.stringify(sidebarProjectExpansion)
-    : JSON.stringify(sidebarSectionsCollapsed)
+  if (key === SIDEBAR_PROJECT_EXPANDED_KEY) return JSON.stringify(sidebarProjectExpansion)
+  if (key === SIDEBAR_UNREAD_SESSIONS_KEY) return serializeSidebarUnreadSessions(sidebarCompletedSessions)
+  return JSON.stringify(sidebarSectionsCollapsed)
 }
 
 function createCollapseWriteQueue(key: string, mirrorKey: string): CollapseWriteQueue {
@@ -5356,7 +5434,13 @@ function createCollapseWriteQueue(key: string, mirrorKey: string): CollapseWrite
     writeMirror: value => { persistLocalValue(mirrorKey, value) },
     apply: value => applyCollapseRow(key, value),
     current: () => currentCollapseRow(key),
-    render: () => renderSessionList(),
+    render: () => {
+      renderSessionList()
+      if (key === SIDEBAR_UNREAD_SESSIONS_KEY) {
+        syncSidebarToolbar()
+        syncApprovalBadge()
+      }
+    },
     // settings:kv:set can answer with an error envelope instead of rejecting.
     isError: result => !!result && typeof result === 'object' && 'error' in result && !!(result as { error?: unknown }).error,
     describeError: result => String((result as { error?: unknown }).error),
@@ -5369,6 +5453,7 @@ function createCollapseWriteQueue(key: string, mirrorKey: string): CollapseWrite
 // leave settings.db holding the older value (see CollapseWriteQueue).
 const projectExpansionQueue = createCollapseWriteQueue(SIDEBAR_PROJECT_EXPANDED_KEY, SIDEBAR_PROJECT_EXPANDED_MIRROR_KEY)
 const sectionsCollapsedQueue = createCollapseWriteQueue(SIDEBAR_SECTIONS_COLLAPSED_KEY, SIDEBAR_SECTIONS_COLLAPSED_MIRROR_KEY)
+const unreadSessionsQueue = createCollapseWriteQueue(SIDEBAR_UNREAD_SESSIONS_KEY, SIDEBAR_COMPLETED_MIRROR_KEY)
 
 /** Write a missing KV row from the local mirror at first hydrate. Failure is
  *  benign: the mirror stands and the next launch retries. */
@@ -15874,10 +15959,21 @@ klausApi.on.appPreferencesChanged?.(({ key }: { key?: string }) => {
     void refreshAllSideComposerModels()
   }
   if (key && SIDEBAR_COLLAPSE_KEYS.has(key)) void applyRemoteSidebarCollapseChange(key)
+  if (key === SIDEBAR_UNREAD_SESSIONS_KEY) void applyRemoteSidebarUnreadChange()
   // The dragged Projects order is not a settings:kv row (it lives in the
   // workspace store so the host can reconcile it against the project registry in
   // one transaction), so it arrives under its own broadcast key.
   if (key === SIDEBAR_PROJECT_ORDER_CHANGED_KEY) void applyRemoteSidebarProjectOrder()
+})
+const settleOpenUnreadSession = () => {
+  const openId = window.currentSessionId || ''
+  if (openId && isSessionOpenInChatView(openId) && sidebarCompletedSessions.has(openId)) {
+    markSidebarSessionSeen(openId)
+  }
+}
+window.addEventListener('focus', settleOpenUnreadSession)
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'visible') settleOpenUnreadSession()
 })
 // Friend folders rename themselves when a remark or display name changes, and
 // appear or disappear with the friendship's conversations.
@@ -19371,6 +19467,7 @@ async function boot() {
   // paint already used the localStorage mirror, so this only reconciles and
   // re-renders when they differ; a click made before it lands wins.
   void hydrateSidebarCollapseState()
+  void hydrateSidebarUnreadSessions()
   try {
     const savedLang = await klausApi.settings.kv.get('language').catch(() => null)
     if (savedLang) document.documentElement.lang = savedLang

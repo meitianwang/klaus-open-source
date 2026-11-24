@@ -1180,6 +1180,8 @@ export class SessionService {
 
   releaseViewOwner(ownerId: number): void { this.viewInterests.releaseOwner(ownerId); }
 
+  retainedViewOwners(id: string): number[] { return this.viewInterests.ownersOf(id); }
+
   sessionInterestChanged(id: string): void {
     this.inactiveLiveSessions.delete(id);
     this.scheduleIdleRetirement();

@@ -87,7 +87,15 @@ export function composerMenu(commands: JsonObject[], runtime: JsonObject): JsonO
   ] };
 }
 export class MobileProjection {
-  constructor(private readonly call: MobileCall, private readonly active: () => string | undefined, private readonly working: ReadonlySet<string>, private readonly awaiting: ReadonlySet<string>, private readonly catalogRows?: () => Promise<JsonObject[]>) {}
+  constructor(
+    private readonly call: MobileCall,
+    private readonly active: () => string | undefined,
+    private readonly working: ReadonlySet<string>,
+    private readonly awaiting: ReadonlySet<string>,
+    private readonly catalogRows?: () => Promise<JsonObject[]>,
+    private readonly unread: ReadonlySet<string> = new Set(),
+    private readonly awaitingInput: ReadonlySet<string> = new Set(),
+  ) {}
   async sessions(): Promise<JsonObject[]> { return (this.catalogRows ? await this.catalogRows() : rows(await this.call('session:list'))).map(row => ({ ...row, isWorking: this.working.has(string(row.id)) })); }
   async workspace(): Promise<JsonObject> { try { return object(await this.call('projects:list')); } catch { return {}; } }
   async workspaceGroups(): Promise<JsonObject[]> {
@@ -104,6 +112,8 @@ export class MobileProjection {
     return { activeSessionId: id, activeWorkdir: nonempty(sessions.find(row => row.id === id)?.workdir) || nonempty(workspace.activeRoot),
       runningSessionIds: sessions.filter(row => row.isWorking === true).map(row => row.id!),
       awaitingInteractionSessionIds: sessions.map(row => string(row.id)).filter(id => id && this.awaiting.has(id)),
+      awaitingInputSessionIds: sessions.map(row => string(row.id)).filter(id => id && this.awaitingInput.has(id)),
+      unreadSessionIds: sessions.filter(row => row.isWorking !== true).map(row => string(row.id)).filter(id => id && this.unread.has(id)),
       projects: projectRows(sessions, workspace),
       workspaces: projectWorkspaceGroups(sessions, groups), authMode: await this.authMode() };
   }

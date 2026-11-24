@@ -38,5 +38,15 @@ export class SessionViewInterests {
   }
 
   has(sessionId: string): boolean { return this.counts.has(sessionId); }
+  ownersOf(sessionId: string): number[] {
+    if (!this.counts.has(sessionId)) return [];
+    const ids: number[] = [];
+    for (const [ownerId, views] of this.owners) {
+      for (const { sessionId: current } of views.values()) {
+        if (current === sessionId) { ids.push(ownerId); break; }
+      }
+    }
+    return ids;
+  }
   clear(): void { this.owners.clear(); this.counts.clear(); }
 }

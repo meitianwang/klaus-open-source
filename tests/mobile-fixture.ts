@@ -18,7 +18,7 @@ import { MediaFiles } from '../main/services/media-files';
 import { mobileMediaPreview } from '../main/services/mobile/previews';
 import { pathInside } from '../main/services/workspaces';
 
-export async function mobileFixture(options: Pick<MobileBridgeDeps, 'sessionInterestChanged' | 'connectionChanged' | 'friendMessage' | 'friendRevoked' | 'friendConnected' | 'friendDisconnected' | 'threadRequest' | 'inlineVisualizationPreview' | 'mediaPreview' | 'diagramPreview' | 'socketHeartbeatMs' | 'socketPongTimeoutMs' | 'log' | 'diagnosticsEnabled' | 'catalogPage' | 'catalogRow' | 'catalogVisible' | 'ensureEngineOwner' | 'composerRetryDelaysMs'> & { acknowledgeFriendHello?: boolean } = {}) {
+export async function mobileFixture(options: Pick<MobileBridgeDeps, 'sessionInterestChanged' | 'connectionChanged' | 'friendMessage' | 'friendRevoked' | 'friendConnected' | 'friendDisconnected' | 'threadRequest' | 'inlineVisualizationPreview' | 'mediaPreview' | 'diagramPreview' | 'unreadChanged' | 'isDesktopViewingSession' | 'socketHeartbeatMs' | 'socketPongTimeoutMs' | 'log' | 'diagnosticsEnabled' | 'catalogPage' | 'catalogRow' | 'catalogVisible' | 'ensureEngineOwner' | 'composerRetryDelaysMs'> & { acknowledgeFriendHello?: boolean } = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'klaus-mobile-fixture-')));
   const attachments = new AttachmentService(new WorkspaceStore({ configRoot: root, push: () => {}, onSessionWorkdirChanged: () => {}, pickDirectory: async () => null }));
   const media = new MediaFiles(async (path, sessionId) => ['s1', 's2'].includes(sessionId) && pathInside(path, root));
@@ -69,6 +69,8 @@ export async function mobileFixture(options: Pick<MobileBridgeDeps, 'sessionInte
     mediaPreview: options.mediaPreview ?? ((sessionId, path, signal) => mobileMediaPreview(media, sessionId, path, signal)),
     inlineVisualizationPreview: options.inlineVisualizationPreview,
     diagramPreview: options.diagramPreview,
+    unreadChanged: options.unreadChanged,
+    isDesktopViewingSession: options.isDesktopViewingSession,
     authorizationExpired: () => { authorizationExpired++; },
     followSession: async (sessionId, context) => {
       if (context.onHistory) {
