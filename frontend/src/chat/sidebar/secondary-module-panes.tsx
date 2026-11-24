@@ -107,8 +107,26 @@ export interface ChannelSessionItem {
   title: string
   updatedAt: number
   unread: boolean
+  unreadCount?: number
   working: boolean
   waitingInput?: boolean
+}
+
+export function sumChannelUnreadCount(
+  sessions: readonly Pick<ChannelSessionItem, 'unread' | 'unreadCount'>[],
+): number {
+  let total = 0
+  for (const item of sessions) {
+    const count = typeof item.unreadCount === 'number' ? item.unreadCount : (item.unread ? 1 : 0)
+    if (count > 0) total += count
+  }
+  return total
+}
+
+export function formatChannelUnreadBadge(count: number): string | null {
+  if (!Number.isFinite(count) || count <= 0) return null
+  const whole = Math.floor(count)
+  return whole > 99 ? '99+' : String(whole)
 }
 
 export interface ChannelSessionsSnapshot {
@@ -593,8 +611,9 @@ function ChannelsSecondaryPane() {
         })
         return
       }
+      const target = channelSessions.find(s => (s.unreadCount ?? 0) > 0 || s.unread) ?? channelSessions[0]!
       setExpandedIds(prev => new Set(prev).add(row.id))
-      switchChannelSession(channelSessions[0]!.id)
+      switchChannelSession(target.id)
       return
     }
     setExpandedIds(prev => {
@@ -658,8 +677,8 @@ function ChannelsSecondaryPane() {
         {rows.length === 0 ? (
           <div className={styles.empty}>{t('ch_no_sessions_short')}</div>
         ) : rows.map(row => {
-          const configured = isChannelConfigured(states.get(row.id), row.requiredKeys)
           const channelSessions = sessionsSnap.sessionsByChannel[row.id] || []
+          const unreadBadge = formatChannelUnreadBadge(sumChannelUnreadCount(channelSessions))
           const isOpen = expandedIds.has(row.id)
           const hasActiveSession = !sessionsSnap.inSetupView && channelSessions.some(s => s.id === sessionsSnap.activeSessionId)
           const isEmptySelected = sessionsSnap.inSetupView && selectedEmptyChannelId === row.id
@@ -676,11 +695,9 @@ function ChannelsSecondaryPane() {
                 <span className={styles.rowStack}>
                   <span className={styles.rowLabel}>{row.label}</span>
                 </span>
-                {channelSessions.length > 0 ? (
-                  <span className={styles.countBadge}>{channelSessions.length}</span>
-                ) : configured ? (
-                  <span className={`${styles.dot} ${styles.dotOk}`} aria-hidden="true" />
-                ) : null}
+                {unreadBadge && (
+                  <span className={styles.countBadge}>{unreadBadge}</span>
+                )}
                 <span className={`${styles.chevron}${isOpen ? ` ${styles.chevronOpen}` : ''}`} aria-hidden="true">
                   <Icon name="chevron-down" />
                 </span>

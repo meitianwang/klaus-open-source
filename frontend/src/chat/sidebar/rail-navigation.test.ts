@@ -199,5 +199,10 @@ describe('two-level primary rail navigation', () => {
     const cronPageSrc = readFileSync(resolve(here, '../../pages/cron/CronPage.tsx'), 'utf8')
     expect(cronPageSrc).not.toContain('cron-detail-runs')
     expect(cronPageSrc).not.toContain('cron_previous_runs')
+
+    const channelsSection = panesSrc.slice(panesSrc.indexOf('function ChannelsSecondaryPane'), panesSrc.indexOf('function MemorySecondaryPane'))
+    expect(channelsSection).not.toContain('styles.dotOk')
+    expect(channelsSection).not.toContain('{channelSessions.length}')
+    expect(channelsSection).toContain('formatChannelUnreadBadge(sumChannelUnreadCount(channelSessions))')
   })
 })

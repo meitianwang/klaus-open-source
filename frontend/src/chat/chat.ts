@@ -156,6 +156,7 @@ import { encodeSelectedTextEnvelope, parseSelectedTextEnvelope } from './selecte
 import { dispatchWidgetInteraction, type WidgetInteractionRequest } from './widget-interaction'
 import { mountSidebar, type SessionRowSpec } from './sidebar/session-list'
 import { friendGroupThreadTitle } from './sidebar/friend-title'
+import { sharedChannelUnread } from './sidebar/channel-unread'
 import { sharedFriendUnread } from './sidebar/friend-unread'
 import { forgetInputSnoozes, inputSnoozeRemaining, isInputRequestSnoozed, liveApprovalsOf, sessionAttentionState, snoozeInputRequest, takeExpiredSnooze, INPUT_SNOOZE_MS, type SessionWaitingKind } from './sidebar/attention'
 import { readStoredSortMode, sortSectionRows, storeSortMode, type SidebarSortMode } from './sidebar/sort'
@@ -1513,11 +1514,13 @@ async function hydrateSidebarUnreadSessions() {
   }
   const parsed = parseSidebarUnreadSessions(stored)
   const openId = window.currentSessionId || ''
-  const filtered = openId && isSessionOpenInChatView(openId) ? parsed.filter(id => id !== openId) : parsed
+  const openInChat = Boolean(openId && isSessionOpenInChatView(openId))
+  const filtered = openInChat ? parsed.filter(id => id !== openId) : parsed
+  const clearedChannel = openInChat && typeof sharedChannelUnread === 'function' ? sharedChannelUnread().clearSession(openId) : false
   const changed = replaceSidebarCompletedSessions(filtered)
   unreadSessionsQueue.noteDurable(serializeSidebarUnreadSessions(parsed))
   if (filtered.length !== parsed.length) persistSidebarCompletedSessions()
-  if (changed) {
+  if (changed || clearedChannel) {
     renderSessionList()
     syncSidebarToolbar()
     syncApprovalBadge()
@@ -1536,37 +1539,65 @@ async function applyRemoteSidebarUnreadChange() {
     : parsed
   const nextSet = new Set(filtered)
   let clearedFriendUnread = false
+  let clearedChannelUnread = false
   for (const prevId of [...sidebarCompletedSessions]) {
-    if (!nextSet.has(prevId) && sharedFriendUnread().clearSession(prevId)) clearedFriendUnread = true
+    if (!nextSet.has(prevId)) {
+      if (sharedFriendUnread().clearSession(prevId)) clearedFriendUnread = true
+      if (typeof sharedChannelUnread === 'function' && sharedChannelUnread().clearSession(prevId)) clearedChannelUnread = true
+    }
   }
   const changed = replaceSidebarCompletedSessions(filtered)
   unreadSessionsQueue.noteDurable(serializeSidebarUnreadSessions(parsed))
   if (filtered.length !== parsed.length) persistSidebarCompletedSessions()
-  if (changed || clearedFriendUnread) {
+  if (changed || clearedFriendUnread || clearedChannelUnread) {
     renderSessionList()
     syncSidebarToolbar()
     syncApprovalBadge()
   }
 }
 
+function knownChannelVerdict(sessionId: string): boolean | null {
+  if (!sessionId) return false
+  if (detectChannelPrefix(sessionId)) return true
+  if (typeof findKnownSession === 'function' && findKnownSession(sessionId)) return false
+  return null
+}
+
+function channelSessionUnreadCount(sessionId: string): number {
+  const stored = typeof sharedChannelUnread === 'function' ? sharedChannelUnread().countOf(sessionId) : 0
+  if (stored > 0) return stored
+  return isSidebarSessionCompleteUnread(sessionId) ? 1 : 0
+}
+
 function markSidebarSessionCompleted(sessionId: string) {
   if (!sessionId) return
   if (isSessionOpenInChatView(sessionId)) {
-    if (sidebarCompletedSessions.has(sessionId)) markSidebarSessionSeen(sessionId)
+    if (typeof sharedChannelUnread === 'function') sharedChannelUnread().noteTurnAborted(sessionId)
+    const hadChannelUnread = typeof sharedChannelUnread === 'function' && sharedChannelUnread().countOf(sessionId) > 0
+    if (sidebarCompletedSessions.has(sessionId) || hadChannelUnread) markSidebarSessionSeen(sessionId)
     return
   }
   const before = sidebarSessionStatusKind(sessionId)
+  const channelChanged = typeof sharedChannelUnread === 'function'
+    ? sharedChannelUnread().noteTurnCompleted(sessionId, { knownChannel: knownChannelVerdict(sessionId) })
+    : false
   sidebarCompletedSessions.add(sessionId)
   persistSidebarCompletedSessions()
-  if (before !== sidebarSessionStatusKind(sessionId)) renderSessionList()
+  if (before !== sidebarSessionStatusKind(sessionId) || channelChanged) {
+    renderSessionList()
+    syncSidebarToolbar()
+  }
 }
 
 function markSidebarSessionSeen(sessionId: string, { render = true } = {}) {
-  // Friend-message unread settles on the same open/seen paths as turn-completion
-  // unread, so opening a session clears both ledgers at once.
-  if (sharedFriendUnread().clearSession(sessionId)) {
+  // Friend-message and channel-message unread ledgers settle on the same
+  // open/seen paths as turn-completion unread, so opening a session clears all
+  // unread state at once.
+  const clearedFriend = typeof sharedFriendUnread === 'function' ? sharedFriendUnread().clearSession(sessionId) : false
+  const clearedChannel = typeof sharedChannelUnread === 'function' ? sharedChannelUnread().clearSession(sessionId) : false
+  if (clearedFriend || clearedChannel) {
     syncSidebarToolbar()
-    syncApprovalBadge()
+    if (clearedFriend) syncApprovalBadge()
     if (render) renderSessionList()
   }
   if (!sessionId || !sidebarCompletedSessions.has(sessionId)) return
@@ -7521,18 +7552,23 @@ function renderSessionList() {
 }
 
 function syncChannelSidebarSessions() {
+  if (typeof sharedChannelUnread === 'function') {
+    sharedChannelUnread().reconcileKnownSessions(id => knownChannelVerdict(id))
+  }
   const sessionsByChannel: Record<string, ChannelSessionItem[]> = {}
   for (const session of sessions) {
     if (session.archived) continue
     const channelId = detectChannelPrefix(session.id, session)
     if (!channelId) continue
     const bucket = sessionsByChannel[channelId] || (sessionsByChannel[channelId] = [])
+    const unreadCount = channelSessionUnreadCount(session.id)
     bucket.push({
       id: session.id,
       channelId,
       title: sessionDisplayTitle(session),
       updatedAt: session.updatedAt || 0,
-      unread: isSidebarSessionCompleteUnread(session.id),
+      unread: unreadCount > 0,
+      unreadCount,
       working: isSidebarSessionWorking(session.id),
       waitingInput: sidebarSessionWait(session.id).count > 0,
     })
@@ -7865,7 +7901,16 @@ function syncSidebarToolbar() {
     return waiting + unread > 0
   }
   const needsAttention = attentionFor('chats')
-  attentionFor('channels')
+  let channelWaiting = false
+  let channelTotal = 0
+  for (const s of activeSessions.filter(s => ownerOf(s) === 'channels')) {
+    const waiting = isSidebarSessionWaiting(s.id)
+    const storedUnread = typeof sharedChannelUnread === 'function' ? sharedChannelUnread().countOf(s.id) : 0
+    const unread = storedUnread || (isSidebarSessionCompleteUnread(s.id) ? 1 : 0)
+    channelWaiting ||= waiting
+    channelTotal += waiting ? Math.max(1, unread) : unread
+  }
+  paintRailBadge('rail-channels-badge', channelTotal, channelWaiting)
   attentionFor('cron')
   const activityBtn = document.getElementById('titlebar-activity')
   if (activityBtn) {
@@ -15967,7 +16012,10 @@ klausApi.on.appPreferencesChanged?.(({ key }: { key?: string }) => {
 })
 const settleOpenUnreadSession = () => {
   const openId = window.currentSessionId || ''
-  if (openId && isSessionOpenInChatView(openId) && sidebarCompletedSessions.has(openId)) {
+  if (!openId || !isSessionOpenInChatView(openId)) return
+  const hasFriendUnread = typeof sharedFriendUnread === 'function' && sharedFriendUnread().countOf(openId) > 0
+  const hasChannelUnread = typeof sharedChannelUnread === 'function' && sharedChannelUnread().countOf(openId) > 0
+  if (sidebarCompletedSessions.has(openId) || hasFriendUnread || hasChannelUnread) {
     markSidebarSessionSeen(openId)
   }
 }
@@ -16161,6 +16209,24 @@ function handleChatEvent(event: ChatEvent) {
   // userInterrupted 上下文供 api_error 卡的抑制判定（对齐下方 case 的守卫）。
   ingestChatFrameEvent(event, { userInterrupted: userInterruptedSessions.has(event.sessionId) })
   if (event.type === 'user_message' && event.sessionId
+      && typeof sharedChannelUnread === 'function'
+      && typeof isSessionOpenInChatView === 'function') {
+    if (isSessionOpenInChatView(event.sessionId)) {
+      sharedChannelUnread().clearSession(event.sessionId)
+    } else {
+      const verdict = typeof knownChannelVerdict === 'function' ? knownChannelVerdict(event.sessionId) : null
+      const baseline = typeof isSidebarSessionCompleteUnread === 'function' && isSidebarSessionCompleteUnread(event.sessionId)
+      if (sharedChannelUnread().noteInboundFrame(event, {
+        knownChannel: verdict,
+        baselineUnread: baseline,
+      })) {
+        if (typeof renderSessionList === 'function') renderSessionList()
+        if (typeof syncSidebarToolbar === 'function') syncSidebarToolbar()
+        if (verdict === null && typeof updateSessionInList === 'function') void updateSessionInList({ reorder: true })
+      }
+    }
+  }
+  if (event.type === 'user_message' && event.sessionId
       && (event.message?.message as { steered?: boolean } | undefined)?.steered === true
       && typeof event.message?.uuid === 'string') {
     noteLocallySentSteer(event.sessionId, event.message.uuid)
@@ -16209,6 +16275,10 @@ function handleChatEvent(event: ChatEvent) {
       // The Turn is over, so an armed Escape has nothing left to stop. Left set it
       // would make the NEXT Turn stoppable by a single stray press.
       if (stopEscArmedTurn?.sessionId === event.sessionId) clearStopEscArm()
+      if ((event.type === 'interrupted' || event.type === 'compaction_error')
+          && typeof sharedChannelUnread === 'function') {
+        sharedChannelUnread().noteTurnAborted(event.sessionId)
+      }
       if (event.type === 'interrupted') window.setTimeout(updateSendBtn, CONTINUE_ARM_DELAY_MS + 20)
       // A lost `task_list` push (engine child recycle, publication race) leaves
       // the plan frozen at an old snapshot until the next session switch, so a
@@ -17190,6 +17260,10 @@ function unreadCandidatesForRailModule(module: SessionModuleOwner): SessionInfo[
     return activeSessions.filter(s => Boolean(s.friendGroupId) && isSidebarFriendSessionVisible(s)
       && (isSidebarSessionWaiting(s.id) || isSidebarSessionCompleteUnread(s.id) || sharedFriendUnread().countOf(s.id) > 0))
   }
+  if (module === 'channels') {
+    return activeSessions.filter(s => classifySessionModuleOwner(s, !!detectChannelPrefix(s.id, s)) === 'channels'
+      && (isSidebarSessionWaiting(s.id) || channelSessionUnreadCount(s.id) > 0))
+  }
   return activeSessions.filter(s => classifySessionModuleOwner(s, !!detectChannelPrefix(s.id, s)) === module
     && (isSidebarSessionWaiting(s.id) || isSidebarSessionCompleteUnread(s.id)))
 }
@@ -17313,6 +17387,7 @@ function setCurrentNonChatView(view: string | null) {
   if (view !== null && typeof window.hideWorkspaceMainView === 'function') window.hideWorkspaceMainView()
   if (typeof window.hideDiffView === 'function') window.hideDiffView()
   syncTopModeButtons()
+  if (view === null) settleOpenUnreadSession()
   renderSessionList()
 }
 
