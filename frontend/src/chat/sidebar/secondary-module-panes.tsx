@@ -27,6 +27,45 @@ export const MEMORY_SIDEBAR_FILTER_EVENT = 'klaus:memory-sidebar-filter'
 export const FRIENDS_SIDEBAR_SYNC_EVENT = 'klaus:friends-sidebar-sync'
 export const FRIENDS_SIDEBAR_ACTION_EVENT = 'klaus:friends-sidebar-action'
 export const FRIENDS_SIDEBAR_SESSIONS_EVENT = 'klaus:friends-sidebar-sessions'
+export const SIDEBAR_REVEAL_SESSION_EVENT = 'klaus:sidebar-reveal-session'
+export interface PendingSidebarReveal {
+  module: 'chats' | 'channels' | 'friends' | 'cron'
+  sessionId: string
+}
+
+function flushPendingSidebarScroll(module: PendingSidebarReveal['module']): boolean {
+  const state = window as Window & { __klausPendingSidebarReveal?: PendingSidebarReveal | null }
+  const pending = state.__klausPendingSidebarReveal
+  if (pending?.module !== module) return false
+  const rows = document.getElementById('sidebar-secondary')?.querySelectorAll<HTMLElement>('[data-session-id]')
+  const hit = Array.from(rows ?? []).find(row => row.dataset.sessionId === pending.sessionId)
+  if (!hit) return false
+  state.__klausPendingSidebarReveal = null
+  hit.scrollIntoView?.({ block: 'nearest' })
+  return true
+}
+
+function listenForSidebarReveal(
+  module: PendingSidebarReveal['module'],
+  reveal: (sessionId: string) => boolean,
+) {
+  const state = window as Window & { __klausPendingSidebarReveal?: PendingSidebarReveal | null }
+  const consume = (event?: Event) => {
+    const detail = (event as CustomEvent<PendingSidebarReveal> | undefined)?.detail
+    if (detail?.module === module) state.__klausPendingSidebarReveal = detail
+    const request = detail?.module === module ? detail : state.__klausPendingSidebarReveal
+    if (request?.module !== module || !reveal(request.sessionId)) return
+    if (!flushPendingSidebarScroll(module)) {
+      requestAnimationFrame(() => {
+        if (!flushPendingSidebarScroll(module)) requestAnimationFrame(() => { flushPendingSidebarScroll(module) })
+      })
+    }
+  }
+  consume()
+  window.addEventListener(SIDEBAR_REVEAL_SESSION_EVENT, consume)
+  return { consume, dispose: () => window.removeEventListener(SIDEBAR_REVEAL_SESSION_EVENT, consume) }
+}
+
 export const FRIENDS_SIDEBAR_SELECT_EMPTY_EVENT = 'klaus:friends-sidebar-select-empty'
 
 interface CronSyncState {
@@ -48,6 +87,7 @@ export interface CronSessionItem {
 }
 
 export interface CronSessionsSnapshot {
+  tasks?: CronTask[]
   sessionsByTask: Record<string, CronSessionItem[]>
   orphanSessions: CronSessionItem[]
   activeSessionId: string | null
@@ -68,6 +108,7 @@ export interface ChannelSessionItem {
   updatedAt: number
   unread: boolean
   working: boolean
+  waitingInput?: boolean
 }
 
 export interface ChannelSessionsSnapshot {
@@ -157,7 +198,7 @@ const ORPHAN_CRON_GROUP_ID = '__removed_cron_tasks__'
 
 function CronSecondaryPane() {
   const t = useT()
-  const [tasks, setTasks] = useState<CronTask[]>([])
+  const [tasks, setTasks] = useState<CronTask[]>(() => readInitialCronSessionsSnapshot().tasks ?? [])
   const [status, setStatus] = useState<CronStatus>({ nextRuns: {}, running: [] })
   const [filter, setFilter] = useState<'all' | 'enabled' | 'paused'>('all')
   const [sessionsSnap, setSessionsSnap] = useState<CronSessionsSnapshot>(readInitialCronSessionsSnapshot)
@@ -201,10 +242,23 @@ function CronSecondaryPane() {
       if (detail.status) setStatus(detail.status)
       if ('emptyTaskId' in detail) setSelectedEmptyTaskId(detail.emptyTaskId ?? null)
     }
+    const reveal = listenForSidebarReveal('cron', sessionId => {
+      const snap = readInitialCronSessionsSnapshot()
+      const groupId = Object.entries(snap.sessionsByTask).find(([, rows]) => rows.some(row => row.id === sessionId))?.[0] ?? (snap.orphanSessions.some(row => row.id === sessionId) ? ORPHAN_CRON_GROUP_ID : undefined)
+      if (!groupId) return false
+      setFilter('all')
+      setSelectedEmptyTaskId(null)
+      setExpandedIds(prev => prev.has(groupId) ? prev : new Set(prev).add(groupId))
+      return true
+    })
     const onSessions = (event: Event) => {
       const detail = (event as CustomEvent<CronSessionsSnapshot>).detail
       if (!detail) return
+      if (Array.isArray(detail.tasks) && detail.tasks.length > 0) {
+        setTasks(prev => prev.length > 0 ? prev : detail.tasks!)
+      }
       setSessionsSnap(detail)
+      reveal.consume()
       if (!detail.inSetupView) {
         setSelectedEmptyTaskId(null)
       }
@@ -227,10 +281,13 @@ function CronSecondaryPane() {
     window.addEventListener(CRON_SIDEBAR_SYNC_EVENT, onSync)
     window.addEventListener(CRON_SIDEBAR_SESSIONS_EVENT, onSessions)
     return () => {
+      reveal.dispose()
       window.removeEventListener(CRON_SIDEBAR_SYNC_EVENT, onSync)
       window.removeEventListener(CRON_SIDEBAR_SESSIONS_EVENT, onSessions)
     }
   }, [loadCronState])
+
+  useEffect(() => { flushPendingSidebarScroll('cron') }, [tasks, sessionsSnap, expandedIds, filter])
 
   const enabledCount = tasks.filter(task => !!task.enabled).length
   const setupNavActive = sessionsSnap.inSetupView && !selectedEmptyTaskId
@@ -357,6 +414,7 @@ function CronSecondaryPane() {
                           <button
                             key={item.id}
                             type="button"
+                            data-session-id={item.id}
                             className={`${styles.subRow}${isCurrent ? ` ${styles.subRowActive}` : ''}`}
                             onClick={() => switchCronSession(item.id)}
                           >
@@ -405,6 +463,7 @@ function CronSecondaryPane() {
                           <button
                             key={item.id}
                             type="button"
+                            data-session-id={item.id}
                             className={`${styles.subRow}${isCurrent ? ` ${styles.subRowActive}` : ''}`}
                             onClick={() => switchCronSession(item.id)}
                           >
@@ -466,10 +525,20 @@ function ChannelsSecondaryPane() {
         setSelectedEmptyChannelId(detail.emptyChannelId ?? null)
       }
     }
+    const reveal = listenForSidebarReveal('channels', sessionId => {
+      const snap = readInitialChannelSessionsSnapshot()
+      const groupId = Object.entries(snap.sessionsByChannel).find(([, rows]) => rows.some(row => row.id === sessionId))?.[0]
+      if (!groupId) return false
+      setFilter('all')
+      setSelectedEmptyChannelId(null)
+      setExpandedIds(prev => prev.has(groupId) ? prev : new Set(prev).add(groupId))
+      return true
+    })
     const onSessions = (event: Event) => {
       const detail = (event as CustomEvent<ChannelSessionsSnapshot>).detail
       if (!detail) return
       setSessionsSnap(detail)
+      reveal.consume()
       if (!detail.inSetupView) {
         setSelectedEmptyChannelId(null)
       }
@@ -488,10 +557,13 @@ function ChannelsSecondaryPane() {
     window.addEventListener(CHANNELS_SIDEBAR_SYNC_EVENT, onSync)
     window.addEventListener(CHANNELS_SIDEBAR_SESSIONS_EVENT, onSessions)
     return () => {
+      reveal.dispose()
       window.removeEventListener(CHANNELS_SIDEBAR_SYNC_EVENT, onSync)
       window.removeEventListener(CHANNELS_SIDEBAR_SESSIONS_EVENT, onSessions)
     }
   }, [loadChannels])
+
+  useEffect(() => { flushPendingSidebarScroll('channels') }, [sessionsSnap, expandedIds, filter])
 
   const connectedCount = CHANNEL_ROWS.filter(row => isChannelConfigured(states.get(row.id), row.requiredKeys)).length
   const setupNavActive = sessionsSnap.inSetupView && !selectedEmptyChannelId
@@ -624,10 +696,11 @@ function ChannelsSecondaryPane() {
                       <button
                         key={item.id}
                         type="button"
+                        data-session-id={item.id}
                         className={`${styles.subRow}${active ? ` ${styles.subRowActive}` : ''}`}
                         onClick={() => switchChannelSession(item.id)}
                       >
-                        {(item.working || item.unread) && (
+                        {(item.working || item.waitingInput || item.unread) && (
                           <span className={`${styles.dot}${item.working ? ` ${styles.dotBusy}` : ` ${styles.dotAttn}`}`} aria-hidden="true" />
                         )}
                         <span className={styles.subRowTitle}>{displayTitle}</span>
@@ -997,10 +1070,20 @@ function FriendsSecondaryPane() {
       if (Array.isArray(detail.acceptedFriends)) setFallbackFriends(detail.acceptedFriends)
       if ('emptyFriendId' in detail) setSelectedEmptyFriendId(detail.emptyFriendId ?? null)
     }
+    const reveal = listenForSidebarReveal('friends', sessionId => {
+      const snap = readInitialFriendSessionsSnapshot()
+      const groupId = snap.groups.find(group => group.sessions.some(row => row.id === sessionId))?.id
+      if (!groupId) return false
+      setFilter('all')
+      setSelectedEmptyFriendId(null)
+      setExpandedIds(prev => prev.has(groupId) ? prev : new Set(prev).add(groupId))
+      return true
+    })
     const onSessions = (event: Event) => {
       const detail = (event as CustomEvent<FriendSidebarSessionsSnapshot>).detail
       if (!detail) return
       setSessionsSnap(detail)
+      reveal.consume()
       if (!detail.inManagementView) {
         setSelectedEmptyFriendId(null)
       }
@@ -1021,10 +1104,13 @@ function FriendsSecondaryPane() {
     return () => {
       offAuth?.()
       offFriends?.()
+      reveal.dispose()
       window.removeEventListener(FRIENDS_SIDEBAR_SYNC_EVENT, onSync)
       window.removeEventListener(FRIENDS_SIDEBAR_SESSIONS_EVENT, onSessions)
     }
   }, [loadFriendsList])
+
+  useEffect(() => { flushPendingSidebarScroll('friends') }, [fallbackFriends, sessionsSnap, expandedIds, filter])
 
   const mergedGroups: FriendGroupItem[] = (() => {
     if (sessionsSnap.groups.length === 0 && fallbackFriends.length === 0) return []
@@ -1114,7 +1200,7 @@ function FriendsSecondaryPane() {
   const filteredGroups = mergedGroups.filter(group => {
     if (filter === 'active') return group.sessions.length > 0
     if (filter === 'attention') {
-      return group.attentionCount > 0 || group.sessions.some(s => s.waitingInput || s.awaitingReply || s.unread)
+      return (!sessionsSnap.inManagementView && group.sessions.some(s => s.id === sessionsSnap.activeSessionId)) || group.attentionCount > 0 || group.sessions.some(s => s.waitingInput || s.awaitingReply || s.unread)
     }
     return true
   })
@@ -1230,6 +1316,7 @@ function FriendsSecondaryPane() {
                       <button
                         key={item.id}
                         type="button"
+                        data-session-id={item.id}
                         className={`${styles.subRow}${isCurrent ? ` ${styles.subRowActive}` : ''}`}
                         onClick={() => switchFriendSession(item.id)}
                       >

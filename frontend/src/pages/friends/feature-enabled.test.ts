@@ -162,6 +162,8 @@ describe('friends feature visibility state', () => {
     const sessions = [
       { id: 'friend-chat', title: 'Friend task', updatedAt: 30, workdir: '/workspace/alpha', workspaceId: 'ws-1', friendGroupId: 'friendship-1' },
       { id: 'pinned-friend-chat', title: 'Pinned friend task', updatedAt: 25, sidebarPinnedAt: 100, friendGroupId: 'friendship-1' },
+      { id: 'pinned-cron-chat', title: 'Scheduled task', updatedAt: 23, sidebarPinnedAt: 90, threadSource: 'automation' },
+      { id: 'feishu:pinned-channel', title: 'Channel', updatedAt: 22, sidebarPinnedAt: 80 },
       { id: 'project-chat', title: 'Repo work', updatedAt: 20, workdir: '/workspace/alpha' },
       { id: 'recent-chat', title: 'Quick note', updatedAt: 10 },
     ]
@@ -174,6 +176,24 @@ describe('friends feature visibility state', () => {
           else classes.delete(name)
         },
       },
+    }
+    const badges = Object.fromEntries(['chats', 'channels', 'cron', 'friends'].map(module => {
+      const classes = new Set<string>()
+      return [`rail-${module}-badge`, {
+        hidden: true,
+        textContent: '',
+        classes,
+        classList: { toggle: (name: string, active: boolean) => active ? classes.add(name) : classes.delete(name) },
+      }]
+    }))
+    const expectFriendBadge = (visible: boolean) => {
+      expect(classes.has('is-attention')).toBe(false)
+      expect(badges['rail-chats-badge'].hidden).toBe(true)
+      expect(badges['rail-channels-badge'].hidden).toBe(true)
+      expect(badges['rail-cron-badge'].hidden).toBe(true)
+      expect(badges['rail-friends-badge'].hidden).toBe(!visible)
+      expect(badges['rail-friends-badge'].textContent).toBe(visible ? '2' : '')
+      expect(badges['rail-friends-badge'].classes.has('is-attention')).toBe(visible)
     }
     const state: { friendDirectory: Array<{ id: string; userId?: string; name: string; avatarUrl?: string | null }> } = {
       friendDirectory: [{ id: 'friendship-1', userId: 'u1', name: 'Alex', avatarUrl: null }],
@@ -218,7 +238,7 @@ describe('friends feature visibility state', () => {
         getFriendsFeatureEnabled,
         isPinnedSession,
         partitionSidebarSessions,
-        detectChannelPrefix: () => null,
+        detectChannelPrefix: (id: unknown) => typeof id === 'string' && id.startsWith('feishu:') ? 'feishu' : null,
         normalizeProjectWorkdir: (dir?: string | null) => (dir ? String(dir) : null),
         basenameOf: (dir: string) => dir.split('/').filter(Boolean).pop() || dir,
         sessionProjectKey: (session: { workspaceId?: string; friendGroupId?: string; workdir?: string }) =>
@@ -232,7 +252,7 @@ describe('friends feature visibility state', () => {
         isSidebarSessionWaiting: (id: string) => id === 'friend-chat',
         isSidebarSessionCompleteUnread: () => false,
         tt: (key: string) => key,
-        document: { getElementById: (id: string) => (id === 'titlebar-activity' ? activityBtn : null) },
+        document: { getElementById: (id: string) => (id === 'titlebar-activity' ? activityBtn : badges[id] ?? null) },
         klausApi: {
           friends: {
             list: async () => {
@@ -278,10 +298,10 @@ describe('friends feature visibility state', () => {
     expect(fixture.projectlessConversationSessions().map(s => s.id)).toEqual(['recent-chat'])
     expect(fixture.sectionSessionIdsForBadge('projects')).toEqual(['project-chat'])
     expect(fixture.sectionSessionIdsForBadge('pinned')).toEqual([])
-    expect(fixture.commandMenuVisibleSessions().map(s => s.id)).toEqual(['project-chat', 'recent-chat'])
+    expect(fixture.commandMenuVisibleSessions().map(s => s.id)).toEqual(['pinned-cron-chat', 'feishu:pinned-channel', 'project-chat', 'recent-chat'])
     expect(fixture.allSidebarRowSpecs().map(s => s.id)).toEqual(['project-chat', 'recent-chat'])
     fixture.syncSidebarToolbar()
-    expect(classes.has('is-attention')).toBe(false)
+    expectFriendBadge(false)
     syncApprovalBadge()
     expect(badgeCounts.at(-1)).toBe(0)
 
@@ -305,10 +325,10 @@ describe('friends feature visibility state', () => {
     expect(fixture.friendRowsForSidebar().map(r => r.name)).toEqual(['Alex'])
     expect(fixture.sectionSessionIdsForBadge('projects')).toEqual(['project-chat'])
     expect(fixture.sectionSessionIdsForBadge('pinned')).toEqual([])
-    expect(fixture.commandMenuVisibleSessions().map(s => s.id)).toEqual(['pinned-friend-chat', 'friend-chat', 'project-chat', 'recent-chat'])
-    expect(fixture.allSidebarRowSpecs().map(s => s.id)).toEqual(['pinned-friend-chat', 'friend-chat', 'project-chat', 'recent-chat'])
+    expect(fixture.commandMenuVisibleSessions().map(s => s.id)).toEqual(['pinned-friend-chat', 'pinned-cron-chat', 'feishu:pinned-channel', 'friend-chat', 'project-chat', 'recent-chat'])
+    expect(fixture.allSidebarRowSpecs().map(s => s.id)).toEqual(['project-chat', 'recent-chat'])
     fixture.syncSidebarToolbar()
-    expect(classes.has('is-attention')).toBe(true)
+    expectFriendBadge(true)
     syncApprovalBadge()
     expect(badgeCounts.at(-1)).toBe(2)
 
@@ -317,7 +337,7 @@ describe('friends feature visibility state', () => {
     expect(fixture.getDirectory()).toEqual([])
     expect(fixture.friendRowsForSidebar()).toEqual([])
     fixture.syncSidebarToolbar()
-    expect(classes.has('is-attention')).toBe(false)
+    expectFriendBadge(false)
     syncApprovalBadge()
     expect(badgeCounts.at(-1)).toBe(0)
 

@@ -480,6 +480,7 @@ function SessionRowContainer({ className, row, actions, onClick, children }: {
   return (
     <div
       className={className}
+      data-session-id={row.id}
       tabIndex={0}
       aria-current={row.active ? 'page' : undefined}
       data-waiting={row.waitingCount > 0 ? row.waitingKind : undefined}

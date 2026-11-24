@@ -5,6 +5,8 @@ import { describe, expect, test } from 'bun:test'
 import { I18N } from '../../i18n/messages'
 import { PRIMARY_RAIL_WIDTH, computeWorkspaceWidth } from '../panel-layout'
 import {
+  classifySessionModuleOwner,
+  pickLatestUnreadModuleSession,
   decidePrimaryRailClick,
   extensionButtonIdForView,
   isExtensionSubView,
@@ -43,36 +45,42 @@ describe('two-level primary rail navigation', () => {
     expect(resolvePrimaryRailSection('friends', false)).toBe('friends')
   })
 
-  test('clicking the active rail icon toggles secondary-pane collapse, while switching modules expands it', () => {
-    expect(decidePrimaryRailClick({
-      clicked: 'chats',
-      currentSection: 'chats',
-      sidebarCollapsed: false,
-    })).toEqual({
-      kind: 'toggle-collapse',
-      nextCollapsed: true,
-      targetSection: 'chats',
-    })
+  test('classifies native and metadata-backed module sessions', () => {
+    expect(classifySessionModuleOwner(null)).toBe('chats')
+    expect(classifySessionModuleOwner({ friendGroupId: 'f' }, true)).toBe('channels')
+    expect(classifySessionModuleOwner({ friendGroupId: 'f', automation: { taskId: 'a' } })).toBe('friends')
+    expect(classifySessionModuleOwner({ host_metadata: { friendTask: {} } })).toBe('friends')
+    expect(classifySessionModuleOwner({ hostMetadata: { automation: {} } })).toBe('cron')
+    expect(classifySessionModuleOwner({ threadSource: 'automation' })).toBe('cron')
+  })
 
-    expect(decidePrimaryRailClick({
-      clicked: 'chats',
-      currentSection: 'chats',
-      sidebarCollapsed: true,
-    })).toEqual({
-      kind: 'toggle-collapse',
-      nextCollapsed: false,
-      targetSection: 'chats',
-    })
+  test('picks the latest unread candidate without mutating the input', () => {
+    const old = { id: 'old', updatedAt: 1 }
+    const latest = { id: 'new', updatedAt: 2 }
+    const candidates = [old, latest]
+    expect(pickLatestUnreadModuleSession(candidates)).toBe(latest)
+    expect(pickLatestUnreadModuleSession(candidates, latest.id)).toBe(old)
+    expect(pickLatestUnreadModuleSession([])).toBeNull()
+    expect(candidates).toEqual([old, latest])
+  })
 
-    expect(decidePrimaryRailClick({
-      clicked: 'settings',
-      currentSection: 'chats',
-      sidebarCollapsed: true,
-    })).toEqual({
-      kind: 'activate-section',
-      nextCollapsed: false,
-      targetSection: 'settings',
-    })
+  test('rail clicks activate inactive sections and only jump to unread in the active section', () => {
+    const unreadCandidates = [{ id: 'old', updatedAt: 1 }, { id: 'new', updatedAt: 2 }]
+    for (const clicked of ['chats', 'channels', 'cron', 'friends', 'settings', 'memory', 'extensions', 'teamCollaboration'] as const) {
+      for (const sidebarCollapsed of [true, false]) {
+        const base = { clicked, sidebarCollapsed }
+        const result = { nextCollapsed: false, targetSection: clicked }
+        const currentSection = clicked === 'settings' ? 'chats' : 'settings'
+        expect(decidePrimaryRailClick({ ...base, currentSection, unreadCandidates }))
+          .toEqual({ ...result, kind: 'activate-section', unreadSessionId: null })
+        expect(decidePrimaryRailClick({ ...base, currentSection: clicked, unreadCandidates }))
+          .toEqual({ ...result, kind: 'jump-unread', unreadSessionId: 'new' })
+        expect(decidePrimaryRailClick({ ...base, currentSection: clicked, unreadCandidates, openChatSessionId: 'new' }))
+          .toEqual({ ...result, kind: 'jump-unread', unreadSessionId: 'old' })
+        expect(decidePrimaryRailClick({ ...base, currentSection: clicked, unreadCandidates: [] }))
+          .toEqual({ ...result, kind: 'noop', unreadSessionId: null })
+      }
+    }
   })
 
   test('maps extension subviews to their sub-navigation button ids', () => {
@@ -168,6 +176,12 @@ describe('two-level primary rail navigation', () => {
     const html = readFileSync(resolve(here, '../../../index.html'), 'utf8')
     expect(html).toContain('id="sidebar-top-title"')
     expect(html).not.toContain('id="menu-settings"')
+    for (const module of ['chats', 'channels', 'cron', 'friends']) {
+      const badge = html.match(new RegExp(`<span\\b[^>]*id="rail-${module}-badge"[^>]*>`))?.[0]
+      expect(badge).toContain('primary-rail-badge')
+      expect(badge).toContain('hidden')
+      expect(badge).not.toMatch(/(?:title|data-klaus-tip)=/)
+    }
   })
 
   test('scheduled-task and friend group rows omit redundant subtitles, count pills, and detail run history', () => {

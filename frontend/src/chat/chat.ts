@@ -197,6 +197,7 @@ import {
   evaluateWindowResizeAutoCollapse,
 } from './panel-layout'
 import {
+  classifySessionModuleOwner,
   decidePrimaryRailClick,
   extensionButtonIdForView,
   isExtensionSubView,
@@ -212,6 +213,8 @@ import {
   FRIENDS_SIDEBAR_SESSIONS_EVENT,
   FRIENDS_SIDEBAR_SYNC_EVENT,
   RAIL_SECTION_CHANGE_EVENT,
+  SIDEBAR_REVEAL_SESSION_EVENT,
+  type PendingSidebarReveal,
   formatCronSessionTitle,
   type ChannelSessionItem,
   type ChannelSessionsSnapshot,
@@ -5037,7 +5040,8 @@ function workspaceConversationSessions(id: string) {
   // the execution location) but is filed under its friendship, exactly like a
   // friend conversation with a project target never lists under that project:
   // one conversation, one group.
-  return groupedLocalSessions().filter((session) => (session.workspaceId ?? null) === id && !session.friendGroupId && session.threadSource !== 'automation' && !session.automation?.taskId)
+  return groupedLocalSessions().filter((session) => (session.workspaceId ?? null) === id && !session.friendGroupId && session.threadSource !== 'automation' && !session.automation?.taskId
+    && (typeof classifySessionModuleOwner !== 'function' || classifySessionModuleOwner(session, !!detectChannelPrefix(session.id, session)) === 'chats'))
 }
 
 // ==================== friend groups ====================
@@ -5104,7 +5108,7 @@ async function refreshFriendDirectory(): Promise<void> {
   } catch { friendDirectory = [] }
 }
 function friendConversationSessions(friendshipId: string) {
-  return groupedLocalSessions().filter((session) => session.friendGroupId === friendshipId)
+  return regularLocalSessions().filter((session) => !session.archived && session.friendGroupId === friendshipId)
 }
 function isSidebarFriendSessionVisible(session: Pick<SessionInfo, 'friendGroupId'>): boolean {
   if (!session.friendGroupId) return true
@@ -5161,7 +5165,10 @@ function projectRowsFromSessions() {
   }
   for (const root of projectRoots) pushProject(root)
   for (const session of sessions) {
-    if (detectChannelPrefix(session.id, session) || session.threadSource === 'automation' || session.automation?.taskId) continue
+    const owner = typeof classifySessionModuleOwner === 'function'
+      ? classifySessionModuleOwner(session, !!detectChannelPrefix(session.id, session))
+      : (detectChannelPrefix(session.id, session) || session.friendGroupId || session.threadSource === 'friend' || session.threadSource === 'automation' || session.automation?.taskId ? 'other' : 'chats')
+    if (owner !== 'chats') continue
     // Group by project membership, not by the directory the session runs in:
     // a worktree session lands under its origin project.
     pushProject(sessionProjectKey(session), session)
@@ -5239,7 +5246,8 @@ function newChatTargetFromCurrentSelection(): { workdir: string | null; workspac
 }
 
 function projectlessConversationSessions() {
-  return groupedLocalSessions().filter((session) => !normalizeProjectWorkdir(session.workdir) && !session.workspaceId && !session.friendGroupId && session.threadSource !== 'automation' && !session.automation?.taskId)
+  return groupedLocalSessions().filter((session) => !normalizeProjectWorkdir(session.workdir) && !session.workspaceId && !session.friendGroupId && session.threadSource !== 'automation' && !session.automation?.taskId
+    && (typeof classifySessionModuleOwner !== 'function' || classifySessionModuleOwner(session, !!detectChannelPrefix(session.id, session)) === 'chats'))
 }
 
 function projectConversationSessions(workdir: string | null) {
@@ -5568,14 +5576,15 @@ function isSidebarSessionWaiting(sessionId: string) {
  *  collapsed project group — a folded group must still report that something in
  *  it is running. */
 function sectionSessionIdsForBadge(section: SidebarSectionKey): string[] {
+  const isChatOwned = (s: SessionInfo) => typeof classifySessionModuleOwner === 'function' ? classifySessionModuleOwner(s, !!detectChannelPrefix(s.id, s)) === 'chats' : (!detectChannelPrefix(s.id, s) && !s.friendGroupId && s.threadSource !== 'friend' && s.threadSource !== 'automation' && !s.automation?.taskId)
   const partitions = partitionSidebarSessions(sessions, sessionId => !!detectChannelPrefix(sessionId))
-  if (section === 'pinned') return partitions.pinned.filter(s => !s.friendGroupId && s.threadSource !== 'automation' && !s.automation?.taskId).map(s => s.id)
+  if (section === 'pinned') return partitions.pinned.filter(isChatOwned).map(s => s.id)
   if (section === 'channels') return partitions.channels.map(s => s.id)
   if (section === 'recent') return projectlessConversationSessions().map(s => s.id)
   // 'projects': everything filing under a workspace container or a plain project
   // (friend and scheduled-task conversations live in their dedicated module panes).
   return groupedLocalSessions()
-    .filter(s => !s.friendGroupId && s.threadSource !== 'automation' && !s.automation?.taskId && !!projectStateKey(s.workspaceId ? workspaceContainerKey(s.workspaceId) : sessionProjectKey(s)))
+    .filter(s => isChatOwned(s) && !!projectStateKey(s.workspaceId ? workspaceContainerKey(s.workspaceId) : sessionProjectKey(s)))
     .map(s => s.id)
 }
 
@@ -6967,7 +6976,7 @@ function buildSidebarSnapshot() {
     sortMode,
     sortMenuOpen: sidebarSortMenuOpen,
     pinned: {
-      rows: sortSessionRows(partitions.pinned.filter(s => !s.friendGroupId && s.threadSource !== 'automation' && !s.automation?.taskId).map(sidebarSessionRowSpec), sortMode),
+      rows: sortSessionRows(partitions.pinned.filter(s => typeof classifySessionModuleOwner === 'function' ? classifySessionModuleOwner(s, !!detectChannelPrefix(s.id, s)) === 'chats' : (!detectChannelPrefix(s.id, s) && !s.friendGroupId && s.threadSource !== 'friend' && s.threadSource !== 'automation' && !s.automation?.taskId)).map(sidebarSessionRowSpec), sortMode),
       collapsed: isSidebarSectionCollapsed('pinned'),
       collapsedBadge: isSidebarSectionCollapsed('pinned') ? sectionCollapsedBadge('pinned') : null,
     },
@@ -7218,8 +7227,8 @@ function commandMenuProjectLabel(session: SessionInfo): string | null {
   openAgents: () => { document.getElementById('btn-agents')?.click() },
   openMcp: () => { document.getElementById('btn-mcp')?.click() },
   openPlugins: () => { document.getElementById('btn-plugins')?.click() },
-  openChannels: () => { document.getElementById('btn-channels')?.click() },
-  openCron: () => { document.getElementById('btn-cron')?.click() },
+  openChannels: () => { openChannelsSetupView() },
+  openCron: () => { openCronSetupView() },
   openMemory: () => { document.getElementById('btn-memory')?.click() },
   showKeyboardShortcuts: () => { (window as any).klausShowKeyboardShortcutsDialog?.() },
   logOut: () => { document.getElementById('menu-logout')?.click() },
@@ -7440,6 +7449,7 @@ function syncChannelSidebarSessions() {
       updatedAt: session.updatedAt || 0,
       unread: isSidebarSessionCompleteUnread(session.id),
       working: isSidebarSessionWorking(session.id),
+      waitingInput: sidebarSessionWait(session.id).count > 0,
     })
   }
   for (const list of Object.values(sessionsByChannel)) {
@@ -7524,10 +7534,13 @@ function syncCronSidebarSessions() {
 
   for (const session of sessions) {
     if (session.archived) continue
-    if (session.threadSource !== 'automation' && !session.automation?.taskId) continue
-    const taskId = typeof session.automation?.taskId === 'string' && session.automation.taskId ? session.automation.taskId : ''
+    if (classifySessionModuleOwner(session, !!detectChannelPrefix(session.id, session)) !== 'cron') continue
+    const metadata = session.hostMetadata ?? (session as unknown as { host_metadata?: Record<string, unknown> }).host_metadata
+    const metaAutomation = (metadata && 'automation' in metadata ? metadata.automation : null) as { taskId?: string; taskName?: string } | null
+    const rawTaskId = session.automation?.taskId ?? metaAutomation?.taskId
+    const taskId = typeof rawTaskId === 'string' && rawTaskId ? rawTaskId : ''
     const task = taskId ? knownTasks.get(taskId) : undefined
-    const taskName = task?.name || session.automation?.taskName || taskId
+    const taskName = task?.name || session.automation?.taskName || metaAutomation?.taskName || taskId
     const wait = sidebarSessionWait(session.id)
     const item: CronSessionItem = {
       id: session.id,
@@ -7538,7 +7551,7 @@ function syncCronSidebarSessions() {
       working: isSidebarSessionWorking(session.id),
       waitingInput: wait.count > 0,
     }
-    if (taskId && (knownTasks.size === 0 || knownTasks.has(taskId))) {
+    if (taskId && knownTasks.has(taskId)) {
       ;(sessionsByTask[taskId] ||= []).push(item)
     } else {
       orphanSessions.push(item)
@@ -7551,6 +7564,7 @@ function syncCronSidebarSessions() {
   orphanSessions.sort((a, b) => b.updatedAt - a.updatedAt)
 
   const payload: CronSessionsSnapshot = {
+    tasks: cronTasks.map(task => ({ id: task.id, name: task.name ?? undefined, schedule: task.schedule, prompt: task.prompt, enabled: task.enabled, deleteAfterRun: task.deleteAfterRun })),
     sessionsByTask,
     orphanSessions,
     activeSessionId: window.currentSessionId || null,
@@ -7635,14 +7649,14 @@ function attentionSectionsOf(rows: SessionRowSpec[]): Array<{ key: 'waiting' | '
  *  global attention list is projected from the whole thread store the same way; the pinned,
  *  channel and un-pinned local partitions are disjoint and cover `sessions`. */
 function allSidebarRowSpecs(): SessionRowSpec[] {
+  const isChatOwned = (s: SessionInfo) => typeof classifySessionModuleOwner === 'function' ? classifySessionModuleOwner(s, !!detectChannelPrefix(s.id, s)) === 'chats' : (!detectChannelPrefix(s.id, s) && !s.friendGroupId && s.threadSource !== 'friend' && s.threadSource !== 'automation' && !s.automation?.taskId)
   const partitions = partitionSidebarSessions(sessions, sessionId => !!detectChannelPrefix(sessionId))
   const rows: SessionRowSpec[] = []
   for (const session of partitions.pinned) {
-    if (isSidebarFriendSessionVisible(session)) rows.push(sidebarSessionRowSpec(session))
+    if (isChatOwned(session)) rows.push(sidebarSessionRowSpec(session))
   }
-  for (const session of partitions.channels) rows.push(sidebarSessionRowSpec(session))
   for (const session of groupedLocalSessions()) {
-    if (isSidebarFriendSessionVisible(session)) rows.push(sidebarSessionRowSpec(session))
+    if (isChatOwned(session)) rows.push(sidebarSessionRowSpec(session))
   }
   return rows
 }
@@ -7725,10 +7739,9 @@ function renderSidebarActivityView() {
     markAll.textContent = tt('activity_mark_all_read') || 'Mark all as read'
     markAll.addEventListener('click', () => {
       for (const session of sessions) {
-        if (isSidebarSessionCompleteUnread(session.id)) markSidebarSessionSeen(session.id, { render: false })
+        if (classifySessionModuleOwner(session, !!detectChannelPrefix(session.id, session)) === 'chats' && isSidebarSessionCompleteUnread(session.id)) markSidebarSessionSeen(session.id, { render: false })
       }
       persistSidebarCompletedSessions()
-      sharedFriendUnread().clearAll()
       renderSessionList()
       syncSidebarToolbar()
       syncApprovalBadge()
@@ -7746,12 +7759,30 @@ function renderSidebarActivityView() {
  *  turn off) plus the attention recolor. The sort action's aria-label is
  *  rendered by the sidebar list itself from the snapshot's sortMode. */
 function syncSidebarToolbar() {
+  const ownerOf = (s: SessionInfo): SessionModuleOwner => typeof classifySessionModuleOwner === 'function'
+    ? classifySessionModuleOwner(s, !!detectChannelPrefix(s.id, s))
+    : detectChannelPrefix(s.id, s) ? 'channels'
+      : s.friendGroupId || s.threadSource === 'friend' ? 'friends'
+        : s.threadSource === 'automation' || s.automation?.taskId ? 'cron' : 'chats'
+  const paintRailBadge = (id: string, total: number, hasWaiting: boolean) => {
+    const el = document.getElementById(id)
+    if (!el) return
+    el.hidden = total === 0
+    el.textContent = total > 99 ? '99+' : total > 0 ? String(total) : ''
+    el.classList.toggle('is-attention', total > 0 && hasWaiting)
+  }
+  const activeSessions = sessions.filter(s => !s.archived)
+  const attentionFor = (module: SessionModuleOwner) => {
+    const owned = activeSessions.filter(s => ownerOf(s) === module)
+    const waiting = owned.filter(s => isSidebarSessionWaiting(s.id)).length
+    const unread = owned.filter(s => !isSidebarSessionWaiting(s.id) && isSidebarSessionCompleteUnread(s.id)).length
+    paintRailBadge(`rail-${module}-badge`, waiting + unread, waiting > 0)
+    return waiting + unread > 0
+  }
+  const needsAttention = attentionFor('chats')
+  attentionFor('channels')
+  attentionFor('cron')
   const activityBtn = document.getElementById('titlebar-activity')
-  const waitingCount = sessions.filter(s => isSidebarFriendSessionVisible(s) && isSidebarSessionWaiting(s.id)).length
-  const unreadCount = sessions.filter(s => isSidebarFriendSessionVisible(s) && !isSidebarSessionWaiting(s.id) && isSidebarSessionCompleteUnread(s.id)).length
-    + (getFriendsFeatureEnabled() ? sharedFriendUnread().total() : 0)
-  const totalAttention = waitingCount + unreadCount
-  const needsAttention = totalAttention > 0
   if (activityBtn) {
     activityBtn.setAttribute('aria-pressed', sidebarActivityOpen ? 'true' : 'false')
     activityBtn.classList.toggle('is-attention', needsAttention)
@@ -7762,18 +7793,17 @@ function syncSidebarToolbar() {
         : (tt('sidebar_activity_view') || 'View activity')
     activityBtn.setAttribute('aria-label', label)
   }
-  const railChatsBadge = document.getElementById('rail-chats-badge')
-  if (railChatsBadge) {
-    if (totalAttention > 0) {
-      railChatsBadge.hidden = false
-      railChatsBadge.textContent = totalAttention > 99 ? '99+' : String(totalAttention)
-      railChatsBadge.classList.toggle('is-attention', waitingCount > 0)
-    } else {
-      railChatsBadge.hidden = true
-      railChatsBadge.textContent = ''
-      railChatsBadge.classList.remove('is-attention')
+  let friendWaiting = false
+  let friendTotal = 0
+  if (getFriendsFeatureEnabled()) {
+    for (const s of activeSessions.filter(s => Boolean(s.friendGroupId) && isSidebarFriendSessionVisible(s))) {
+      const waiting = isSidebarSessionWaiting(s.id)
+      const unread = sharedFriendUnread().countOf(s.id) || (isSidebarSessionCompleteUnread(s.id) ? 1 : 0)
+      friendWaiting ||= waiting
+      friendTotal += waiting ? Math.max(1, unread) : unread
     }
   }
+  paintRailBadge('rail-friends-badge', friendTotal, friendWaiting)
 }
 
 let sidebarSortMenu: HTMLElement | null = null
@@ -8159,6 +8189,7 @@ function sessionProjectKey(session: SessionInfo): string | null {
   if (session.workspaceId) return null
   if (session.friendGroupId) return null
   if (session.threadSource === 'automation' || session.automation?.taskId) return null
+  if (typeof classifySessionModuleOwner === 'function' && classifySessionModuleOwner(session, !!detectChannelPrefix(session.id, session)) !== 'chats') return null
   const assigned = normalizeProjectWorkdir(session.projectRoot)
   if (assigned) return assigned
   return projectIdentityForWorkdir(normalizeProjectWorkdir(session.workdir))
@@ -8447,23 +8478,18 @@ async function switchSession(id: string) {
   updateGoalIndicator()
   syncTerminalPanelForCurrentSession()
   const targetSession = findKnownSession(id)
-  if (!detectChannelPrefix(id, targetSession) && targetSession?.threadSource !== 'automation' && !targetSession?.automation?.taskId) {
-    const projectKey = targetSession?.workspaceId
-      ? workspaceContainerKey(targetSession.workspaceId)
-      : targetSession?.friendGroupId
-        ? friendGroupKey(targetSession.friendGroupId)
-        : normalizeProjectWorkdir(targetSession?.workdir)
-    if (projectKey) {
-      // Opening a real session always reveals it: the draft exemption exists
-      // only for a chat that does not exist yet.
-      revealProjectInSidebar('projects', projectKey)
+  if (classifySessionModuleOwner(targetSession, !!detectChannelPrefix(id, targetSession)) === 'chats') {
+    if (targetSession && !isPinnedSession(targetSession)) {
+      const projectKey = targetSession.workspaceId
+        ? workspaceContainerKey(targetSession.workspaceId)
+        : sessionProjectKey(targetSession)
+      if (projectKey) {
+        // Opening a real session always reveals it: the draft exemption exists
+        // only for a chat that does not exist yet.
+        revealProjectInSidebar('projects', projectKey)
+      }
     }
-    // Friend task conversations live in their friendship's scratch home, which
-    // is not a project identity: opening one must neither register it nor move
-    // the default project for new chats.
-    if (!targetSession?.friendGroupId) {
-      setActiveProjectWorkdir(targetSession?.workspaceId ? null : (targetSession?.workdir || null), { render: false, refreshWorkdir: false })
-    }
+    setActiveProjectWorkdir(targetSession?.workspaceId ? null : (targetSession?.workdir || null), { render: false, refreshWorkdir: false })
   }
   renderSessionList()
   renderCronChannelBanner(id)
@@ -15965,6 +15991,7 @@ klausApi.on.friendMessageArrived?.((payload: FriendArrivalPayload) => {
     renderSessionList()
     syncSidebarToolbar()
     syncApprovalBadge()
+    if (!findKnownSession(payload.sessionId)) { void updateSessionInList({ reorder: true }) }
   }
   if (!viewing && !payload.muted && friendToastPref !== 'off' && document.hasFocus()) showFriendArrivalToast(payload)
 })
@@ -17038,11 +17065,10 @@ function effectiveRailSessionId(): string | null {
 
 function detectSessionModuleOwner(sessionId: string | null | undefined): SessionModuleOwner {
   if (!sessionId) return 'chats'
-  if (detectChannelPrefix(sessionId)) return 'channels'
   const known = findKnownSession(sessionId)
-  if (known?.friendGroupId && isSidebarFriendSessionVisible(known)) return 'friends'
-  if (known && (known.threadSource === 'automation' || known.automation?.taskId)) return 'cron'
-  return 'chats'
+  const owner = classifySessionModuleOwner(known, !!detectChannelPrefix(sessionId, known))
+  if (owner === 'friends' && (!getFriendsFeatureEnabled() || !known?.friendGroupId || !isSidebarFriendSessionVisible(known))) return 'chats'
+  return owner
 }
 
 function currentPrimaryRailSection(): PrimaryRailSection {
@@ -17053,6 +17079,53 @@ function currentPrimaryRailSection(): PrimaryRailSection {
     settingsOpen,
     detectSessionModuleOwner(railSessionId),
   )
+}
+
+function activeOpenChatSessionId(): string | null {
+  const settingsOpen = !!document.getElementById('settings-view')?.classList.contains('active')
+  if (settingsOpen || currentNonChatView) return null
+  return window.currentSessionId ?? null
+}
+
+function unreadCandidatesForRailModule(module: SessionModuleOwner): SessionInfo[] {
+  const activeSessions = sessions.filter(s => !s.archived)
+  if (module === 'friends') {
+    if (!getFriendsFeatureEnabled()) return []
+    return activeSessions.filter(s => Boolean(s.friendGroupId) && isSidebarFriendSessionVisible(s)
+      && (isSidebarSessionWaiting(s.id) || isSidebarSessionCompleteUnread(s.id) || sharedFriendUnread().countOf(s.id) > 0))
+  }
+  return activeSessions.filter(s => classifySessionModuleOwner(s, !!detectChannelPrefix(s.id, s)) === module
+    && (isSidebarSessionWaiting(s.id) || isSidebarSessionCompleteUnread(s.id)))
+}
+
+function scrollSidebarSessionRowIntoView(sessionId: string) {
+  const container = document.getElementById('sidebar-secondary')
+  if (!container || !sessionId) return
+  const escaped = typeof CSS !== 'undefined' && typeof CSS.escape === 'function'
+    ? CSS.escape(sessionId)
+    : sessionId.replace(/"/g, '\\"')
+  container.querySelector<HTMLElement>(`[data-session-id="${escaped}"]`)?.scrollIntoView?.({ block: 'nearest' })
+}
+
+function jumpToModuleUnreadSession(module: SessionModuleOwner, sessionId: string) {
+  returnToConversationsView()
+  closeSidebarActivityView()
+  setSidebarCollapsedExplicit(false)
+  if (module === 'chats') {
+    const target = findKnownSession(sessionId)
+    if (target && isPinnedSession(target)) setSidebarSectionCollapsed('pinned', false)
+    else if (target && !target.workspaceId && !sessionProjectKey(target)) setSidebarSectionCollapsed('recent', false)
+  }
+  const reveal = () => window.dispatchEvent(new CustomEvent(SIDEBAR_REVEAL_SESSION_EVENT, { detail: { module, sessionId } }))
+  ;(window as unknown as { __klausPendingSidebarReveal?: PendingSidebarReveal | null }).__klausPendingSidebarReveal = { module, sessionId }
+  reveal()
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => scrollSidebarSessionRowIntoView(sessionId))
+  void switchSession(sessionId).finally(() => {
+    syncPrimaryRailState()
+    reveal()
+    if (typeof requestAnimationFrame === 'function') requestAnimationFrame(() => scrollSidebarSessionRowIntoView(sessionId))
+    else scrollSidebarSessionRowIntoView(sessionId)
+  })
 }
 
 function syncPrimaryRailState() {
@@ -17162,32 +17235,23 @@ btnNewChat.addEventListener('click', () => {
   newChat(target)
 })
 
-document.getElementById('btn-rail-chats')?.addEventListener('click', (e) => {
-  const decision = e.isTrusted
-    ? decidePrimaryRailClick({ clicked: 'chats', currentSection: currentPrimaryRailSection(), sidebarCollapsed })
-    : { kind: 'activate-section' as const, nextCollapsed: false, targetSection: 'chats' as const }
-  if (decision.kind === 'toggle-collapse') {
-    setSidebarCollapsedExplicit(decision.nextCollapsed)
+document.getElementById('btn-rail-chats')?.addEventListener('click', () => {
+  const decision = decidePrimaryRailClick({ clicked: 'chats', currentSection: currentPrimaryRailSection(), sidebarCollapsed, openChatSessionId: activeOpenChatSessionId(), unreadCandidates: unreadCandidatesForRailModule('chats') })
+  if (decision.kind === 'jump-unread' && decision.unreadSessionId) {
+    jumpToModuleUnreadSession('chats', decision.unreadSessionId)
     return
   }
   const prevOwner = detectSessionModuleOwner(window.currentSessionId)
   returnToConversationsView()
   if (prevOwner !== 'chats') {
-    const nextRegular = regularLocalSessions().filter(s => !s.archived && !s.friendGroupId && s.threadSource !== 'automation' && !s.automation?.taskId)[0]
+    const nextRegular = regularLocalSessions().filter(s => !s.archived && classifySessionModuleOwner(s, !!detectChannelPrefix(s.id, s)) === 'chats')[0]
     if (nextRegular) void switchSession(nextRegular.id)
     else enterNewChatState()
   }
   setSidebarCollapsedExplicit(false)
 })
 
-document.getElementById('btn-rail-settings')?.addEventListener('click', (e) => {
-  const decision = e.isTrusted
-    ? decidePrimaryRailClick({ clicked: 'settings', currentSection: currentPrimaryRailSection(), sidebarCollapsed })
-    : { kind: 'activate-section' as const, nextCollapsed: false, targetSection: 'settings' as const }
-  if (decision.kind === 'toggle-collapse') {
-    setSidebarCollapsedExplicit(decision.nextCollapsed)
-    return
-  }
+document.getElementById('btn-rail-settings')?.addEventListener('click', () => {
   setSidebarCollapsedExplicit(false)
   openSettings()
 })
@@ -17198,14 +17262,7 @@ document.getElementById('titlebar-activity')?.addEventListener('click', () => {
   toggleSidebarActivityView()
 })
 
-document.getElementById('btn-extensions')?.addEventListener('click', (e) => {
-  const decision = e.isTrusted
-    ? decidePrimaryRailClick({ clicked: 'extensions', currentSection: currentPrimaryRailSection(), sidebarCollapsed })
-    : { kind: 'activate-section' as const, nextCollapsed: false, targetSection: 'extensions' as const }
-  if (decision.kind === 'toggle-collapse') {
-    setSidebarCollapsedExplicit(decision.nextCollapsed)
-    return
-  }
+document.getElementById('btn-extensions')?.addEventListener('click', () => {
   setSidebarCollapsedExplicit(false)
   if (!isExtensionSubView(currentNonChatView)) {
     document.getElementById(extensionButtonIdForView(lastExtensionSubView))?.click()
@@ -17217,18 +17274,11 @@ document.getElementById('btn-extensions')?.addEventListener('click', (e) => {
   }
 })
 
-document.getElementById('btn-team-collaboration')?.addEventListener('click', (e) => {
+document.getElementById('btn-team-collaboration')?.addEventListener('click', () => {
   // Server-controlled gate: when teamCollaboration is closed for this account
   // the button is hidden, but programmatic entry (hash-route restore, Issue
   // deep links, agent nav) lands on .click() too — refuse all of them here.
   if (!featureGates?.enabled('teamCollaboration')) return
-  const decision = e.isTrusted
-    ? decidePrimaryRailClick({ clicked: 'teamCollaboration', currentSection: currentPrimaryRailSection(), sidebarCollapsed })
-    : { kind: 'activate-section' as const, nextCollapsed: false, targetSection: 'teamCollaboration' as const }
-  if (decision.kind === 'toggle-collapse') {
-    setSidebarCollapsedExplicit(decision.nextCollapsed)
-    return
-  }
   if (document.getElementById('settings-view')?.classList.contains('active')) closeSettings()
   const pages = (window as any).klsPageViews
   for (const name of ['cron', 'memory', 'friends', 'mcp', 'skills', 'plugins', 'slash-commands', 'agents', 'channels']) pages?.get(name)?.hide()
@@ -17366,12 +17416,14 @@ function openCronSetupView() {
 }
 ;(window as unknown as { klausOpenCronSetup?: () => void }).klausOpenCronSetup = openCronSetupView
 
-document.getElementById('btn-cron')?.addEventListener('click', (e) => {
-  const decision = e.isTrusted
-    ? decidePrimaryRailClick({ clicked: 'cron', currentSection: currentPrimaryRailSection(), sidebarCollapsed })
-    : { kind: 'activate-section' as const, nextCollapsed: false, targetSection: 'cron' as const }
-  if (decision.kind === 'toggle-collapse') {
-    setSidebarCollapsedExplicit(decision.nextCollapsed)
+document.getElementById('btn-cron')?.addEventListener('click', () => {
+  const decision = decidePrimaryRailClick({ clicked: 'cron', currentSection: currentPrimaryRailSection(), sidebarCollapsed, openChatSessionId: activeOpenChatSessionId(), unreadCandidates: unreadCandidatesForRailModule('cron') })
+  if (decision.kind === 'jump-unread' && decision.unreadSessionId) {
+    jumpToModuleUnreadSession('cron', decision.unreadSessionId)
+    return
+  }
+  if (decision.kind === 'noop') {
+    setSidebarCollapsedExplicit(false)
     return
   }
   openCronSetupView()
@@ -17395,25 +17447,20 @@ function openChannelsSetupView() {
 }
 ;(window as unknown as { klausOpenChannelsSetup?: () => void }).klausOpenChannelsSetup = openChannelsSetupView
 
-document.getElementById('btn-channels')?.addEventListener('click', (e) => {
-  const decision = e.isTrusted
-    ? decidePrimaryRailClick({ clicked: 'channels', currentSection: currentPrimaryRailSection(), sidebarCollapsed })
-    : { kind: 'activate-section' as const, nextCollapsed: false, targetSection: 'channels' as const }
-  if (decision.kind === 'toggle-collapse') {
-    setSidebarCollapsedExplicit(decision.nextCollapsed)
+document.getElementById('btn-channels')?.addEventListener('click', () => {
+  const decision = decidePrimaryRailClick({ clicked: 'channels', currentSection: currentPrimaryRailSection(), sidebarCollapsed, openChatSessionId: activeOpenChatSessionId(), unreadCandidates: unreadCandidatesForRailModule('channels') })
+  if (decision.kind === 'jump-unread' && decision.unreadSessionId) {
+    jumpToModuleUnreadSession('channels', decision.unreadSessionId)
+    return
+  }
+  if (decision.kind === 'noop') {
+    setSidebarCollapsedExplicit(false)
     return
   }
   openChannelsSetupView()
 })
 
-document.getElementById('btn-memory')?.addEventListener('click', (e) => {
-  const decision = e.isTrusted
-    ? decidePrimaryRailClick({ clicked: 'memory', currentSection: currentPrimaryRailSection(), sidebarCollapsed })
-    : { kind: 'activate-section' as const, nextCollapsed: false, targetSection: 'memory' as const }
-  if (decision.kind === 'toggle-collapse') {
-    setSidebarCollapsedExplicit(decision.nextCollapsed)
-    return
-  }
+document.getElementById('btn-memory')?.addEventListener('click', () => {
   if (document.getElementById('settings-view')?.classList.contains('active')) closeSettings()
   if (typeof window.hideCronView === 'function') window.hideCronView()
   if (typeof window.hideMcpView === 'function') window.hideMcpView()
@@ -17440,13 +17487,15 @@ function openFriendsManagementView() {
 }
 ;(window as unknown as { klausOpenFriendsManagement?: () => void }).klausOpenFriendsManagement = openFriendsManagementView
 
-document.getElementById('btn-friends')?.addEventListener('click', (e) => {
+document.getElementById('btn-friends')?.addEventListener('click', () => {
   if (!getFriendsFeatureEnabled()) return
-  const decision = e.isTrusted
-    ? decidePrimaryRailClick({ clicked: 'friends', currentSection: currentPrimaryRailSection(), sidebarCollapsed })
-    : { kind: 'activate-section' as const, nextCollapsed: false, targetSection: 'friends' as const }
-  if (decision.kind === 'toggle-collapse') {
-    setSidebarCollapsedExplicit(decision.nextCollapsed)
+  const decision = decidePrimaryRailClick({ clicked: 'friends', currentSection: currentPrimaryRailSection(), sidebarCollapsed, openChatSessionId: activeOpenChatSessionId(), unreadCandidates: unreadCandidatesForRailModule('friends') })
+  if (decision.kind === 'jump-unread' && decision.unreadSessionId) {
+    jumpToModuleUnreadSession('friends', decision.unreadSessionId)
+    return
+  }
+  if (decision.kind === 'noop') {
+    setSidebarCollapsedExplicit(false)
     return
   }
   openFriendsManagementView()
@@ -19076,7 +19125,7 @@ klausApi.on.deepLinkOpenTeamIssue?.((payload: unknown) => { openTeamIssueDeepLin
 klausApi.on.deepLinkFriendInvite?.(({ email }: { email?: string }) => {
   if (!email || !getFriendsFeatureEnabled()) return
   queueFriendInvite(email)
-  document.getElementById('btn-friends')?.click()
+  openFriendsManagementView()
 })
 // A clicked friend-task banner opens the conversation the request waits in:
 // the decision lives inside that conversation, not on the friends page.
@@ -19087,7 +19136,7 @@ klausApi.on.deepLinkFriendTask?.(({ taskId }: { taskId?: string }) => {
     await refreshFriendInbox()
     const threadId = friendTaskById(taskId)?.threadId
     if (threadId) await switchSession(threadId)
-    else document.getElementById('btn-friends')?.click()
+    else openFriendsManagementView()
   })()
 })
 
@@ -19124,6 +19173,9 @@ const AGENT_NAV_BUTTONS: Record<string, string> = {
   'team-collaboration': 'btn-team-collaboration',
 }
 klausApi.on.appNavigate?.(({ view, tab, focusComposer }: { view?: string; tab?: string; focusComposer?: boolean } = {}) => {
+  if (view === 'cron') { openCronSetupView(); return }
+  if (view === 'channels') { openChannelsSetupView(); return }
+  if (view === 'friends') { openFriendsManagementView(); return }
   if (view === 'settings') { openSettings(tab); return }
   if (view === 'chat') {
     if (document.getElementById('settings-view')?.classList.contains('active')) toggleSettings()

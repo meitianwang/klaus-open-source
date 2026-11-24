@@ -64,6 +64,11 @@ export function activityScheduleCron(human: string | undefined): string | undefi
 }
 
 export function openActivityScheduleManagement(): boolean {
+  const openSetup = (window as unknown as { klausOpenCronSetup?: () => void }).klausOpenCronSetup
+  if (typeof openSetup === 'function') {
+    openSetup()
+    return true
+  }
   const button = document.getElementById('btn-cron')
   if (!button) return false
   button.click()

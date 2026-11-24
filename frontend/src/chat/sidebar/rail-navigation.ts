@@ -1,6 +1,4 @@
-// Pure navigation state helpers for the two-level left sidebar:
-// level 1 (#primary-rail) selects the active module or toggles the level-2
-// contextual pane (#sidebar-secondary) when clicking the already-active module.
+// Primary rail navigation activates modules without collapsing the secondary sidebar.
 
 export type PrimaryRailSection =
   | 'chats'
@@ -15,6 +13,33 @@ export type PrimaryRailSection =
 export type ExtensionSubView = 'mcp' | 'skills' | 'plugins' | 'slashCommands' | 'agents'
 
 export type SessionModuleOwner = 'chats' | 'channels' | 'friends' | 'cron'
+
+export interface SessionOwnerProbe {
+  id?: string | null
+  threadSource?: string | null
+  friendGroupId?: string | null
+  automation?: { taskId?: string | null } | null
+  hostMetadata?: Record<string, unknown> | null
+  host_metadata?: Record<string, unknown> | null
+}
+
+export function classifySessionModuleOwner(session: SessionOwnerProbe | null | undefined, isChannel = false): SessionModuleOwner {
+  if (isChannel) return 'channels'
+  if (!session) return 'chats'
+  const meta = session.hostMetadata ?? session.host_metadata
+  if (session.friendGroupId || session.threadSource === 'friend' || meta?.threadSource === 'friend'
+    || meta?.friendTask || meta?.friend || meta?.friendPeerName) return 'friends'
+  if (session.threadSource === 'automation' || session.automation?.taskId
+    || meta?.threadSource === 'automation' || meta?.automation) return 'cron'
+  return 'chats'
+}
+
+export function pickLatestUnreadModuleSession<T extends { id: string; updatedAt?: number }>(
+  candidates: readonly T[], openChatSessionId?: string | null,
+): T | null {
+  const ordered = [...candidates].sort((left, right) => (right.updatedAt || 0) - (left.updatedAt || 0))
+  return (openChatSessionId ? ordered.find(item => item.id !== openChatSessionId) : undefined) ?? ordered[0] ?? null
+}
 
 const EXTENSION_VIEWS = new Set<string>(['mcp', 'skills', 'plugins', 'slashCommands', 'agents'])
 
@@ -65,26 +90,32 @@ export function railSectionTitleKey(section: PrimaryRailSection): string {
 }
 
 export interface PrimaryRailClickDecision {
-  kind: 'toggle-collapse' | 'activate-section'
-  nextCollapsed: boolean
+  kind: 'jump-unread' | 'activate-section' | 'noop'
+  nextCollapsed: false
   targetSection: PrimaryRailSection
+  unreadSessionId: string | null
 }
 
-export function decidePrimaryRailClick(input: {
+export function decidePrimaryRailClick<T extends { id: string; updatedAt?: number }>(input: {
   clicked: PrimaryRailSection
   currentSection: PrimaryRailSection
   sidebarCollapsed: boolean
+  unreadCandidates?: readonly T[]
+  openChatSessionId?: string | null
 }): PrimaryRailClickDecision {
-  if (input.clicked === input.currentSection) {
+  if (input.clicked !== input.currentSection) {
     return {
-      kind: 'toggle-collapse',
-      nextCollapsed: !input.sidebarCollapsed,
-      targetSection: input.currentSection,
+      kind: 'activate-section',
+      nextCollapsed: false,
+      targetSection: input.clicked,
+      unreadSessionId: null,
     }
   }
+  const target = pickLatestUnreadModuleSession(input.unreadCandidates ?? [], input.openChatSessionId)
   return {
-    kind: 'activate-section',
+    kind: target ? 'jump-unread' : 'noop',
     nextCollapsed: false,
     targetSection: input.clicked,
+    unreadSessionId: target?.id ?? null,
   }
 }
