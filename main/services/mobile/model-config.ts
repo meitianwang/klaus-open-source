@@ -21,8 +21,8 @@ const SOURCE_TIMEOUT_MS = 1_500;
 const QUERY_TIMEOUT_MS = 10_000;
 const MAX_MODELS = 500;
 
-export interface MobileModelPreference { source: string; selection: string; thinkingLevel: string; ultraMode?: boolean; fastMode?: boolean }
-export interface MobileModelUpdate { sessionId: string | null; source?: string; selection?: string; thinkingLevel?: string; ultraMode?: boolean; fastMode?: boolean }
+export interface MobileModelPreference { source: string; selection: string; thinkingLevel: string; ultraMode?: boolean; orchestrationMode?: boolean; fastMode?: boolean }
+export interface MobileModelUpdate { sessionId: string | null; source?: string; selection?: string; thinkingLevel?: string; ultraMode?: boolean; orchestrationMode?: boolean; fastMode?: boolean }
 
 export function modelConfigSession(value: unknown, required = false): string | null {
   if ((value === undefined && !required) || value === null) return null;
@@ -31,7 +31,7 @@ export function modelConfigSession(value: unknown, required = false): string | n
 }
 
 export function modelConfigUpdate(payload: JsonObject, sourceHint?: string): MobileModelUpdate {
-  if (Object.keys(payload).some(key => !['sessionId', 'source', 'selection', 'thinkingLevel', 'ultraMode', 'fastMode'].includes(key))) throw badRequest('Unknown model configuration field');
+  if (Object.keys(payload).some(key => !['sessionId', 'source', 'selection', 'thinkingLevel', 'ultraMode', 'orchestrationMode', 'fastMode'].includes(key))) throw badRequest('Unknown model configuration field');
   if (!Object.hasOwn(payload, 'sessionId')) throw badRequest('sessionId must be explicit');
   const sessionId = modelConfigSession(payload.sessionId, true);
   const source = payload.source === undefined ? undefined : authMode(payload.source);
@@ -44,10 +44,13 @@ export function modelConfigUpdate(payload: JsonObject, sourceHint?: string): Mob
   const fastMode = payload.fastMode;
   if (payload.ultraMode !== undefined && typeof payload.ultraMode !== 'boolean') throw badRequest('ultraMode must be a boolean');
   const ultraMode = payload.ultraMode;
+  if (payload.orchestrationMode !== undefined && typeof payload.orchestrationMode !== 'boolean') throw badRequest('orchestrationMode must be a boolean');
+  const orchestrationMode = payload.orchestrationMode;
+  if (ultraMode === true && orchestrationMode === true) throw badRequest('ultraMode and orchestrationMode cannot both be enabled');
   if (selection && selection.length > 1024) throw badRequest('selection is too long');
-  if (source === undefined && selection === undefined && thinkingLevel === undefined && ultraMode === undefined && fastMode === undefined) throw badRequest('Provide a model configuration change');
+  if (source === undefined && selection === undefined && thinkingLevel === undefined && ultraMode === undefined && orchestrationMode === undefined && fastMode === undefined) throw badRequest('Provide a model configuration change');
   if (source && selection && modelSource(selection) && modelSource(selection) !== source) throw badRequest('The model does not belong to this source');
-  return { sessionId, ...(source === undefined ? {} : { source }), ...(selection === undefined ? {} : { selection }), ...(thinkingLevel === undefined ? {} : { thinkingLevel }), ...(fastMode === undefined ? {} : { fastMode }), ...(ultraMode === undefined ? {} : { ultraMode }) };
+  return { sessionId, ...(source === undefined ? {} : { source }), ...(selection === undefined ? {} : { selection }), ...(thinkingLevel === undefined ? {} : { thinkingLevel }), ...(fastMode === undefined ? {} : { fastMode }), ...(ultraMode === undefined ? {} : { ultraMode }), ...(orchestrationMode === undefined ? {} : { orchestrationMode }) };
 }
 
 export function modelPreference(value: Json | undefined): MobileModelPreference | undefined {
@@ -55,9 +58,9 @@ export function modelPreference(value: Json | undefined): MobileModelPreference 
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw badRequest('modelPreference must be an object');
   const row = object(value);
   if (!['source', 'selection', 'thinkingLevel'].every(key => Object.hasOwn(row, key))) throw badRequest('modelPreference must include source, selection and thinkingLevel');
-  if (Object.keys(row).some(key => !['source', 'selection', 'thinkingLevel', 'ultraMode', 'fastMode'].includes(key))) throw badRequest('Unknown modelPreference field');
+  if (Object.keys(row).some(key => !['source', 'selection', 'thinkingLevel', 'ultraMode', 'orchestrationMode', 'fastMode'].includes(key))) throw badRequest('Unknown modelPreference field');
   const update = modelConfigUpdate({ ...row, sessionId: null });
-  return { source: update.source!, selection: update.selection!, thinkingLevel: update.thinkingLevel!, ...(update.fastMode === undefined ? {} : { fastMode: update.fastMode }), ...(update.ultraMode === undefined ? {} : { ultraMode: update.ultraMode }) };
+  return { source: update.source!, selection: update.selection!, thinkingLevel: update.thinkingLevel!, ...(update.fastMode === undefined ? {} : { fastMode: update.fastMode }), ...(update.ultraMode === undefined ? {} : { ultraMode: update.ultraMode }), ...(update.orchestrationMode === undefined ? {} : { orchestrationMode: update.orchestrationMode }) };
 }
 
 async function bounded<T>(pending: Promise<T>, timeoutMs = QUERY_TIMEOUT_MS): Promise<T> {
@@ -142,7 +145,13 @@ export class MobileModelConfigProjection {
     for (let attempt = 0; attempt < 3; attempt++) {
       const revision = this.revision();
       const allSourcesPromise = this.sources();
-      const [mainRaw, levelRaw, fastRaw, ultraRaw] = await Promise.all([this.call('session:get-main-model', params), this.call('session:get-thinking-level', params), this.call('session:get-fast-mode', params), this.call('session:get-ultra-mode', params)]);
+      const [mainRaw, levelRaw, fastRaw, ultraRaw, orchestrationRaw] = await Promise.all([
+        this.call('session:get-main-model', params),
+        this.call('session:get-thinking-level', params),
+        this.call('session:get-fast-mode', params),
+        this.call('session:get-ultra-mode', params),
+        this.call('session:get-orchestration-mode', params),
+      ]);
       const fast = object(fastRaw);
       const main = object(mainRaw), source = nonempty(main.source);
       if (!source || !MODEL_SOURCES.includes(source)) throw new MobileError(500, 'invalid_model_config', 'Desktop returned an invalid model source');
@@ -163,16 +172,28 @@ export class MobileModelConfigProjection {
       const sources = discovered.map(row => row.value === catalogSource && catalogFailed
         ? { ...row, available: false, reason: 'The model catalog is unavailable. Retry on this device.' }
         : { ...row });
-      const models = !catalogFailed && catalogSource === source ? modelOptionsForValue(rawModels, selection) : rawModels;
+      const projectedSelection = previewSource === undefined
+        ? (selection === 'auto' ? (nonempty(main.resolvedMode) ?? selection) : selection)
+        : (catalogDefaultSelection ?? '');
+      const models = !catalogFailed && projectedSelection ? modelOptionsForValue(rawModels, projectedSelection) : rawModels;
       // Discovery and model resolution can outlast a desktop or phone edit. Verify
       // persisted values again, so the response never combines separate epochs.
-      const [latestMain, latestLevel, latestFastRaw, latestUltra] = await Promise.all([this.call('session:get-main-model', { ...params, resolve: false }), this.call('session:get-thinking-level', params), this.call('session:get-fast-mode', params), this.call('session:get-ultra-mode', params)]);
+      const [latestMain, latestLevel, latestFastRaw, latestUltra, latestOrchestration] = await Promise.all([
+        this.call('session:get-main-model', { ...params, resolve: false }),
+        this.call('session:get-thinking-level', params),
+        this.call('session:get-fast-mode', params),
+        this.call('session:get-ultra-mode', params),
+        this.call('session:get-orchestration-mode', params),
+      ]);
       const latestFast = object(latestFastRaw);
       if (revision !== this.revision() || object(latestMain).source !== source || object(latestMain).mode !== selection || object(latestLevel).level !== thinkingLevel
-        || object(latestUltra).enabled !== object(ultraRaw).enabled || latestFast.enabled !== fast.enabled || latestFast.supported !== fast.supported || latestFast.billing !== fast.billing) {
+        || object(latestUltra).enabled !== object(ultraRaw).enabled || object(latestOrchestration).enabled !== object(orchestrationRaw).enabled
+        || latestFast.enabled !== fast.enabled || latestFast.supported !== fast.supported || latestFast.billing !== fast.billing) {
         this.sourceEntries = undefined; this.catalogs.clear(); continue;
       }
-      return { sessionId, source, selection, resolvedSelection: nonempty(main.resolvedMode), thinkingLevel, ultraMode: object(ultraRaw).enabled === true, fastMode: fast.enabled === true, fastModeSupported: fast.supported === true,
+      return { sessionId, source, selection, resolvedSelection: nonempty(main.resolvedMode), thinkingLevel,
+        ultraMode: object(ultraRaw).enabled === true, orchestrationMode: object(orchestrationRaw).enabled === true,
+        fastMode: fast.enabled === true, fastModeSupported: fast.supported === true,
         ...(fast.billing === 'extraCredits' ? { fastModeBilling: 'extraCredits' } : {}), catalogSource, sources, models,
         ...(previewSource === undefined ? {} : { catalogDefaultSelection }) };
     }
@@ -214,15 +235,18 @@ export class MobileModelConfigProjection {
   }
 }
 
-export async function applyModelPreference(call: MobileCall, sessionId: string | null, preference: MobileModelPreference, updateDefaults = true, includeThinking = true): Promise<void> {
+export async function applyModelPreference(call: MobileCall, sessionId: string | null, preference: MobileModelPreference, updateDefaults = true, includeThinking = true, includeSource = true): Promise<void> {
   const scope: JsonObject = sessionId ? { sessionId } : {};
   const check = (value: Json): void => {
     const row = object(value);
     if (row.ok !== true) throw new MobileError(409, 'model_configuration_rejected', string(row.error) || 'Desktop did not accept the model configuration');
   };
-  const payload: JsonObject = { ...scope, mode: preference.selection, source: preference.source, updateDefaults };
+  const payload: JsonObject = { ...scope, mode: preference.selection, ...(includeSource ? { source: preference.source } : {}), updateDefaults };
   if (includeThinking) payload.thinkingLevel = preference.thinkingLevel;
   if (preference.fastMode !== undefined) payload.fastMode = preference.fastMode;
   if (preference.ultraMode !== undefined) payload.ultraMode = preference.ultraMode;
   check(await call('session:set-main-model', payload));
+  if (preference.orchestrationMode !== undefined) {
+    check(await call('session:set-orchestration-mode', { ...scope, enabled: preference.orchestrationMode, updateDefaults }));
+  }
 }

@@ -1,6 +1,6 @@
 {
-  "version": 3,
-  "reason": "Mobile preferences and session actions target the explicitly named conversation, never the renderer selection. Work-mode changes leave remembered defaults untouched; pin and archive refresh the catalog, and exports include readable content for the phone share sheet. Rejected output-style mutations remain explicit conflicts.",
+  "version": 4,
+  "reason": "Mobile preferences and session actions target the explicitly named conversation, never the renderer selection. Parallel and Orchestrate work-mode selections and returning from them to Default also update defaults for future new chats while leaving other existing conversations unchanged; Plan and leaving Plan remain single-conversation only so remembered Parallel and Orchestrate defaults are preserved. Pin and archive refresh the catalog, and exports include readable content for the phone share sheet. Rejected output-style mutations remain explicit conflicts.",
   "rendererSessionId": "s1",
   "invalidWrites": [
     {
@@ -33,7 +33,7 @@
   "sessionActions": {
     "sessionId": "s2",
     "workModes": ["plan", "parallel", "orchestrate", "default", "parallel", "plan", "default"],
-    "updateDefaults": false,
+    "expectedSetterUpdateDefaults": [true, true, true, true, false],
     "pinned": true,
     "archived": true,
     "exportContent": "## User\n\nHello\n\n## Klaus\n\nWorld\n"

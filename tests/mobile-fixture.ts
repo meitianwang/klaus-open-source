@@ -103,6 +103,8 @@ export async function mobileFixture(options: Pick<MobileBridgeDeps, 'sessionInte
         case 'session:get-main-model': return { mode: model, source: authMode, resolvedMode: model === 'auto' ? authMode + ':fixture' : model };
         case 'session:get-ultra-mode': return { enabled: false };
         case 'session:set-ultra-mode': return { ok: true };
+        case 'session:get-orchestration-mode': return { enabled: false };
+        case 'session:set-orchestration-mode': return { ok: true };
         case 'session:get-thinking-level': return { level };
         case 'session:get-fast-mode': return { enabled: false, supported: false };
         case 'session:set-fast-mode': return { ok: true };

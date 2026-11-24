@@ -15,7 +15,7 @@ export const MOBILE_FEATURES: JsonObject = {
   taskStream: 1, taskHistoryRead: 1, reliableTransport: 1, messageChunking: 4,
   elicitationControl: true, asyncQuestionControl: true, questionAttachments: true,
   subagentTranscripts: true, mediaPreview: true, filePreview: true, diagramPreview: true,
-  sessionWorkMode: true, sessionPinArchive: true, sessionExportContent: true, sessionFork: true, usageDashboard: true,
+  sessionWorkMode: true, newChatWorkMode: true, sessionPinArchive: true, sessionExportContent: true, sessionFork: true, usageDashboard: true,
 };
 export const MOBILE_ATTACHMENT_LIMIT = 20 * 1024 * 1024;
 export const MOBILE_AUTH_MODES = [...MODEL_SOURCES];

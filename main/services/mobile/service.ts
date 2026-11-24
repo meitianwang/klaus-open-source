@@ -1,4 +1,5 @@
 import { isFastModePreferenceKey } from '../../../shared/model-fast-mode';
+import { isKiroNativeEffort } from '../../../shared/kiro-model-catalog';
 import { isTraeNativeEffort } from '../../../shared/trae-model-catalog';
 import type { FriendMessage } from '../../../shared/friends';
 import { createHash, randomUUID } from 'node:crypto';
@@ -556,34 +557,46 @@ export class MobileBridgeService {
     }
     return compacted;
   }
-  private async readSessionWorkMode(call: MobileCall, id: string): Promise<'default' | 'plan' | 'parallel' | 'orchestrate'> {
+  private async readSessionWorkModeFlags(call: MobileCall, id: string): Promise<{ spec: boolean; ultra: boolean; orchestrate: boolean }> {
     const [specRaw, ultraRaw, orchestrateRaw] = await Promise.all([
       call('session:get-spec-mode', { sessionId: id }).catch(() => ({ enabled: false })),
       call('session:get-ultra-mode', { sessionId: id }).catch(() => ({ enabled: false })),
       call('session:get-orchestration-mode', { sessionId: id }).catch(() => ({ enabled: false })),
     ]);
-    if (object(specRaw).enabled === true) return 'plan';
-    if (object(orchestrateRaw).enabled === true) return 'orchestrate';
-    if (object(ultraRaw).enabled === true) return 'parallel';
+    return {
+      spec: object(specRaw).enabled === true,
+      ultra: object(ultraRaw).enabled === true,
+      orchestrate: object(orchestrateRaw).enabled === true,
+    };
+  }
+  private async readSessionWorkMode(call: MobileCall, id: string): Promise<'default' | 'plan' | 'parallel' | 'orchestrate'> {
+    const { spec, ultra, orchestrate } = await this.readSessionWorkModeFlags(call, id);
+    if (spec) return 'plan';
+    if (orchestrate) return 'orchestrate';
+    if (ultra) return 'parallel';
     return 'default';
   }
-  private async writeSessionWorkMode(call: MobileCall, id: string, mode: 'default' | 'plan' | 'parallel' | 'orchestrate'): Promise<'default' | 'plan' | 'parallel' | 'orchestrate'> {
-    const sessionOptions = { sessionId: id, updateDefaults: false };
-    const current = await this.readSessionWorkMode(call, id);
+  private async writeSessionWorkMode(call: MobileCall, id: string, mode: 'default' | 'plan' | 'parallel' | 'orchestrate', updateDefaultsForExecution = true): Promise<'default' | 'plan' | 'parallel' | 'orchestrate'> {
+    const { spec, ultra, orchestrate } = await this.readSessionWorkModeFlags(call, id);
     if (mode === 'plan') {
-      if (current === 'parallel') await call('session:set-ultra-mode', { ...sessionOptions, enabled: false });
-      if (current === 'orchestrate') await call('session:set-orchestration-mode', { ...sessionOptions, enabled: false });
-      await call('session:set-spec-mode', { sessionId: id, enabled: true });
+      // Plan is scoped to this conversation and preserves Parallel/Orchestrate defaults for future new chats.
+      if (ultra) await call('session:set-ultra-mode', { sessionId: id, enabled: false, updateDefaults: false });
+      if (orchestrate) await call('session:set-orchestration-mode', { sessionId: id, enabled: false, updateDefaults: false });
+      if (!spec) await call('session:set-spec-mode', { sessionId: id, enabled: true });
     } else if (mode === 'parallel') {
-      if (current === 'plan') await call('session:set-spec-mode', { sessionId: id, enabled: false });
-      await call('session:set-ultra-mode', { ...sessionOptions, enabled: true });
+      if (spec) await call('session:set-spec-mode', { sessionId: id, enabled: false });
+      await call('session:set-ultra-mode', { sessionId: id, enabled: true, updateDefaults: updateDefaultsForExecution });
     } else if (mode === 'orchestrate') {
-      if (current === 'plan') await call('session:set-spec-mode', { sessionId: id, enabled: false });
-      await call('session:set-orchestration-mode', { ...sessionOptions, enabled: true });
+      if (spec) await call('session:set-spec-mode', { sessionId: id, enabled: false });
+      await call('session:set-orchestration-mode', { sessionId: id, enabled: true, updateDefaults: updateDefaultsForExecution });
+    } else if (spec) {
+      // Leaving Plan restores Default on this conversation without clearing remembered new-chat defaults.
+      await call('session:set-spec-mode', { sessionId: id, enabled: false });
+      if (ultra) await call('session:set-ultra-mode', { sessionId: id, enabled: false, updateDefaults: false });
+      if (orchestrate) await call('session:set-orchestration-mode', { sessionId: id, enabled: false, updateDefaults: false });
     } else {
-      if (current === 'plan') await call('session:set-spec-mode', { sessionId: id, enabled: false });
-      if (current === 'parallel') await call('session:set-ultra-mode', { ...sessionOptions, enabled: false });
-      if (current === 'orchestrate') await call('session:set-orchestration-mode', { ...sessionOptions, enabled: false });
+      if (ultra) await call('session:set-ultra-mode', { sessionId: id, enabled: false, updateDefaults: updateDefaultsForExecution });
+      if (orchestrate) await call('session:set-orchestration-mode', { sessionId: id, enabled: false, updateDefaults: updateDefaultsForExecution });
     }
     return this.readSessionWorkMode(call, id);
   }
@@ -621,7 +634,8 @@ export class MobileBridgeService {
     }
     if (method === 'POST' && path === '/api/mobile/model-config') {
       let sourceHint: string | undefined;
-      if (payload.source === undefined && payload.selection === undefined && isTraeNativeEffort(payload.thinkingLevel)
+      if (payload.source === undefined && payload.selection === undefined
+        && (isTraeNativeEffort(payload.thinkingLevel) || isKiroNativeEffort(payload.thinkingLevel))
         && !(THINKING_LEVELS as readonly string[]).includes(payload.thinkingLevel)) {
         const sessionId = modelConfigSession(payload.sessionId, true);
         if (sessionId) await this.knownSession(call, sessionId);
@@ -652,7 +666,11 @@ export class MobileBridgeService {
     }
     if (method === 'POST' && path === '/api/mobile/sessions') {
       if (payload.initialMessage === undefined) throw new MobileError(400, 'initial_message_required', 'A new mobile session requires its first message');
-      const promoted = await this.promoteDraft(run, this.call(run, owner), owner, required(payload.clientDraftId, 'clientDraftId'), workdir(payload.workdir), workspaceId(payload.workspaceId), mobileNewChatRun(payload), object(payload.initialMessage), modelPreference(payload.modelPreference));
+      const rawWorkMode = payload.workMode;
+      if (rawWorkMode !== undefined && (typeof rawWorkMode !== 'string' || !['default', 'plan', 'parallel', 'orchestrate'].includes(rawWorkMode))) {
+        throw badRequest('workMode is invalid');
+      }
+      const promoted = await this.promoteDraft(run, this.call(run, owner), owner, required(payload.clientDraftId, 'clientDraftId'), workdir(payload.workdir), workspaceId(payload.workspaceId), mobileNewChatRun(payload), object(payload.initialMessage), modelPreference(payload.modelPreference), rawWorkMode as 'default' | 'plan' | 'parallel' | 'orchestrate' | undefined);
       // The first turn of a phone-created session is phone-originated.
       this.markRemoteOrigin(string(promoted.sessionId));
       return result(201, promoted);
@@ -802,6 +820,8 @@ export class MobileBridgeService {
         const nextMode = string(payload.workMode);
         if (!['default', 'plan', 'parallel', 'orchestrate'].includes(nextMode)) throw badRequest('workMode is invalid');
         base.workMode = await this.writeSessionWorkMode(call, id, nextMode as 'default' | 'plan' | 'parallel' | 'orchestrate');
+        run.modelRevision = (run.modelRevision ?? 0) + 1;
+        this.scheduleModelConfigs(run, owner);
         await this.broadcastState(run, call);
         break;
       }
@@ -863,14 +883,14 @@ export class MobileBridgeService {
    * the first turn is rejected, the just-created placeholder is rolled back before the error is
    * returned so it cannot leak into either sidebar.
    */
-  private async promoteDraft(run: Run, call: MobileCall, owner: MobileEngineOwner, draftId: string, dir: string | null, spaceId: string | null, mode: MobileNewChatRun, initial: JsonObject, preference?: MobileModelPreference): Promise<JsonObject> {
+  private async promoteDraft(run: Run, call: MobileCall, owner: MobileEngineOwner, draftId: string, dir: string | null, spaceId: string | null, mode: MobileNewChatRun, initial: JsonObject, preference?: MobileModelPreference, workMode?: 'default' | 'plan' | 'parallel' | 'orchestrate'): Promise<JsonObject> {
     if (Buffer.byteLength(draftId) > 128) throw badRequest('clientDraftId is too long');
     const media = mediaItems(initial.media, preference?.source ?? readSessionModel('', this.deps.configRoot).source), text = messageText(initial.text, !!media.length);
     const clientMessageId = short(initial.clientMessageId) || draftId;
     // Store only a bounded digest of the validated first turn, never another copy of its media.
     // The same id may retry this promotion, but cannot repurpose it for another computer target,
     // run mode, branch or message while an earlier request is pending or already accepted.
-    const fingerprint = createHash('sha256').update(JSON.stringify({ dir, spaceId, mode, preference, text, clientMessageId,
+    const fingerprint = createHash('sha256').update(JSON.stringify({ dir, spaceId, mode, preference, ...(workMode === undefined ? {} : { workMode }), text, clientMessageId,
       media: media.map(item => ({ type: item.type, filename: item.filename, mimeType: item.mimeType, hash: createHash('sha256').update(item.bytes).digest('hex') })),
     })).digest('hex');
     const now = Date.now();
@@ -904,6 +924,7 @@ export class MobileBridgeService {
         if (sessionId) entry.ownedSessionId = sessionId.slice(0, 128);
         if (!sessionId) throw new MobileError(500, 'invalid_session', 'Desktop did not create a session');
         if (preference) await applyModelPreference(call, sessionId, preference, false);
+        if (workMode !== undefined) await this.writeSessionWorkMode(call, sessionId, workMode, true);
         // Install the subscription before send so synchronous first-turn events cannot be lost.
         for (const peer of run.peers) peer.subscriptions.add(sessionId);
         await this.sendMessage(run, call, sessionId, text, media, {}, clientMessageId);
@@ -1023,13 +1044,14 @@ export class MobileBridgeService {
     if (update.sessionId) await this.knownSession(call, update.sessionId);
     const projection = new MobileModelConfigProjection(call, () => run.modelRevision ?? 0), before = await projection.snapshot(update.sessionId);
     const source = update.source ?? (update.selection ? modelSource(update.selection) : undefined) ?? string(before.source);
-    const selection = update.selection ?? (source !== before.source ? 'auto' : string(before.selection));
+    const selection = update.selection ?? (update.source !== undefined ? 'auto' : string(before.selection));
     const preference = { source, selection, thinkingLevel: update.thinkingLevel ?? string(before.thinkingLevel),
       ...(update.fastMode === undefined ? {} : { fastMode: update.fastMode }) };
     if (modelSource(selection) && modelSource(selection) !== source) throw badRequest('The model does not belong to this source');
     if (update.source !== undefined || update.selection !== undefined || update.thinkingLevel !== undefined && update.fastMode !== undefined) {
+      const includeSource = !(update.source === undefined && update.selection === 'auto');
       await projection.validate(preference, update.thinkingLevel !== undefined);
-      await applyModelPreference(call, update.sessionId, preference, true, update.thinkingLevel !== undefined);
+      await applyModelPreference(call, update.sessionId, preference, true, update.thinkingLevel !== undefined, includeSource);
     } else if (update.thinkingLevel !== undefined) {
       const answer = object(await call('session:set-thinking-level', { ...(update.sessionId ? { sessionId: update.sessionId } : {}), level: preference.thinkingLevel }));
       if (answer.ok !== true) throw new MobileError(409, 'model_configuration_rejected', string(answer.error) || 'Desktop did not accept the thinking level');
@@ -1038,14 +1060,31 @@ export class MobileBridgeService {
       const answer = object(await call('session:set-fast-mode', { ...(update.sessionId ? { sessionId: update.sessionId } : {}), enabled: update.fastMode }));
       if (answer.ok !== true) throw new MobileError(409, 'model_configuration_rejected', string(answer.error) || 'Desktop did not accept Fast mode');
     }
-    if (update.ultraMode !== undefined) {
-      const answer = object(await call('session:set-ultra-mode', { ...(update.sessionId ? { sessionId: update.sessionId } : {}), enabled: update.ultraMode }));
+    if (update.orchestrationMode === true) {
+      const answer = object(await call('session:set-orchestration-mode', { ...(update.sessionId ? { sessionId: update.sessionId } : {}), enabled: true }));
+      if (answer.ok !== true) throw new MobileError(409, 'model_configuration_rejected', string(answer.error) || 'Desktop did not accept Orchestration mode');
+    } else if (update.ultraMode === true) {
+      const answer = object(await call('session:set-ultra-mode', { ...(update.sessionId ? { sessionId: update.sessionId } : {}), enabled: true }));
       if (answer.ok !== true) throw new MobileError(409, 'model_configuration_rejected', string(answer.error) || 'Desktop did not accept Ultra mode');
+    } else {
+      if (update.orchestrationMode === false) {
+        const answer = object(await call('session:set-orchestration-mode', { ...(update.sessionId ? { sessionId: update.sessionId } : {}), enabled: false }));
+        if (answer.ok !== true) throw new MobileError(409, 'model_configuration_rejected', string(answer.error) || 'Desktop did not accept Orchestration mode');
+      }
+      if (update.ultraMode === false) {
+        const answer = object(await call('session:set-ultra-mode', { ...(update.sessionId ? { sessionId: update.sessionId } : {}), enabled: false }));
+        if (answer.ok !== true) throw new MobileError(409, 'model_configuration_rejected', string(answer.error) || 'Desktop did not accept Ultra mode');
+      }
     }
     run.modelRevision = (run.modelRevision ?? 0) + 1;
     try {
-      const modelConfig = await new MobileModelConfigProjection(call, () => run.modelRevision ?? 0).snapshot(update.sessionId);
+      const snapshotProjection = new MobileModelConfigProjection(call, () => run.modelRevision ?? 0);
+      const modelConfig = await snapshotProjection.snapshot(update.sessionId);
       this.broadcastModelConfig(run, modelConfig);
+      if (update.sessionId) {
+        try { this.broadcastModelConfig(run, await snapshotProjection.snapshot(null)); }
+        catch { const current = this.deps.engineOwner(); if (current) this.scheduleModelConfigs(run, current); }
+      }
       return { modelConfig };
     } catch (error) {
       // The save and engine capture fence have already been accepted. Discovery
@@ -1067,7 +1106,7 @@ export class MobileBridgeService {
       if (run) for (const peer of run.peers) if (peer.ready) this.scheduleComposer(run, peer);
       return;
     }
-    if (!['composer.main_model', 'composer.thinking_level', 'composer.ultra_mode', 'modelProviders', 'auth_mode'].includes(key) && !isFastModePreferenceKey(key) && !key.startsWith('model_tiers:') && !key.startsWith('model_catalog:')) return;
+    if (!['composer.main_model', 'composer.thinking_level', 'composer.ultra_mode', 'composer.orchestration_mode', 'modelProviders', 'auth_mode'].includes(key) && !isFastModePreferenceKey(key) && !key.startsWith('model_tiers:') && !key.startsWith('model_catalog:')) return;
     const run = this.run, owner = this.deps.engineOwner();
     if (run) run.modelRevision = (run.modelRevision ?? 0) + 1;
     if (run && owner) this.scheduleModelConfigs(run, owner);

@@ -1,5 +1,5 @@
 {
-  "reason": "Session model configuration is explicitly scoped to the selected device and conversation; discovery previews never mutate preferences, and first-send initialization does not change future defaults. Ultra stays available as a local mode across model sources, including providers without an effort parameter. Cursor local login re-import disables discovery and selection until the device has complete credentials. Native Fast state and eligibility are scoped to the same conversation and preserve explicit extra-credit billing independently of quota windows. Ultra is carried by ultraMode independently of native thinkingLevel; missing fields from older clients preserve the current selection. TRAE CN and Kiro source discovery is device-scoped, and native effort selections retain their exact source-qualified members. Kiro routing aliases are excluded from concrete model choices.",
+  "reason": "Session model configuration is explicitly scoped to the selected device and conversation; discovery previews never mutate preferences, and first-send initialization does not change future defaults. Parallel and Orchestrate execution modes stay available across model sources, including providers without an effort parameter, and carry their state in ultraMode and orchestrationMode independently of native thinkingLevel. Cursor local login re-import disables discovery and selection until the device has complete credentials. Native Fast state and eligibility are scoped to the same conversation and preserve explicit extra-credit billing independently of quota windows; missing fields from older clients preserve the current selection. TRAE CN and Kiro source discovery is device-scoped, and native effort selections retain their exact source-qualified members. Kiro routing aliases are excluded from concrete model choices.",
   "feature": {
     "sessionModelConfig": true
   },
@@ -14,7 +14,8 @@
     "models",
     "fastMode",
     "fastModeSupported",
-    "ultraMode"
+    "ultraMode",
+    "orchestrationMode"
   ],
   "sourceOrder": [
     "subscription",
@@ -228,7 +229,8 @@
     ],
     "fastMode": false,
     "fastModeSupported": false,
-    "ultraMode": false
+    "ultraMode": false,
+    "orchestrationMode": false
   },
   "previewSnapshot": {
     "sessionId": "s2",
@@ -358,7 +360,8 @@
     "catalogDefaultSelection": "codex:auto-default",
     "fastMode": false,
     "fastModeSupported": false,
-    "ultraMode": false
+    "ultraMode": false,
+    "orchestrationMode": false
   },
   "consistencyRule": "Slow resolution or discovery re-reads saved preferences before returning; superseded refresh passes cannot broadcast a stale configuration after a newer edit.",
   "sessionChangedFrame": {
@@ -487,7 +490,8 @@
       ],
       "fastMode": false,
       "fastModeSupported": false,
-      "ultraMode": false
+      "ultraMode": false,
+      "orchestrationMode": false
     },
     "sessionId": "s2"
   },

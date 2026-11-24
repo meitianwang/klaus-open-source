@@ -14,8 +14,11 @@ const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/
 
 async function modelFixture() {
   const f = await mobileFixture(), changes: JsonObject[] = [];
+  let engineOverride: ((method: string, params: Json | undefined) => Promise<Json | undefined>) | undefined;
   const composer = new ComposerService({ configRoot: f.root, push: () => {},
     request: async (method, params) => {
+      const overridden = await engineOverride?.(method, params);
+      if (overridden !== undefined) return overridden;
       assert.equal(method, 'model/selection/resolve');
       const row = object(params);
       return { source: row.source!, selection: string(row.selection).includes(':') ? row.selection! : string(row.source) + ':auto-default' };
@@ -35,6 +38,8 @@ async function modelFixture() {
       case 'session:get-main-model': return composer.getModel(string(payload.sessionId), payload.resolve !== false, payload.previewSource as string | undefined);
       case 'session:get-ultra-mode': return composer.getUltraMode(string(payload.sessionId));
       case 'session:set-ultra-mode': return composer.setUltraMode(payload);
+      case 'session:get-orchestration-mode': return composer.getOrchestrationMode(string(payload.sessionId));
+      case 'session:set-orchestration-mode': return composer.setOrchestrationMode(payload);
       case 'session:get-thinking-level': return composer.getThinking(string(payload.sessionId));
       case 'session:get-fast-mode': return composer.getFastMode(string(payload.sessionId));
       case 'session:set-fast-mode': return composer.setFastMode(payload);
@@ -51,7 +56,7 @@ async function modelFixture() {
     }
   });
   await f.enable();
-  return { f, composer, changes, override: (next: typeof override) => { override = next; } };
+  return { f, composer, changes, override: (next: typeof override) => { override = next; }, engineOverride: (next: typeof engineOverride) => { engineOverride = next; } };
 }
 
 export async function registerMobileModelConfigTests(h: Harness): Promise<void> {
@@ -331,5 +336,122 @@ export async function registerMobileModelConfigTests(h: Harness): Promise<void> 
       assert.equal(reply.status, 200);
       assert.equal(object(reply.body.modelConfig).source, 'custom');
     } finally { releaseSlowStatus(); await f.close(); }
+  });
+  await h.test('mobile model, thinking effort and execution work-mode edits remember per-source, per-family and new-chat defaults identically to desktop', async () => {
+    const { f, composer, override, engineOverride } = await modelFixture();
+    const specBySession = new Map<string, boolean>();
+    try {
+      engineOverride(async method => {
+        if (method === 'cursor/models') {
+          return {
+            models: [
+              {
+                key: 'alpha[context=200k,reasoning_effort=medium,fast=false]',
+                modelId: 'alpha',
+                modelName: 'Alpha',
+                isDefault: true,
+                efforts: ['medium'],
+                defaultEffort: 'medium',
+                requestedModel: { modelId: 'alpha', maxMode: false, parameters: [{ id: 'context', value: '200k' }, { id: 'reasoning_effort', value: 'medium' }, { id: 'fast', value: 'false' }] },
+              },
+              {
+                key: 'alpha[context=200k,reasoning_effort=high,fast=false]',
+                modelId: 'alpha',
+                modelName: 'Alpha',
+                isDefault: false,
+                efforts: ['high'],
+                defaultEffort: 'high',
+                requestedModel: { modelId: 'alpha', maxMode: false, parameters: [{ id: 'context', value: '200k' }, { id: 'reasoning_effort', value: 'high' }, { id: 'fast', value: 'false' }] },
+              },
+              {
+                key: 'beta[context=200k,reasoning_effort=low,fast=false]',
+                modelId: 'beta',
+                modelName: 'Beta',
+                isDefault: true,
+                efforts: ['low'],
+                defaultEffort: 'low',
+                requestedModel: { modelId: 'beta', maxMode: false, parameters: [{ id: 'context', value: '200k' }, { id: 'reasoning_effort', value: 'low' }, { id: 'fast', value: 'false' }] },
+              },
+            ],
+          };
+        }
+        return undefined;
+      });
+      override(async (channel, payload): Promise<Json | undefined> => {
+        if (channel === 'cursor-auth:status' || channel === 'codex-auth:status') return { loggedIn: true };
+        if (channel === 'session:get-spec-mode') return { enabled: specBySession.get(string(payload.sessionId)) === true };
+        if (channel === 'session:set-spec-mode') { specBySession.set(string(payload.sessionId), payload.enabled === true); return { ok: true }; }
+        if (channel === 'session:get-main-model-options' && payload.source === 'cursor') {
+          return { options: await composer.options('cursor') };
+        }
+        return undefined;
+      });
+      // 1. Existing session s2 selects Cursor Alpha family + high effort -> remembers family variant & updates new-chat defaults, while s1 stays frozen.
+      const setCursor = await f.request('POST', '/api/mobile/model-config', { sessionId: 's2', source: 'cursor' });
+      assert.equal(setCursor.status, 202);
+      const setAlpha = await f.request('POST', '/api/mobile/model-config', { sessionId: 's2', selection: 'cursor:alpha[context=200k,reasoning_effort=medium,fast=false]' });
+      assert.equal(setAlpha.status, 202);
+      const setEffort = await f.request('POST', '/api/mobile/model-config', { sessionId: 's2', thinkingLevel: 'high' });
+      assert.equal(setEffort.status, 202);
+      assert.equal(object(setEffort.body.modelConfig).selection, 'cursor:alpha[context=200k,reasoning_effort=high,fast=false]');
+      assert.equal(object(setEffort.body.modelConfig).thinkingLevel, 'high');
+      assert.deepEqual(readSessionModel('s1', f.root), { source: 'codex', mode: 'codex:fixture' });
+      assert.equal(readSessionThinkingLevel('s1', f.root), 'high');
+      const defaultsAfterSessionEdit = object((await f.request('GET', '/api/mobile/model-config')).body.modelConfig);
+      assert.equal(defaultsAfterSessionEdit.source, 'cursor');
+      assert.equal(defaultsAfterSessionEdit.selection, 'cursor:alpha[context=200k,reasoning_effort=high,fast=false]');
+      assert.equal(defaultsAfterSessionEdit.thinkingLevel, 'high');
+
+      // 2. Switching to Beta and back to Alpha restores Alpha's remembered high variant & effort.
+      await f.request('POST', '/api/mobile/model-config', { sessionId: 's2', selection: 'cursor:beta[context=200k,reasoning_effort=low,fast=false]' });
+      const restoredAlpha = object((await f.request('POST', '/api/mobile/model-config', { sessionId: 's2', selection: 'cursor:alpha[context=200k,reasoning_effort=medium,fast=false]' })).body.modelConfig);
+      assert.equal(restoredAlpha.selection, 'cursor:alpha[context=200k,reasoning_effort=high,fast=false]');
+      assert.equal(restoredAlpha.thinkingLevel, 'high');
+
+      // 3. Switching source to Codex and back to Cursor on New Chat (sessionId: null) restores Cursor's remembered model & effort.
+      await f.request('POST', '/api/mobile/model-config', { sessionId: null, source: 'codex' });
+      await f.request('POST', '/api/mobile/model-config', { sessionId: null, selection: 'codex:fixture' });
+      await f.request('POST', '/api/mobile/model-config', { sessionId: null, thinkingLevel: 'max' });
+      const restoredCursorDefault = object((await f.request('POST', '/api/mobile/model-config', { sessionId: null, source: 'cursor' })).body.modelConfig);
+      assert.equal(restoredCursorDefault.selection, 'cursor:alpha[context=200k,reasoning_effort=high,fast=false]');
+      assert.equal(restoredCursorDefault.thinkingLevel, 'high');
+
+      // 4. Explicit "auto" selection on the active source sets selection to "auto" without triggering sourceActivation override, and projects resolved variant in models.
+      await f.request('POST', '/api/mobile/model-config', { sessionId: null, source: 'codex' });
+      const explicitAuto = object((await f.request('POST', '/api/mobile/model-config', { sessionId: null, selection: 'auto' })).body.modelConfig);
+      assert.equal(explicitAuto.source, 'codex');
+      assert.equal(explicitAuto.selection, 'auto');
+      assert.equal(explicitAuto.resolvedSelection, 'codex:auto-default');
+
+      // 5. Work-mode persistence: Orchestrate on s2 updates New Chat default; Plan on s2 is single-conversation and preserves Orchestrate for New Chat; leaving Plan to Default still preserves Orchestrate; leaving Orchestrate to Default clears New Chat default.
+      assert.equal((await f.request('POST', '/api/mobile/sessions/s2/work-mode', { workMode: 'orchestrate' })).body.workMode, 'orchestrate');
+      assert.equal(object(await composer.getOrchestrationMode('')).enabled, true);
+      assert.equal(object((await f.request('GET', '/api/mobile/model-config')).body.modelConfig).orchestrationMode, true);
+      assert.equal(object(await composer.getOrchestrationMode('s1')).enabled, false);
+
+      assert.equal((await f.request('POST', '/api/mobile/sessions/s2/work-mode', { workMode: 'plan' })).body.workMode, 'plan');
+      assert.equal(object(await composer.getOrchestrationMode('s2')).enabled, false);
+      assert.equal(object(await composer.getOrchestrationMode('')).enabled, true);
+
+      assert.equal((await f.request('POST', '/api/mobile/sessions/s2/work-mode', { workMode: 'default' })).body.workMode, 'default');
+      assert.equal(object(await composer.getOrchestrationMode('')).enabled, true);
+
+      // 6. Promoting a New Chat draft in Plan mode scopes Plan to that new conversation without clearing remembered Orchestrate default for subsequent new chats.
+      const planDraft = await f.request('POST', '/api/mobile/sessions', { clientDraftId: 'plan-draft', workMode: 'plan', initialMessage: { text: 'plan first turn' } });
+      assert.equal(planDraft.status, 201);
+      const planSessionId = string(planDraft.body.id);
+      assert.equal(specBySession.get(planSessionId), true);
+      assert.equal(object(await composer.getOrchestrationMode(planSessionId)).enabled, false);
+      assert.equal(object(await composer.getOrchestrationMode('')).enabled, true);
+
+      // 7. New Chat switching work mode directly via model-config updates defaults immediately, and leaving Parallel to Default on s2 clears defaults.
+      const parallelDefault = object((await f.request('POST', '/api/mobile/model-config', { sessionId: null, ultraMode: true })).body.modelConfig);
+      assert.equal(parallelDefault.ultraMode, true);
+      assert.equal(parallelDefault.orchestrationMode, false);
+      assert.equal((await f.request('POST', '/api/mobile/sessions/s2/work-mode', { workMode: 'parallel' })).body.workMode, 'parallel');
+      assert.equal((await f.request('POST', '/api/mobile/sessions/s2/work-mode', { workMode: 'default' })).body.workMode, 'default');
+      assert.equal(object(await composer.getUltraMode('')).enabled, false);
+      assert.equal(object(await composer.getOrchestrationMode('')).enabled, false);
+    } finally { await f.close(); }
   });
 }

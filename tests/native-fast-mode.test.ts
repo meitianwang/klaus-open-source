@@ -117,6 +117,7 @@ h.test('mobile Fast updates are typed and project authoritative capability metad
     if (channel === 'session:get-main-model') return { source: 'subscription', mode: 'subscription:fixture', resolvedMode: 'subscription:fixture' };
     if (channel === 'session:get-thinking-level') return { level: 'high' };
     if (channel === 'session:get-ultra-mode') return { enabled: false };
+    if (channel === 'session:get-orchestration-mode') return { enabled: false };
     if (channel === 'session:get-fast-mode') return { enabled: true, supported: true, billing: 'extraCredits' };
     if (channel === 'auth:status') return { loggedIn: true };
     if (channel.endsWith('auth:status') || channel.endsWith('-auth:status')) return { loggedIn: false };

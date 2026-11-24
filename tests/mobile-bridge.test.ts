@@ -105,7 +105,7 @@ void (async () => {
       });
       await f.enable();
       const boot = await f.request('GET', '/api/mobile/bootstrap');
-      for (const feature of ['sessionWorkMode', 'sessionPinArchive', 'sessionExportContent']) assert.equal(object(boot.body.features)[feature], true);
+      for (const feature of ['sessionWorkMode', 'newChatWorkMode', 'sessionPinArchive', 'sessionExportContent']) assert.equal(object(boot.body.features)[feature], true);
       const base = `/api/mobile/sessions/${vector.sessionId}`;
       for (const mode of vector.workModes) {
         const reply = await f.request('POST', `${base}/work-mode`, { workMode: mode });
@@ -113,11 +113,8 @@ void (async () => {
         assert.equal((await f.request('GET', `${base}/work-mode`)).body.workMode, mode);
       }
       const setters = f.calls.filter(row => ['session:set-ultra-mode', 'session:set-orchestration-mode'].includes(row.channel));
-      assert(setters.length > 0);
-      for (const row of setters) {
-        assert.equal(row.payload.sessionId, vector.sessionId);
-        assert.equal(row.payload.updateDefaults, vector.updateDefaults);
-      }
+      assert.deepEqual(setters.map(row => row.payload.updateDefaults), vector.expectedSetterUpdateDefaults);
+      for (const row of setters) assert.equal(row.payload.sessionId, vector.sessionId);
       const pin = await f.request('POST', `${base}/pin`, { pinned: vector.pinned });
       assert.equal(pin.status, 202); assert.equal(pin.body.pinned, vector.pinned);
       const exported = await f.request('POST', `${base}/export`, {});
