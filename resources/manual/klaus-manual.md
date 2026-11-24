@@ -1656,7 +1656,7 @@ curl -fsSLo install.bat https://klaus-ai.cn/install.bat && install.bat
 klaus
 ```
 
-会话里的键与斜杠命令：`/help` 列出全部；`/model <id>` 和 `/mode <模式>` 从下一轮开始换模型或权限模式；`/config model=... mode=...` 一次改两个并回报实际生效的值；`/exit` 或 ctrl-d 离开。ctrl-c 打断正在跑的这一轮，在空提示符上连按两次才退出。回合进行中输入的一行会被送进当前这一轮（steering），而不是排到下一轮。
+会话里的键与斜杠命令：`/help` 列出全部；`/model <id>`、`/effort <档位>` 和 `/mode <模式>` 从下一轮起切换模型、思考强度或权限预设；`/plan [on|off]`、`/goal [on|off]`、`/orchestrate [on|off|来源:模型]` 与 `/parallel [on|off]`（兼容 `/ultra`）可随时切换计划、目标、编排与并行四种工作模式；`/config model=... effort=... parallel=...` 支持一次修改多项配置并回显实际生效值；底部状态栏实时显示当前模型、工作模式徽标、Git 分支与增删统计、上下文窗口占用及运行中的后台子代理数量；`/exit` 或 ctrl-d 离开。ctrl-c 打断正在跑的这一轮，在空提示符上连按两次才退出。回合进行中输入的一行会被送进当前这一轮（steering），而不是排到下一轮。
 
 跑完就退的用法，退出码反映结果，可以直接串进脚本：
 
@@ -1669,12 +1669,12 @@ klaus exec "把这个函数拆开"
 - `klaus ask <问题>`：问一句但不写进会话历史，适合查东西。
 - `klaus review`：审代码。默认审工作区未提交的改动，也可以对某个基线分支、某个 commit、指定文件或自由指令审，产出带位置的结构化发现。
 - `klaus mcp`：管 MCP 服务器，也能不经模型直接点名调用某个工具、读某个资源、取服务器自带的 prompt 模板——用来验「这台服务器到底通不通、参数对不对」。
-- `klaus login [claude|codex|qoder]`、`klaus logout`、`klaus auth`：在命令行完成订阅授权登录、退出登录与查看当前认证状态。
-- `klaus session`、`klaus history`、`klaus rewind`、`klaus compact`、`klaus changes`：会话的列出、看历史、撤回若干轮（可连带撤回文件改动）、压缩上下文，以及查看会话产生的文件改动。
-- `klaus goal`、`klaus queue`、`klaus subagent`：查看、暂停、恢复或清除当前目标，查看或取消排队中的追加消息，以及查看、发消息给或停止后台子代理。
-- `klaus cost`、`klaus context`：这个会话花了多少、上下文窗口占用多少。
-- `klaus skill`、`klaus plugin`、`klaus agent`、`klaus hook`、`klaus memory`、`klaus task`、`klaus setup`：与 Klaus 各扩展与任务功能对应的命令行入口（如 `klaus skill list`、`klaus agent list`、`klaus hook list`、运行工作区初始化钩子等）。
-- `klaus engine`：端点级的东西——配置文件、钩子文件、持久权限规则、凭据。这些不属于任何一个会话，所以这组命令不会开会话（读配置不依赖一个「由这份配置来配置」的会话）。
+- `klaus login <来源>`、`klaus logout <来源>`、`klaus auth status`：在终端完成 14 类订阅与编程套餐的登录、退出与状态查看（支持 `claude`、`codex`、`qoder`、`antigravity`、`cursor`、`kiro`、`trae`、`qwenwork`、`workbuddy`、`kimi`、`bailian`、`minimax`、`zhipu`、`ark`；编程套餐支持 `--api-key` 与 `--region cn|intl`）。
+- `klaus session`、`klaus history`、`klaus rewind`、`klaus compact`、`klaus changes`：会话的列出、重命名、归档、按指定消息或回合边界派生新会话（`klaus session fork --after-message / --before-turn / --last-turn`）、看历史、撤回若干轮（可连带撤回文件改动）、压缩上下文，以及查看会话产生的文件改动。
+- `klaus goal`、`klaus queue`、`klaus subagent`：查看、设置、暂停、恢复或清除当前目标，查看或取消排队中的追加消息，以及查看后台子代理、向子代理追加指令（`klaus subagent send`）或停止子代理。
+- `klaus cost`、`klaus context`：这个会话花了多少、上下文窗口各分段占用多少。
+- `klaus skill`、`klaus plugin`、`klaus agent`、`klaus hook`、`klaus memory`、`klaus task`、`klaus setup`：与 Klaus 各扩展与任务功能对应的命令行入口（如 `klaus skill list`、`klaus plugin install`、`klaus memory`、运行工作区初始化钩子等）。
+- `klaus engine`：端点级管理——配置文件、钩子文件、持久权限规则、自定义模型凭据，以及历史会话归档压缩（`klaus engine compress-rollouts`）。这些不属于单个会话，因此执行时不会额外启动会话。
 - `klaus serve`、`klaus app-server`、`klaus proto`：分别启动可由 `--remote` 连接的守护进程服务、桌面外壳使用的 JSON-RPC 应用服务进程，以及导出协议 schema。
 - `klaus capabilities`、`klaus extensions`：排障用——当前会话实际解析出的运行时能力、实际生效的扩展图（技能、子代理、钩子、MCP）。
 - `klaus completion <shell>`：生成 shell 补全脚本。
@@ -1684,16 +1684,21 @@ klaus exec "把这个函数拆开"
 这些选项在会话建立时固定，所以放在子命令之前，之后无法中途更改：
 
 - `-C, --cd <目录>`：会话的工作目录，默认当前目录。
-- `-m, --model <id>`：本次会话用哪个模型。
+- `-m, --model <id>`：本次会话使用的模型（既支持 `codex:gpt-5.6-sol`、`antigravity:auto`、`subscription:opus` 这类带来源前缀的选择器，也支持具体模型名）。
+- `-e, --effort <none|minimal|low|medium|high|xhigh|max>`：模型的原生思考强度，与工作模式相互独立。
+- `--collaboration-mode <default|plan>`：会话启动时的协作模式；设为 `plan` 时先只读规划、确认后再改代码。
+- `--goal-mode`：开启目标模式——启用目标工具并在每轮结束后按目标自动续跑。默认关闭，需要逐会话显式开启。
+- `--orchestrate` / `--orchestrator-model <来源:模型>`：开启编排模式，将具体实现与验证委派给子代理，主会话专注拆解与验收；可通过 `--orchestrator-model` 指定子代理执行模型。
+- `--parallel`（别名 `--ultra`）：开启并行模式，面对多模块或独立子问题时并行派发子代理协同处理。
+- `-w, --worktree`：在独立的 Git Worktree 中启动本次会话，避免直接改动当前检出分支。
 - `--sandbox <read-only|workspace-write|danger-full-access>`：文件系统与命令沙箱边界。
-- `--ask-for-approval <untrusted|on-failure|on-request|never>`：何时停下来请求批准。
-- `--approvals-reviewer <user|guardian-subagent>`：需要批准的操作由你本人决定，还是交给独立审核子代理判断（旧预设别名 `-p, --permission-mode` 仅保留隐藏兼容）。
+- `--ask-for-approval <untrusted|on-request|never>`：何时停下来请求批准（兼容历史别名 `on-failure`）。
+- `--approvals-reviewer <user|auto>`：需要批准的操作由你本人决定，还是交给独立审核子代理自动判断（兼容别名 `guardian-subagent`；旧预设选项 `-p, --permission-mode` 仅保留隐藏兼容）。
 - `--json`：输出引擎的原始协议 JSON，一行一个值。这是给程序读的形态——读到的就是引擎说的原话，不是命令行自己包装的一层。诊断信息一律走 stderr，所以 stdout 可以当纯数据管。
 - `--remote ws://主机:端口`：驱动一个已经在跑的引擎，而不是在本进程里起一个。配合 `klaus serve` 用。
 - `--config-json <JSON>`：直接给一段引擎配置，优先级低于上面这些具名选项。
 - `--resume <会话 id>`：接回一条已经存下来的会话，而不是新开一条。`--fork <会话 id>` 是另一回事：拿那条会话的历史做种子、另起一条新的，原来那条不动（两者不能同时给）。
-- `--provider <名字>`：模型后端（anthropic 默认、openai、gemini）。选后端是引擎端点自己的事，所以用 `--remote` 驱动别人的引擎时这个选项不能用。
-- `--goal-mode`：开目标模式——目标工具，加上每轮结束后自动接着跑。引擎里默认关着，因为自动续跑会在你没再开口的时候就花 token，所以要逐会话显式要。
+- `--provider <名字>`：模型后端（anthropic 默认、openai、gemini）。选后端是端点自己的事，所以用 `--remote` 连接已有服务时这个选项不能用。
 - `--token <TOKEN>`：`--remote` 的 bearer token，只能配 `--remote` 用。
 - `--session-dir <目录>`：会话记录写到哪。不指定就是 `~/.klaus/sessions`，所以 CLI 里开的会话在桌面端也能看到。
 - `--no-discovery`：这一跑不从磁盘读技能、子代理、钩子和 MCP 服务器。`--no-plugins` 只跳已安装插件的加载，其他三类照读。
