@@ -91,34 +91,59 @@ void (async () => {
   await h.test('session action vectors keep work modes session scoped and return shareable exports', async () => {
     const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/mobile-runtime-scope-vectors.json'), 'utf8')).sessionActions;
     const f = await mobileFixture();
-    let plan = false, parallel = false, orchestrate = false;
+    const flags = new Map([["s2", { plan: false, parallel: true, orchestrate: false }]]);
     try {
       const path = join(f.root, 'session-export.txt');
       await writeFile(path, vector.exportContent, 'utf8');
       f.intercept(async (channel, payload): Promise<Json | undefined> => {
-        if (channel === 'session:get-spec-mode') return { enabled: plan };
-        if (channel === 'session:get-ultra-mode') return { enabled: parallel };
-        if (channel === 'session:get-orchestration-mode') return { enabled: orchestrate };
+        const id = string(payload.sessionId);
+        const state = flags.get(id) ?? { plan: false, parallel: false, orchestrate: false };
+        if (channel === 'session:get-spec-mode') return { enabled: state.plan };
+        if (channel === 'session:get-ultra-mode') return { enabled: state.parallel };
+        if (channel === 'session:get-orchestration-mode') return { enabled: state.orchestrate };
         if (channel === 'session:export') return { filePath: path };
         if (channel === 'session:set-pinned' || channel === 'session:archive') return { ok: true };
-        if (channel === 'session:set-spec-mode') plan = payload.enabled === true;
-        else if (channel === 'session:set-ultra-mode') { parallel = payload.enabled === true; if (parallel) orchestrate = false; }
-        else if (channel === 'session:set-orchestration-mode') { orchestrate = payload.enabled === true; if (orchestrate) parallel = false; }
+        if (channel === 'session:set-spec-mode') state.plan = payload.enabled === true;
+        else if (channel === 'session:set-ultra-mode') { state.parallel = payload.enabled === true; if (state.parallel) state.orchestrate = false; }
+        else if (channel === 'session:set-orchestration-mode') { state.orchestrate = payload.enabled === true; if (state.orchestrate) state.parallel = false; }
         else return undefined;
+        flags.set(id, state);
         return { ok: true };
       });
       await f.enable();
       const boot = await f.request('GET', '/api/mobile/bootstrap');
       for (const feature of ['sessionWorkMode', 'newChatWorkMode', 'sessionPinArchive', 'sessionExportContent']) assert.equal(object(boot.body.features)[feature], true);
       const base = `/api/mobile/sessions/${vector.sessionId}`;
-      for (const mode of vector.workModes) {
-        const reply = await f.request('POST', `${base}/work-mode`, { workMode: mode });
-        assert.equal(reply.status, 202); assert.equal(reply.body.workMode, mode);
-        assert.equal((await f.request('GET', `${base}/work-mode`)).body.workMode, mode);
+      const empty = vector.sessionWorkModeWrites;
+      const emptyRoute = `/api/mobile/sessions/${empty.sessionId}/work-mode`;
+      const settersSince = (start: number) => f.calls.slice(start).filter(row => /^session:set-(spec|ultra|orchestration)-mode$/.test(row.channel));
+      for (const write of empty.writes) {
+        const start = f.calls.length;
+        const expected = { sessionId: empty.sessionId, workMode: write.workMode, planMode: write.workMode === 'plan', executionMode: write.executionMode };
+        const reply = await f.request('POST', emptyRoute, write.input);
+        assert.equal(reply.status, 202);
+        assert.deepEqual(reply.body, { ok: true, ...expected });
+        assert.deepEqual((await f.request('GET', emptyRoute)).body, expected);
+        assert.deepEqual(settersSince(start).map(row => [row.channel, row.payload.sessionId, row.payload.updateDefaults]),
+          [[`session:set-${write.setter}`, empty.sessionId, write.setter === 'spec-mode' ? undefined : true]]);
       }
-      const setters = f.calls.filter(row => ['session:set-ultra-mode', 'session:set-orchestration-mode'].includes(row.channel));
-      assert.deepEqual(setters.map(row => row.payload.updateDefaults), vector.expectedSetterUpdateDefaults);
-      for (const row of setters) assert.equal(row.payload.sessionId, vector.sessionId);
+      const start = f.calls.length;
+      for (const write of vector.startedSessionPlanWrites) {
+        const reply = await f.request('POST', `${base}/work-mode`, write.input);
+        assert.equal(reply.status, 202);
+        assert.deepEqual(reply.body, { ok: true, sessionId: vector.sessionId, workMode: write.planMode ? 'plan' : 'parallel', planMode: write.planMode, executionMode: 'parallel' });
+      }
+      const rejected = vector.startedSessionRejectedExecutionWrites;
+      for (const workMode of rejected.workModes) {
+        const reply = await f.request('POST', `${base}/work-mode`, { workMode });
+        assert.equal(reply.status, rejected.status);
+        assert.equal(object(reply.body.error).type, rejected.error);
+      }
+      for (const input of [{}, { planMode: 'true' }, { workMode: null }, { planMode: true, workMode: 'parallel' }, { planMode: false, workMode: 'plan' }] as JsonObject[]) {
+        assert.equal((await f.request('POST', `${base}/work-mode`, input)).status, 400);
+      }
+      assert.deepEqual(settersSince(start).map(row => [row.channel, row.payload.sessionId, row.payload.enabled, row.payload.updateDefaults]),
+        vector.startedSessionPlanWrites.map((write: { planMode: boolean }) => ['session:set-spec-mode', vector.sessionId, write.planMode, undefined]));
       const pin = await f.request('POST', `${base}/pin`, { pinned: vector.pinned });
       assert.equal(pin.status, 202); assert.equal(pin.body.pinned, vector.pinned);
       const exported = await f.request('POST', `${base}/export`, {});

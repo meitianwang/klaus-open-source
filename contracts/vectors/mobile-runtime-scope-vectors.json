@@ -1,6 +1,6 @@
 {
-  "version": 4,
-  "reason": "Mobile preferences and session actions target the explicitly named conversation, never the renderer selection. Parallel and Orchestrate work-mode selections and returning from them to Default also update defaults for future new chats while leaving other existing conversations unchanged; Plan and leaving Plan remain single-conversation only so remembered Parallel and Orchestrate defaults are preserved. Pin and archive refresh the catalog, and exports include readable content for the phone share sheet. Rejected output-style mutations remain explicit conflicts.",
+  "version": 5,
+  "reason": "Mobile preferences and session actions target the explicitly named conversation, never the renderer selection. Execution mode (default, parallel, or orchestrate) can only change before a conversation has messages or starts working. Plan (plan or planMode) remains independently toggleable without changing the session execution mode or new-chat defaults. Pin and archive refresh the catalog, and exports include readable content for the phone share sheet. Rejected output-style mutations remain explicit conflicts.",
   "rendererSessionId": "s1",
   "invalidWrites": [
     {
@@ -32,8 +32,27 @@
   },
   "sessionActions": {
     "sessionId": "s2",
-    "workModes": ["plan", "parallel", "orchestrate", "default", "parallel", "plan", "default"],
-    "expectedSetterUpdateDefaults": [true, true, true, true, false],
+    "sessionWorkModeWrites": {
+      "sessionId": "s1",
+      "writes": [
+        { "input": { "workMode": "parallel" }, "workMode": "parallel", "executionMode": "parallel", "setter": "ultra-mode" },
+        { "input": { "workMode": "orchestrate" }, "workMode": "orchestrate", "executionMode": "orchestrate", "setter": "orchestration-mode" },
+        { "input": { "workMode": "plan" }, "workMode": "plan", "executionMode": "orchestrate", "setter": "spec-mode" },
+        { "input": { "workMode": "default" }, "workMode": "orchestrate", "executionMode": "orchestrate", "setter": "spec-mode" },
+        { "input": { "workMode": "default" }, "workMode": "default", "executionMode": "default", "setter": "orchestration-mode" }
+      ]
+    },
+    "startedSessionPlanWrites": [
+      { "input": { "workMode": "plan" }, "planMode": true },
+      { "input": { "workMode": "default" }, "planMode": false },
+      { "input": { "planMode": true }, "planMode": true },
+      { "input": { "planMode": false }, "planMode": false }
+    ],
+    "startedSessionRejectedExecutionWrites": {
+      "workModes": ["orchestrate", "parallel", "default"],
+      "status": 409,
+      "error": "session_has_messages"
+    },
     "pinned": true,
     "archived": true,
     "exportContent": "## User\n\nHello\n\n## Klaus\n\nWorld\n"

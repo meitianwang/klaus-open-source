@@ -379,6 +379,7 @@ export async function registerMobileModelConfigTests(h: Harness): Promise<void> 
       });
       override(async (channel, payload): Promise<Json | undefined> => {
         if (channel === 'cursor-auth:status' || channel === 'codex-auth:status') return { loggedIn: true };
+        if (channel === 'chat:send') f.histories.get(string(payload.sessionId))?.push({ type: 'user', text: payload.text! });
         if (channel === 'session:get-spec-mode') return { enabled: specBySession.get(string(payload.sessionId)) === true };
         if (channel === 'session:set-spec-mode') { specBySession.set(string(payload.sessionId), payload.enabled === true); return { ok: true }; }
         if (channel === 'session:get-main-model-options' && payload.source === 'cursor') {
@@ -423,35 +424,55 @@ export async function registerMobileModelConfigTests(h: Harness): Promise<void> 
       assert.equal(explicitAuto.selection, 'auto');
       assert.equal(explicitAuto.resolvedSelection, 'codex:auto-default');
 
-      // 5. Work-mode persistence: Orchestrate on s2 updates New Chat default; Plan on s2 is single-conversation and preserves Orchestrate for New Chat; leaving Plan to Default still preserves Orchestrate; leaving Orchestrate to Default clears New Chat default.
-      assert.equal((await f.request('POST', '/api/mobile/sessions/s2/work-mode', { workMode: 'orchestrate' })).body.workMode, 'orchestrate');
-      assert.equal(object(await composer.getOrchestrationMode('')).enabled, true);
+      // Seed the started conversation's execution mode without changing new-chat defaults.
+      await composer.setOrchestrationMode({ sessionId: 's2', enabled: true, updateDefaults: false });
+      const emptyMode = '/api/mobile/sessions/s1/work-mode';
+      const startedMode = '/api/mobile/sessions/s2/work-mode';
+      assert.equal((await f.request('POST', emptyMode, { workMode: 'orchestrate' })).body.workMode, 'orchestrate');
       assert.equal(object((await f.request('GET', '/api/mobile/model-config')).body.modelConfig).orchestrationMode, true);
-      assert.equal(object(await composer.getOrchestrationMode('s1')).enabled, false);
+      for (const [input, planMode] of [[{ workMode: 'plan' }, true], [{ workMode: 'default' }, false],
+        [{ planMode: true }, true], [{ planMode: false }, false]] as const) {
+        const response = await f.request('POST', startedMode, input);
+        assert.equal(response.status, 202);
+        assert.deepEqual(response.body, { ok: true, sessionId: 's2', workMode: planMode ? 'plan' : 'orchestrate', planMode, executionMode: 'orchestrate' });
+        assert.equal(object(await composer.getOrchestrationMode('')).enabled, true);
+      }
+      for (const update of [{ orchestrationMode: false }, { ultraMode: true }] as JsonObject[]) {
+        const response = await f.request('POST', '/api/mobile/model-config', { sessionId: 's2', ...update });
+        assert.equal(response.status, 409);
+        assert.equal(object(response.body.error).type, 'session_has_messages');
+      }
+      assert.equal(object(await composer.getOrchestrationMode('s2')).enabled, true);
 
-      assert.equal((await f.request('POST', '/api/mobile/sessions/s2/work-mode', { workMode: 'plan' })).body.workMode, 'plan');
-      assert.equal(object(await composer.getOrchestrationMode('s2')).enabled, false);
-      assert.equal(object(await composer.getOrchestrationMode('')).enabled, true);
-
-      assert.equal((await f.request('POST', '/api/mobile/sessions/s2/work-mode', { workMode: 'default' })).body.workMode, 'default');
-      assert.equal(object(await composer.getOrchestrationMode('')).enabled, true);
-
-      // 6. Promoting a New Chat draft in Plan mode scopes Plan to that new conversation without clearing remembered Orchestrate default for subsequent new chats.
       const planDraft = await f.request('POST', '/api/mobile/sessions', { clientDraftId: 'plan-draft', workMode: 'plan', initialMessage: { text: 'plan first turn' } });
       assert.equal(planDraft.status, 201);
       const planSessionId = string(planDraft.body.id);
       assert.equal(specBySession.get(planSessionId), true);
-      assert.equal(object(await composer.getOrchestrationMode(planSessionId)).enabled, false);
+      assert.equal(planDraft.body.executionMode, 'orchestrate');
       assert.equal(object(await composer.getOrchestrationMode('')).enabled, true);
 
-      // 7. New Chat switching work mode directly via model-config updates defaults immediately, and leaving Parallel to Default on s2 clears defaults.
       const parallelDefault = object((await f.request('POST', '/api/mobile/model-config', { sessionId: null, ultraMode: true })).body.modelConfig);
       assert.equal(parallelDefault.ultraMode, true);
       assert.equal(parallelDefault.orchestrationMode, false);
-      assert.equal((await f.request('POST', '/api/mobile/sessions/s2/work-mode', { workMode: 'parallel' })).body.workMode, 'parallel');
-      assert.equal((await f.request('POST', '/api/mobile/sessions/s2/work-mode', { workMode: 'default' })).body.workMode, 'default');
-      assert.equal(object(await composer.getUltraMode('')).enabled, false);
-      assert.equal(object(await composer.getOrchestrationMode('')).enabled, false);
+      const combinedInput = { clientDraftId: 'combined-draft', executionMode: 'orchestrate', planMode: true, initialMessage: { text: 'combined first turn' } };
+      const start = f.calls.length;
+      const combined = await f.request('POST', '/api/mobile/sessions', combinedInput);
+      assert.equal(combined.status, 201);
+      const combinedId = string(combined.body.id);
+      const { workMode, planMode, executionMode } = combined.body;
+      assert.deepEqual({ workMode, planMode, executionMode }, { workMode: 'plan', planMode: true, executionMode: 'orchestrate' });
+      assert.equal(specBySession.get(combinedId), true);
+      assert.equal(object(await composer.getOrchestrationMode(combinedId)).enabled, true);
+      assert.equal(object(await composer.getOrchestrationMode('')).enabled, true);
+      const mutations = f.calls.slice(start).filter(row => row.payload.sessionId === combinedId &&
+        ['session:set-orchestration-mode', 'session:set-spec-mode', 'chat:send'].includes(row.channel));
+      assert.deepEqual(mutations.map(row => row.channel), ['session:set-orchestration-mode', 'session:set-spec-mode', 'chat:send']);
+      const retry = await f.request('POST', '/api/mobile/sessions', { ...combinedInput, planMode: false });
+      assert.equal(retry.status, 409);
+      assert.equal(object(retry.body.error).type, 'draft_context_mismatch');
+      const locked = await f.request('POST', `/api/mobile/sessions/${combinedId}/work-mode`, { workMode: 'parallel' });
+      assert.equal(locked.status, 409);
+      assert.equal(object(locked.body.error).type, 'session_has_messages');
     } finally { await f.close(); }
   });
 }

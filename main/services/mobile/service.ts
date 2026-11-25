@@ -627,36 +627,33 @@ export class MobileBridgeService {
       orchestrate: object(orchestrateRaw).enabled === true,
     };
   }
-  private async readSessionWorkMode(call: MobileCall, id: string): Promise<'default' | 'plan' | 'parallel' | 'orchestrate'> {
-    const { spec, ultra, orchestrate } = await this.readSessionWorkModeFlags(call, id);
-    if (spec) return 'plan';
-    if (orchestrate) return 'orchestrate';
-    if (ultra) return 'parallel';
-    return 'default';
+  private async hasStartedConversation(call: MobileCall, id: string): Promise<boolean> {
+    return this.working.has(id) || (await this.history(call, id)).length > 0;
   }
-  private async writeSessionWorkMode(call: MobileCall, id: string, mode: 'default' | 'plan' | 'parallel' | 'orchestrate', updateDefaultsForExecution = true): Promise<'default' | 'plan' | 'parallel' | 'orchestrate'> {
-    const { spec, ultra, orchestrate } = await this.readSessionWorkModeFlags(call, id);
-    if (mode === 'plan') {
-      // Plan is scoped to this conversation and preserves Parallel/Orchestrate defaults for future new chats.
-      if (ultra) await call('session:set-ultra-mode', { sessionId: id, enabled: false, updateDefaults: false });
-      if (orchestrate) await call('session:set-orchestration-mode', { sessionId: id, enabled: false, updateDefaults: false });
-      if (!spec) await call('session:set-spec-mode', { sessionId: id, enabled: true });
-    } else if (mode === 'parallel') {
-      if (spec) await call('session:set-spec-mode', { sessionId: id, enabled: false });
-      await call('session:set-ultra-mode', { sessionId: id, enabled: true, updateDefaults: updateDefaultsForExecution });
-    } else if (mode === 'orchestrate') {
-      if (spec) await call('session:set-spec-mode', { sessionId: id, enabled: false });
-      await call('session:set-orchestration-mode', { sessionId: id, enabled: true, updateDefaults: updateDefaultsForExecution });
-    } else if (spec) {
-      // Leaving Plan restores Default on this conversation without clearing remembered new-chat defaults.
-      await call('session:set-spec-mode', { sessionId: id, enabled: false });
-      if (ultra) await call('session:set-ultra-mode', { sessionId: id, enabled: false, updateDefaults: false });
-      if (orchestrate) await call('session:set-orchestration-mode', { sessionId: id, enabled: false, updateDefaults: false });
-    } else {
-      if (ultra) await call('session:set-ultra-mode', { sessionId: id, enabled: false, updateDefaults: updateDefaultsForExecution });
-      if (orchestrate) await call('session:set-orchestration-mode', { sessionId: id, enabled: false, updateDefaults: updateDefaultsForExecution });
+  private async assertExecutionModeEditable(call: MobileCall, id: string): Promise<void> {
+    if (await this.hasStartedConversation(call, id)) {
+      throw new MobileError(409, 'session_has_messages', 'Execution mode can only be changed before the conversation has messages');
     }
-    return this.readSessionWorkMode(call, id);
+  }
+  private async readSessionWorkModeState(call: MobileCall, id: string) {
+    const { spec, ultra, orchestrate } = await this.readSessionWorkModeFlags(call, id);
+    const executionMode = ultra ? 'parallel' : orchestrate ? 'orchestrate' : 'default';
+    return { workMode: spec ? 'plan' : executionMode, planMode: spec, executionMode };
+  }
+  private async writeSessionPlanMode(call: MobileCall, id: string, enabled: boolean): Promise<void> {
+    const { spec } = await this.readSessionWorkModeFlags(call, id);
+    if (spec !== enabled) await call('session:set-spec-mode', { sessionId: id, enabled });
+  }
+  private async writeSessionExecutionMode(call: MobileCall, id: string, mode: 'default' | 'parallel' | 'orchestrate', updateDefaults = true): Promise<void> {
+    if (mode === 'parallel') {
+      await call('session:set-ultra-mode', { sessionId: id, enabled: true, updateDefaults });
+    } else if (mode === 'orchestrate') {
+      await call('session:set-orchestration-mode', { sessionId: id, enabled: true, updateDefaults });
+    } else {
+      const { ultra, orchestrate } = await this.readSessionWorkModeFlags(call, id);
+      if (ultra) await call('session:set-ultra-mode', { sessionId: id, enabled: false, updateDefaults });
+      if (orchestrate) await call('session:set-orchestration-mode', { sessionId: id, enabled: false, updateDefaults });
+    }
   }
   private async knownWorkdir(call: MobileCall, path: string | null, workspaceId: string | null = null): Promise<void> {
     if (workspaceId) {
@@ -749,11 +746,11 @@ export class MobileBridgeService {
     }
     if (method === 'POST' && path === '/api/mobile/sessions') {
       if (payload.initialMessage === undefined) throw new MobileError(400, 'initial_message_required', 'A new mobile session requires its first message');
-      const rawWorkMode = payload.workMode;
-      if (rawWorkMode !== undefined && (typeof rawWorkMode !== 'string' || !['default', 'plan', 'parallel', 'orchestrate'].includes(rawWorkMode))) {
-        throw badRequest('workMode is invalid');
-      }
-      const promoted = await this.promoteDraft(run, this.call(run, owner), owner, required(payload.clientDraftId, 'clientDraftId'), workdir(payload.workdir), workspaceId(payload.workspaceId), mobileNewChatRun(payload), object(payload.initialMessage), modelPreference(payload.modelPreference), rawWorkMode as 'default' | 'plan' | 'parallel' | 'orchestrate' | undefined);
+      const { workMode, executionMode, planMode } = payload;
+      if (workMode !== undefined && workMode !== 'plan' && workMode !== 'default' && workMode !== 'parallel' && workMode !== 'orchestrate') throw badRequest('workMode is invalid');
+      if (executionMode !== undefined && executionMode !== 'default' && executionMode !== 'parallel' && executionMode !== 'orchestrate') throw badRequest('executionMode is invalid');
+      if (planMode !== undefined && typeof planMode !== 'boolean') throw badRequest('planMode must be a boolean');
+      const promoted = await this.promoteDraft(run, this.call(run, owner), owner, required(payload.clientDraftId, 'clientDraftId'), workdir(payload.workdir), workspaceId(payload.workspaceId), mobileNewChatRun(payload), object(payload.initialMessage), modelPreference(payload.modelPreference), workMode, executionMode, planMode);
       // The first turn of a phone-created session is phone-originated.
       this.markRemoteOrigin(string(promoted.sessionId));
       return result(201, promoted);
@@ -826,9 +823,9 @@ export class MobileBridgeService {
     if (method === 'GET' && action === 'work-mode') {
       const account = run.account;
       await this.knownSession(call, id);
-      const workMode = await this.readSessionWorkMode(call, id);
+      const state = await this.readSessionWorkModeState(call, id);
       this.assertReadCurrent(run, owner, signal, account);
-      return result(200, { sessionId: id, workMode });
+      return result(200, { sessionId: id, ...state });
     }
     if (method !== 'POST' || action === 'history' || action === 'summary' || action === 'respond') throw new MobileError(404, 'not_found', 'Not found');
     await this.knownSession(call, id);
@@ -918,9 +915,22 @@ export class MobileBridgeService {
         break;
       }
       case 'work-mode': {
-        const nextMode = string(payload.workMode);
-        if (!['default', 'plan', 'parallel', 'orchestrate'].includes(nextMode)) throw badRequest('workMode is invalid');
-        base.workMode = await this.writeSessionWorkMode(call, id, nextMode as 'default' | 'plan' | 'parallel' | 'orchestrate');
+        const { workMode, planMode } = payload;
+        if (workMode !== undefined && workMode !== 'plan' && workMode !== 'default' && workMode !== 'parallel' && workMode !== 'orchestrate') throw badRequest('workMode is invalid');
+        if (planMode !== undefined && typeof planMode !== 'boolean') throw badRequest('planMode must be a boolean');
+        if (planMode !== undefined) {
+          if (workMode !== undefined && planMode !== (workMode === 'plan')) throw badRequest('planMode conflicts with workMode');
+          await this.writeSessionPlanMode(call, id, planMode);
+        } else if (workMode === 'plan') {
+          await this.writeSessionPlanMode(call, id, true);
+        } else if (workMode === 'default' && (await this.readSessionWorkModeFlags(call, id)).spec) {
+          await this.writeSessionPlanMode(call, id, false);
+        } else {
+          if (workMode === undefined) throw badRequest('workMode or planMode is required');
+          await this.assertExecutionModeEditable(call, id);
+          await this.writeSessionExecutionMode(call, id, workMode);
+        }
+        Object.assign(base, await this.readSessionWorkModeState(call, id));
         run.modelRevision = (run.modelRevision ?? 0) + 1;
         this.scheduleModelConfigs(run, owner);
         await this.broadcastState(run, call);
@@ -984,14 +994,14 @@ export class MobileBridgeService {
    * the first turn is rejected, the just-created placeholder is rolled back before the error is
    * returned so it cannot leak into either sidebar.
    */
-  private async promoteDraft(run: Run, call: MobileCall, owner: MobileEngineOwner, draftId: string, dir: string | null, spaceId: string | null, mode: MobileNewChatRun, initial: JsonObject, preference?: MobileModelPreference, workMode?: 'default' | 'plan' | 'parallel' | 'orchestrate'): Promise<JsonObject> {
+  private async promoteDraft(run: Run, call: MobileCall, owner: MobileEngineOwner, draftId: string, dir: string | null, spaceId: string | null, mode: MobileNewChatRun, initial: JsonObject, preference?: MobileModelPreference, workMode?: 'default' | 'plan' | 'parallel' | 'orchestrate', executionMode?: 'default' | 'parallel' | 'orchestrate', planMode?: boolean): Promise<JsonObject> {
     if (Buffer.byteLength(draftId) > 128) throw badRequest('clientDraftId is too long');
     const media = mediaItems(initial.media, preference?.source ?? readSessionModel('', this.deps.configRoot).source), text = messageText(initial.text, !!media.length);
     const clientMessageId = short(initial.clientMessageId) || draftId;
     // Store only a bounded digest of the validated first turn, never another copy of its media.
     // The same id may retry this promotion, but cannot repurpose it for another computer target,
     // run mode, branch or message while an earlier request is pending or already accepted.
-    const fingerprint = createHash('sha256').update(JSON.stringify({ dir, spaceId, mode, preference, ...(workMode === undefined ? {} : { workMode }), text, clientMessageId,
+    const fingerprint = createHash('sha256').update(JSON.stringify({ dir, spaceId, mode, preference, workMode, executionMode, planMode, text, clientMessageId,
       media: media.map(item => ({ type: item.type, filename: item.filename, mimeType: item.mimeType, hash: createHash('sha256').update(item.bytes).digest('hex') })),
     })).digest('hex');
     const now = Date.now();
@@ -1008,7 +1018,7 @@ export class MobileBridgeService {
       await this.knownWorkdir(call, spaceId ? null : dir, spaceId);
       if (preference) await new MobileModelConfigProjection(call).validate(preference);
       let ownedWorktree: string | undefined, sessionId: string | undefined;
-      let created: JsonObject = {};
+      let created: JsonObject = {}, workModeState: JsonObject;
       try {
         let worktree: JsonObject | undefined;
         if (mode.mode === 'worktree') {
@@ -1025,7 +1035,15 @@ export class MobileBridgeService {
         if (sessionId) entry.ownedSessionId = sessionId.slice(0, 128);
         if (!sessionId) throw new MobileError(500, 'invalid_session', 'Desktop did not create a session');
         if (preference) await applyModelPreference(call, sessionId, preference, false);
-        if (workMode !== undefined) await this.writeSessionWorkMode(call, sessionId, workMode, true);
+        if (executionMode !== undefined || planMode !== undefined) {
+          if (executionMode !== undefined) await this.writeSessionExecutionMode(call, sessionId, executionMode);
+          if (planMode !== undefined) await this.writeSessionPlanMode(call, sessionId, planMode);
+        } else if (workMode === 'plan') {
+          await this.writeSessionPlanMode(call, sessionId, true);
+        } else if (workMode !== undefined) {
+          await this.writeSessionExecutionMode(call, sessionId, workMode);
+        }
+        workModeState = await this.readSessionWorkModeState(call, sessionId);
         // Install the subscription before send so synchronous first-turn events cannot be lost.
         for (const peer of run.peers) peer.subscriptions.add(sessionId);
         await this.sendMessage(run, call, sessionId, text, media, {}, clientMessageId);
@@ -1065,7 +1083,7 @@ export class MobileBridgeService {
         workspaceId: nonempty(created.workspaceId) || spaceId,
         projectRoot: nonempty(created.projectRoot) || (ownedWorktree ? dir : null),
         createdAt: typeof created.createdAt === 'number' ? created.createdAt : Date.now(),
-        updatedAt: Date.now(), isWorking: true, accepted: true, clientMessageId,
+        updatedAt: Date.now(), isWorking: true, accepted: true, clientMessageId, ...workModeState,
       };
     })();
     entry.task = task;
@@ -1142,7 +1160,12 @@ export class MobileBridgeService {
     return {};
   }
   private async setModelConfig(run: Run, call: MobileCall, update: ReturnType<typeof modelConfigUpdate>): Promise<JsonObject> {
-    if (update.sessionId) await this.knownSession(call, update.sessionId);
+    if (update.sessionId) {
+      await this.knownSession(call, update.sessionId);
+      if (update.orchestrationMode !== undefined || update.ultraMode !== undefined) {
+        await this.assertExecutionModeEditable(call, update.sessionId);
+      }
+    }
     const projection = new MobileModelConfigProjection(call, () => run.modelRevision ?? 0), before = await projection.snapshot(update.sessionId);
     const source = update.source ?? (update.selection ? modelSource(update.selection) : undefined) ?? string(before.source);
     const selection = update.selection ?? (update.source !== undefined ? 'auto' : string(before.selection));
