@@ -5,7 +5,7 @@ export interface SemanticActivity {
   action: string
   icon: string
   target: string
-  category: 'browser' | 'web' | 'memory' | 'design' | 'diagram' | 'video' | 'dependencies' | 'schedule' | 'friend'
+  category: 'browser' | 'web' | 'memory' | 'design' | 'diagram' | 'video' | 'dependencies' | 'schedule' | 'friend' | 'orchestration'
   /** For a friend send: what kind of message it was, or that the owner chose not to send it. */
   friendOutcome?: 'request' | 'notice' | 'reply' | 'progress' | 'question' | 'declined'
 }
@@ -54,6 +54,7 @@ export function unwrapIndirectToolCall(toolName: string, input?: unknown): Unwra
 
 type ActionText = [icon: string, chinese: string, active: string, completed: string, verb: string]
 const ACTIONS: Record<string, ActionText> = {
+  orchestrate_execution: ['tool-agent', '执行阶段', 'Running stage', 'Completed stage', 'run stage'],
   web_search: ['tool-web', '搜索网页', 'Searching the web', 'Searched the web', 'search the web'],
   web_fetch: ['tool-web', '读取网页', 'Reading webpage', 'Read webpage', 'read webpage'],
   browser_navigate: ['tool-browser', '打开网页', 'Opening webpage', 'Opened webpage', 'open webpage'],
@@ -251,10 +252,11 @@ export function semanticActivity(toolName: string, input?: unknown, output?: str
         : name === 'send_message_to_friend' ? args.intent === 'notice' ? 'notice' : 'request'
           : name === 'reply_to_friend' ? 'reply' : name === 'send_friend_progress' ? 'progress' : 'question'
   }
+  if (name === 'orchestrate_execution' && typeof args.description === 'string') target = args.description.trim().slice(0, 120)
   if (name === 'web_search') target = String(args.query ?? args.search_query ?? args.q ?? '').trim().slice(0, 160)
   if (name === 'browser_click' || name === 'browser_locator') target = String(args.name ?? args.label ?? '').trim().slice(0, 100)
   if (name.startsWith('prototype_') || name.startsWith('photo_') || name.startsWith('motion_') || name.startsWith('video_editing_') || name === 'digram_open') target = typeof args.title === 'string' ? args.title.slice(0, 100) : ''
-  return { action: name, icon: ACTIONS[name][0], target, ...(friendOutcome ? { friendOutcome } : {}), category: name.startsWith('browser_') ? 'browser' : name.startsWith('web_') ? 'web'
+  return { action: name, icon: ACTIONS[name][0], target, ...(friendOutcome ? { friendOutcome } : {}), category: name === 'orchestrate_execution' ? 'orchestration' : name.startsWith('browser_') ? 'browser' : name.startsWith('web_') ? 'web'
     : name.startsWith('prototype_') || name.startsWith('photo_') || name.startsWith('motion_') ? 'design' : name.startsWith('digram_') ? 'diagram' : name.startsWith('video_editing_') ? 'video' : name.startsWith('cron') || name === 'automation_update' ? 'schedule'
       : FRIEND_TOOLS.has(name) ? 'friend' : name === 'save_memory' ? 'memory' : 'dependencies' }
 }

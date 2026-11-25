@@ -234,6 +234,8 @@ function collectToolResults(message: JsonObject, results: Map<string, Json>, con
     content,
     is_error: message.isError === true,
     ...(artifactPaths.length ? { artifactPaths } : {}),
+    ...(out.kind === 'orchestrated_stage' && Array.isArray(out.items)
+      ? { orchestratedStage: { description: str(out.description), items: out.items } } : {}),
     ...(out.delivery === 'queued' || typeof out.resumed === 'boolean'
       ? { agentCommunication: message.output! } : {}),
     ...(taskType !== undefined
@@ -247,6 +249,40 @@ function collectToolResults(message: JsonObject, results: Map<string, Json>, con
         }
       : {}),
     ...(message.isError !== true && out.ok === true && obj(out.goal).status === 'complete' ? { goalCompletion: out.goal! } : {}),
+  });
+}
+
+function expandOrchestratedStageItems(stageCallId: string, items: Json[], configRoot: string | undefined): Json[] {
+  return items.flatMap((entry): Json[] => {
+    const item = obj(entry);
+    const itemId = str(item.id);
+    if (!itemId) return [];
+    const id = `orch:${stageCallId}:${itemId}`;
+    const text = str(item.text);
+    if (item.type === 'reasoning') return text.trim() ? [{ type: 'thinking', thinking: text, messageId: id }] : [];
+    if (item.type === 'agent_message') return text.trim() ? [{ type: 'text', text, phase: 'commentary', messageId: id }] : [];
+    if (item.type !== 'tool_call' && item.type !== 'command_execution') return [];
+    const command = item.type === 'command_execution';
+    const name = command ? 'Bash' : str(item.toolName);
+    const input = command ? { command: str(item.command) } : item.arguments ?? null;
+    const output = command ? { aggregatedOutput: str(item.aggregatedOutput),
+      ...(typeof item.exitCode === 'number' ? { exitCode: item.exitCode } : {}),
+      ...(typeof item.durationMs === 'number' ? { durationMs: item.durationMs } : {}),
+    } : item.result ?? null;
+    const isError = item.status === 'failed' || Boolean(item.error) || (command && typeof item.exitCode === 'number' && item.exitCode !== 0);
+    const errorText = item.error == null ? undefined
+      : strOpt(obj(item.error).message) ?? (typeof item.error === 'string' ? item.error : JSON.stringify(item.error));
+    const content = errorText !== undefined ? [{ type: 'text', text: errorText }]
+      : command || typeof output === 'string' ? [{ type: 'text', text: command ? str(item.aggregatedOutput) : output }]
+      : Array.isArray(obj(output).content) ? arr(obj(output).content)
+      : output != null ? [{ type: 'text', text: JSON.stringify(output) }] : [];
+    const results = new Map<string, Json>();
+    collectToolResults({ type: 'tool_result', toolUseId: id, output, content, isError }, results, configRoot, name, input);
+    const result = obj(results.get(id));
+    const artifact = visualArtifact(name, result, input);
+    return [{ type: 'tool_use', id, name, input, __result: {
+      ...result, ...(command ? obj(output) : {}), ...(artifact ? { artifact: { ...artifact } } : {}),
+    } }];
   });
 }
 
@@ -464,6 +500,11 @@ function buildHistoryMessages(
       .filter((block): block is Json => block !== undefined)
       .flatMap(block => {
         const call = obj(block), result = obj(call.__result);
+        const stage = obj(result.orchestratedStage);
+        if (call.name === 'orchestrate_execution' && Array.isArray(stage.items)) {
+          delete result.orchestratedStage;
+          return [block, ...expandOrchestratedStageItems(str(call.id), stage.items, configRoot)];
+        }
         const completed = result.is_error !== true ? completedGoalResult(str(call.name), { ok: true, goal: result.goalCompletion }) : undefined;
         return completed ? [block, { type: 'goal_completion', goal: completed as unknown as Json }] : [block];
       });

@@ -2448,12 +2448,20 @@ export function ingestLiveApproval(kind: 'permission' | 'plan-review' | 'executi
 
 // 权限卡挂起期间，把它挡住的那一行工具从「执行中」改成「等待批准」。后台会话也
 // 要标：用户切回去时不能看到一行假的执行中。
+function resolveLiveToolCardId(tools: Record<string, ToolCardState>, toolCallId: string, status: ToolCardState['status']): string | undefined {
+  if (tools[toolCallId]?.status === status) return toolCallId
+  const matches = Object.keys(tools).filter(id => id.startsWith('orch:') && id.endsWith(`:${toolCallId}`) && tools[id]?.status === status)
+  return matches.length === 1 ? matches[0] : undefined
+}
+
 export function markToolAwaitingApproval(sessionId: string, toolCallId: string): void {
   if (!sessionId || !toolCallId) return
   patchSession(sessionId, prev => {
-    const card = prev.tools[toolCallId]
+    const id = resolveLiveToolCardId(prev.tools, toolCallId, 'running')
+    if (!id) return {}
+    const card = prev.tools[id]
     if (!card || card.status !== 'running') return {}
-    return { tools: { ...prev.tools, [toolCallId]: { ...card, status: 'awaiting-approval' } } }
+    return { tools: { ...prev.tools, [id]: { ...card, status: 'awaiting-approval' } } }
   })
 }
 
@@ -2553,11 +2561,12 @@ export function resolveLiveApproval(sessionId: string, requestId: string, resolu
       const resolved = typeof resolution === 'function' ? resolution(unit) : resolution
       return { ...unit, resolved } as LiveUnit
     })
-    const parked = releasedToolCallId ? prev.tools[releasedToolCallId] : undefined
+    const parkedId = releasedToolCallId ? resolveLiveToolCardId(prev.tools, releasedToolCallId, 'awaiting-approval') : undefined
+    const parked = parkedId ? prev.tools[parkedId] : undefined
     return {
       liveUnits,
-      ...(parked && parked.status === 'awaiting-approval'
-        ? { tools: { ...prev.tools, [releasedToolCallId]: { ...parked, status: 'running' as const } } }
+      ...(parkedId && parked && parked.status === 'awaiting-approval'
+        ? { tools: { ...prev.tools, [parkedId]: { ...parked, status: 'running' as const } } }
         : {}),
       // 对齐旧版处理尾部的 `if (busy) turnActivityUI.show()`。
       activityVisible: prev.running ? true : prev.activityVisible,

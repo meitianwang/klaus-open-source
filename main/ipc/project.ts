@@ -297,7 +297,7 @@ function planningChatEvents(params: Json): JsonRecord[] {
   return projectChildEngineEvent(str(params, 'sessionId'), inner);
 }
 
-function toolEventChatEvents(params: Json): JsonRecord[] {
+function toolEventChatEvents(params: Json, splitToolMedia?: ToolMediaProjector, context?: SessionEventContext): JsonRecord[] {
   const sessionId = str(params, 'sessionId');
   const inner = field(field(params, 'event'), 'event');
   if (inner === undefined || str(inner, 'type') !== 'tool.event') return [];
@@ -341,6 +341,24 @@ function toolEventChatEvents(params: Json): JsonRecord[] {
           ],
         },
       ];
+    }
+    case 'orchestrator_stage_progress': {
+      const child = field(ev, 'event');
+      if (child === undefined) return [];
+      const parentTurnId = strOpt(inner, 'turnId');
+      const prefix = typeof toolCallId === 'string' && toolCallId ? `orch:${toolCallId}:` : 'orch:';
+      return projectChildEngineEvent(sessionId, child, splitToolMedia, context).flatMap(frame => {
+        const type = str(frame, 'type');
+        if (['done', 'interrupted', 'api_error', 'user_message', 'proposed_plan', 'proposed_plan_delta'].includes(type)) return [];
+        const projected = { ...frame };
+        for (const key of ['toolCallId', 'messageId']) {
+          const id = strOpt(frame, key);
+          if (id && !id.startsWith('orch:')) projected[key] = prefix + id;
+        }
+        if (type === 'text_delta' || type === 'message_complete') projected.phase = 'commentary';
+        if (parentTurnId && TURN_SCOPED_CHAT_EVENTS.has(type)) projected.turnId = parentTurnId;
+        return [projected];
+      });
     }
     case 'orchestrator_fallback':
       return [{
@@ -438,7 +456,7 @@ function projectChildEngineEvent(sessionId: string, event: Json, splitToolMedia?
       // broken loop with nothing said about it.
       return [{ type: 'notice', sessionId, content: orNull(field(event, 'message')) }];
     case 'tool.event':
-      return toolEventChatEvents({ sessionId, event: { event } });
+      return toolEventChatEvents({ sessionId, event: { event } }, splitToolMedia, context);
     case 'compaction.progress':
     case 'compaction':
       // Automatic compaction runs in CHILD conversations too (`main.rs:4786-4789`), so a
@@ -914,7 +932,7 @@ export function mapChatEvents(event: ClientEvent, splitToolMedia?: ToolMediaProj
         ...automaticCompactionChatEvents(wire(event.params)),
         ...subagentStreamChatEvents(wire(event.params), splitToolMedia, context),
         ...agentNotificationChatEvents(wire(event.params)),
-        ...toolEventChatEvents(wire(event.params)),
+        ...toolEventChatEvents(wire(event.params), splitToolMedia, context),
         ...planningChatEvents(wire(event.params)),
       ];
     default:

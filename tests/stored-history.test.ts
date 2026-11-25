@@ -237,4 +237,22 @@ h.test('display companions use the last valid envelope and cannot project arbitr
   assertEqual(((projected.messages as Row[])[0]!.localRender as Row).displayText, 'current', 'invalid later envelopes cannot erase the last valid render');
 });
 
+h.test('saved execution stage expands into scoped inline replay blocks', () => {
+  const projected = projectSessionHistory({ history: [
+    { type: 'assistant', uuid: 'a', content: [{ type: 'tool_use', id: 'stage', name: 'orchestrate_execution', input: {} }] },
+    { type: 'tool_result', uuid: 'r', toolUseId: 'stage', content: [], output: { kind: 'orchestrated_stage', items: [
+      { type: 'agent_message', id: 'm', text: 'Working' },
+      { type: 'tool_call', id: 't', toolName: 'Read', arguments: {}, result: { value: 'contents' } },
+      { type: 'command_execution', id: 'cmd', command: 'pwd', aggregatedOutput: 'cwd', exitCode: 0 },
+      { type: 'tool_call', id: 'fail', toolName: 'Read', error: { message: 'Not found' } },
+    ] } },
+  ] }, 'renderer') as Row;
+  const blocks = ((projected.messages as Row[])[0]!.contentBlocks as Row[]);
+  assertDeepEqual(blocks.map(block => [block.type, block.id ?? block.messageId, block.phase ?? null]),
+    [['tool_use', 'stage', null], ['text', 'orch:stage:m', 'commentary'], ['tool_use', 'orch:stage:t', null], ['tool_use', 'orch:stage:cmd', null], ['tool_use', 'orch:stage:fail', null]], 'inline stage blocks');
+  assertEqual(blocks[3]!.name, 'Bash', 'command card');
+  assertEqual((((blocks[4]!.__result as Row).content as Row[])[0]!).text, 'Not found', 'error text');
+  assertEqual((blocks[0]!.__result as Row).orchestratedStage, undefined, 'clean parent card');
+});
+
 void h.finish(join(__dirname, 'stored-history-result.json'), 'stored-history').then(code => { process.exitCode = code; });
