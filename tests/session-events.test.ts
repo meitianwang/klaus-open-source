@@ -206,6 +206,42 @@ h.test('permission updates preserve engine values and malformed answers keep the
   f.forwarder.close();
 });
 
+h.test('directory-scoped permission suggestions preserve directories on the card and forward raw addDirectories updates', async () => {
+  const f = fixture();
+  const responses: Json[] = [];
+  const request: ReverseRequest = {
+    id: 'wire-write-id',
+    method: 'approval/request',
+    outstanding: true,
+    params: {
+      sessionId: 'engine-session',
+      request: {
+        id: 'write-call',
+        toolName: 'write',
+        message: 'This write exceeds the current filesystem policy. Allow this operation?',
+        input: { path: '/outside/project/notes.md', content: 'hi' },
+        suggestions: [{ type: 'addDirectories', directories: ['/outside/project'], destination: 'session' }],
+      },
+    },
+    respond: async response => { request.outstanding = false; responses.push(response as Json); },
+    respondError: async (code, message) => { request.outstanding = false; responses.push({ code, message }); },
+  };
+  f.pump.receive({ type: 'reverseRequest', request }, 1);
+  const card = f.delivered.find(row => row.channel === 'permission:request')?.value as Record<string, Json>;
+  assertDeepEqual(card.suggestions, [{
+    type: 'addDirectories',
+    destination: 'session',
+    directories: ['/outside/project'],
+    label: 'Allow directory (/outside/project)',
+  }], 'directory suggestion carries directory scope instead of falling through to setMode');
+  await f.pump.respond({ requestId: '1:approval:write-call', decision: 'allow', acceptedSuggestionIndices: [0] }, true);
+  assertDeepEqual(responses, [{
+    decision: 'allow',
+    updatedPermissions: [{ type: 'addDirectories', directories: ['/outside/project'], destination: 'session' }],
+  }], 'raw addDirectories update is returned to the engine verbatim');
+  f.forwarder.close();
+});
+
 h.test('the production pump publishes approved sub-agent rows with renderer ownership',async()=>{
   const f=fixture(), a=approval('task-call');
   f.pump.receive({type:'productEvent',method:'item/started',params:{sessionId:'engine-session',item:{type:'tool_call',id:'task-call',toolName:'task',status:'in_progress',arguments:{description:'Child',run_in_background:true}}}},1);

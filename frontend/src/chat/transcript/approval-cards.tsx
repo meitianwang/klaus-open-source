@@ -101,6 +101,10 @@ export function PermissionCard({ req, startedAt, resolved, sessionId }: {
   // （规则内容由引擎推导，客户端不自造）；其余落盘档仍以勾选框形式给用户选。
   const suggestions: any[] = Array.isArray(req.suggestions) ? req.suggestions : []
   const sessionSuggestionIndex = suggestions.findIndex(s => s?.destination === 'session')
+  const sessionSuggestion = sessionSuggestionIndex >= 0 ? suggestions[sessionSuggestionIndex] : null
+  const sessionDirectories: string[] = sessionSuggestion?.type === 'addDirectories' && Array.isArray(sessionSuggestion.directories)
+    ? sessionSuggestion.directories.filter((dir: unknown): dir is string => typeof dir === 'string' && dir.length > 0)
+    : []
   const persistentIndices = suggestions.reduce<number[]>((acc, s, i) => {
     if (s?.destination && s.destination !== 'session') acc.push(i)
     return acc
@@ -130,13 +134,25 @@ export function PermissionCard({ req, startedAt, resolved, sessionId }: {
     resolveLiveApproval(sessionId, req.requestId, { decision: finalDecision, allowSession, savedRules })
   }
 
+  const sessionButtonLabel = sessionDirectories.length > 1
+    ? t('permission_allow_directories_session')
+    : sessionDirectories.length === 1
+      ? t('permission_allow_directory_session')
+      : t('permission_allow_session')
+
+  const sessionAllowedLabel = sessionDirectories.length > 1
+    ? t('permission_allowed_directories_session')
+    : sessionDirectories.length === 1
+      ? t('permission_allowed_directory_session')
+      : (t('permission_allowed_session') || t('allowed'))
+
   const resultText = resolved
     ? (resolved.decision === 'cancelled'
         ? (t('cancelled') || 'Cancelled')
         : resolved.decision !== 'allow'
           ? t('denied')
           : resolved.allowSession
-            ? (t('permission_allowed_session') || t('allowed'))
+            ? sessionAllowedLabel
             : t('allowed'))
     : ''
 
@@ -152,6 +168,11 @@ export function PermissionCard({ req, startedAt, resolved, sessionId }: {
       />
       <div className={`${styles['permission-message']}`}>{req.message || t('permission_default_msg')}</div>
       {target ? <div className={`${styles['permission-target']}`}>{target}</div> : null}
+      {!resolved && sessionDirectories.length > 0 ? (
+        <div className={`${styles['permission-target']}`} data-permission-directories={sessionDirectories.join('\n')}>
+          {t('permission_directory_scope').replace('{directories}', sessionDirectories.join(', '))}
+        </div>
+      ) : null}
       {showInputDetails ? (
         <details className={`${styles['permission-input-details']}`}>
           <summary>{t('permission_show_input')}</summary>
@@ -179,7 +200,7 @@ export function PermissionCard({ req, startedAt, resolved, sessionId }: {
             <button className={`${styles['permission-btn']} ${styles['permission-btn-deny']}`} disabled={locked} onClick={() => void respond('deny')}>{t('deny')}</button>
             {/* 引擎没推导出安全规则（如复合命令）时不给会话档：客户端不得自造规则 */}
             {sessionSuggestionIndex >= 0 ? (
-              <button className={`${styles['permission-btn']} ${styles['permission-btn-session']}`} disabled={locked} onClick={() => void respond('allow-session')}>{t('permission_allow_session')}</button>
+              <button className={`${styles['permission-btn']} ${styles['permission-btn-session']}`} disabled={locked} onClick={() => void respond('allow-session')}>{sessionButtonLabel}</button>
             ) : null}
             <button className={`${styles['permission-btn']} ${styles['permission-btn-allow']}`} disabled={locked} onClick={() => void respond('allow')}>{t(responseState.phase === 'submitting' ? 'spec_question_submitting' : 'allow')}</button>
           </>

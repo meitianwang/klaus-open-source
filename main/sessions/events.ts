@@ -634,6 +634,16 @@ export class SessionEventPump {
 
 function permissionSuggestion(raw: Json): Json {
   const update = object(raw) ?? {};
+  if (update.type === 'addDirectories') {
+    const directories = Array.isArray(update.directories)
+      ? update.directories.filter((entry): entry is string => typeof entry === 'string' && entry.length > 0)
+      : [];
+    const suffix = directories.length ? ` (${directories.join(', ')})` : '';
+    return {
+      type: 'addDirectories', destination: update.destination ?? null, directories,
+      label: `Allow directory${suffix}`,
+    };
+  }
   if (update.type !== 'addRules') return {
     type: 'setMode', destination: update.destination ?? null, label: `Set mode: ${update.mode ?? ''}`,
   };
