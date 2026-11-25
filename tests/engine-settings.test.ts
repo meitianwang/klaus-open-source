@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
-import { EngineSettings, isEngineConfigRow } from '../main/services/engine-settings';
+import { EngineSettings, isEngineConfigRow, modelEntry } from '../main/services/engine-settings';
 import { object, type JsonObject } from '../main/services/service-types';
 import { Harness } from './harness';
 import { PREFERENCES, normalizePreference } from '../main/services/klaus-control/preferences';
@@ -47,6 +47,30 @@ void (async () => {
     const pref = PREFERENCES.find(pref => pref.name === 'threadTools')!;
     assert.equal(normalizePreference(pref, 'off'), 'off');
     assert.throws(() => normalizePreference(pref, 'maybe'), /threadTools accepts/);
+  });
+  await h.test('gemini 3+ custom models emit level thinking capabilities while 2.5 keeps budget', () => {
+    const g4 = modelEntry({
+      name: 'Gemini 4 Pro',
+      provider: 'gemini',
+      model: 'gemini-4-pro',
+      supportsThinking: true,
+      reasoningEffort: 'xhigh',
+    });
+    assert.deepEqual(object(g4.capabilities).geminiThinking, { mode: 'level' });
+    assert.deepEqual(object(object(g4.capabilities).effort).levels, ['low', 'medium', 'high', 'xhigh']);
+
+    const g25 = modelEntry({
+      name: 'Gemini 2.5 Pro',
+      provider: 'gemini',
+      model: 'gemini-2.5-pro',
+      supportsThinking: true,
+    });
+    assert.deepEqual(object(g25.capabilities).geminiThinking, {
+      mode: 'budget',
+      min: 0,
+      max: 24_576,
+      canDisable: true,
+    });
   });
   process.exitCode = await h.finish(join(__dirname, 'engine-settings-result.json'), 'engine-settings');
 })();

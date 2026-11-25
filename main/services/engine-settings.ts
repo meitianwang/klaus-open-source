@@ -424,7 +424,9 @@ function modelCapabilities(payload: JsonObject): JsonObject {
     caps.webSearch = true; caps.nativePdf = true;
     if (payload.supportsThinking === true) {
       caps.thinking = { adaptive: false, interleaved: false };
-      caps.geminiThinking = { mode: 'budget', min: 0, max: 24_576, canDisable: true };
+      caps.geminiThinking = /(?:^|\/)gemini-(?:[3-9]|\d{2})(?:[.-]|$)/i.test(model)
+        ? { mode: 'level' }
+        : { mode: 'budget', min: 0, max: 24_576, canDisable: true };
     }
   } else {
     caps.promptCacheControl = true; caps.nativePdf = true; caps.webSearch = true;
