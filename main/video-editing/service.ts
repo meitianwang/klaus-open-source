@@ -33,10 +33,49 @@ export interface VideoEditingOptions {
   window: BrowserWindow;
   pluginRoot(): string | undefined;
   enabled?(): boolean;
+  language?(): string;
   registerRenderer(id: number, role: 'video-editing'): void;
   unregisterRenderer(id: number): void;
   emit(channel: string, payload: Json): void;
   log?(event: string, data: Data): void;
+}
+
+export function videoWorkspaceHasContent(state: Data): boolean {
+  const film = record(state.film);
+  const tracks = Array.isArray(film.tracks) ? film.tracks : [];
+  return tracks.some(track => {
+    const clips = record(track).clips;
+    return Array.isArray(clips) && clips.length > 0;
+  });
+}
+
+export function videoToolMutatesWorkspace(name: string, fields: Data): boolean {
+  if (name === 'video_editing_open' || name === 'video_editing_execute') return true;
+  if (name === 'video_editing_project_file') {
+    return fields.action === 'write' || fields.action === 'history';
+  }
+  if (name === 'video_editing_request') {
+    const method = typeof fields.method === 'string' && fields.method.trim()
+      ? fields.method.trim().toUpperCase()
+      : 'GET';
+    return method !== 'GET' && method !== 'HEAD';
+  }
+  if (name === 'video_editing_command') {
+    const firstArg = Array.isArray(fields.args) && typeof fields.args[0] === 'string'
+      ? fields.args[0].trim().toLowerCase()
+      : '';
+    return !['--help', '-h', 'help', '--version', '-v', 'version', 'status', 'doctor'].includes(firstArg);
+  }
+  return false;
+}
+
+export function normalizeVideoEditorLanguage(raw: string | undefined): 'zh-CN' | 'ja' | 'ko' | 'es' | 'en' {
+  const lower = (raw ?? '').trim().toLowerCase();
+  if (/^zh(?:[-_]|$)/.test(lower)) return 'zh-CN';
+  if (/^ja(?:[-_]|$)/.test(lower)) return 'ja';
+  if (/^ko(?:[-_]|$)/.test(lower)) return 'ko';
+  if (/^es(?:[-_]|$)/.test(lower)) return 'es';
+  return 'en';
 }
 
 /** A complete native editor instance is shared by the work panel and agent tools. */
@@ -55,11 +94,37 @@ export class VideoEditingService {
   private restoreAfterClose: (() => void) | undefined;
 
   constructor(readonly options: VideoEditingOptions) {
-    this.store = new VideoEditingStore(options.configRoot);
+    this.store = new VideoEditingStore(options.configRoot, () => this.defaultProjectTitle());
     this.mcp = new VisualCapabilityServer('klaus-video-editing', videoEditingTools,
       (owner, name, args) => this.call(owner, name, args), () => this.enabled());
     options.window.on('resize', this.resize);
     options.window.webContents.on('zoom-changed', this.resize);
+  }
+  private studioLanguage(): 'zh-CN' | 'ja' | 'ko' | 'es' | 'en' {
+    return normalizeVideoEditorLanguage(this.options.language?.() || app.getLocale());
+  }
+  private defaultProjectTitle(): string {
+    return this.studioLanguage() === 'zh-CN' ? '未命名视频' : 'Untitled video';
+  }
+  refreshLanguage(): void {
+    const language = this.studioLanguage();
+    for (const editor of this.editors.values()) {
+      let nextTitle: string | undefined;
+      try {
+        const updated = this.store.relocalizeProject(editor.id, editor.owner);
+        if (updated) {
+          nextTitle = updated.title;
+          this.options.emit('video-editing:open-panel', { id: updated.id, title: updated.title, sessionId: updated.sessionId, titleOnly: true });
+        }
+      } catch { /* workspace removed */ }
+      if (editor.view.webContents.isDestroyed()) continue;
+      void editor.view.webContents
+        .executeJavaScript(
+          `window.klausVideo && window.klausVideo.setLanguage && window.klausVideo.setLanguage(${JSON.stringify(language)}, ${JSON.stringify(nextTitle ?? null)})`,
+          true,
+        )
+        .catch(() => {});
+    }
   }
   private enabled(): boolean { return !this.closed && !this.quiescing && (this.options.enabled?.() ?? true); }
   private assertEnabled(): void { if (!this.enabled()) throw new Error('Video editing is disabled or has shut down.'); }
@@ -215,6 +280,15 @@ export class VideoEditingService {
     editor.queue = next.then(() => undefined, () => undefined);
     return next;
   }
+  private artifactFor(id: string, owner: string, state: Data): Data {
+    const refreshed = this.store.load(id, owner);
+    return {
+      kind: 'video-editing',
+      id: refreshed.id,
+      title: refreshed.title,
+      ready: videoWorkspaceHasContent(state),
+    };
+  }
   private success(value: Data, artifact?: Data): Data {
     const payload = artifact ? { ...value, artifact } : value;
     return { content: [{ type: 'text', text: JSON.stringify(payload) }], structuredContent: payload };
@@ -234,26 +308,47 @@ export class VideoEditingService {
           await this.ready(failed);
         }
         const state = await this.request(project, 'workspace.inspect');
-        void this.openPanel({ id: project.id, sessionId: owner }).catch(() => {});
-        return this.success({ id: project.id, title: project.title, ...state }, { kind: 'video-editing', id: project.id, title: project.title });
+        const refreshed = this.store.load(project.id, owner);
+        void this.openPanel({ id: refreshed.id, sessionId: owner }).catch(() => {});
+        return this.success(
+          { id: refreshed.id, title: refreshed.title, ...state },
+          this.artifactFor(refreshed.id, owner, state),
+        );
       }
       const id = this.store.resolveId(owner, fields.id), project = this.store.load(id, owner);
       if (name === 'video_editing_inspect') return this.success({ id, ...await this.request(project, 'workspace.inspect') });
       if (name === 'video_editing_execute') {
         if (typeof fields.expected_revision !== 'string' || !Array.isArray(fields.ops) || !fields.ops.length) throw new Error('Read the current video revision and provide original timeline operations.');
-        return this.success({ id, ...await this.request(project, 'timeline.execute', { expected_revision: fields.expected_revision, ops: fields.ops, label: fields.label ?? 'Edit video' }) });
+        const response = await this.request(project, 'timeline.execute', { expected_revision: fields.expected_revision, ops: fields.ops, label: fields.label ?? 'Edit video' });
+        return this.success({ id, ...response }, this.artifactFor(id, owner, response));
       }
       if (name === 'video_editing_editor') {
         if (fields.target !== 'player' && fields.target !== 'stage') throw new Error('Choose player or stage.');
         return this.success({ id, ...await this.request(project, `${fields.target}.command`, record(fields.command)) });
       }
       const input = { ...fields }; delete input.id; delete input.expected_revision;
-      if (name === 'video_editing_request') return this.success({ id, ...await this.request(project, 'workspace.request', { input, ...(fields.expected_revision !== undefined ? { expected_revision: fields.expected_revision } : {}) }) });
+      if (name === 'video_editing_request') {
+        const response = await this.request(project, 'workspace.request', { input, ...(fields.expected_revision !== undefined ? { expected_revision: fields.expected_revision } : {}) });
+        return this.success(
+          { id, ...response },
+          videoToolMutatesWorkspace(name, fields) ? this.artifactFor(id, owner, response) : undefined,
+        );
+      }
       if (name === 'video_editing_project_file') {
         if (fields.action === 'write' && typeof fields.expected_revision !== 'string') throw new Error('Read the live video revision before writing source files.');
-        return this.success({ id, ...await this.request(project, 'workspace.file', { input, ...(fields.expected_revision !== undefined ? { expected_revision: fields.expected_revision } : {}) }) });
+        const response = await this.request(project, 'workspace.file', { input, ...(fields.expected_revision !== undefined ? { expected_revision: fields.expected_revision } : {}) });
+        return this.success(
+          { id, ...response },
+          videoToolMutatesWorkspace(name, fields) ? this.artifactFor(id, owner, response) : undefined,
+        );
       }
-      if (name === 'video_editing_command') return this.success({ id, ...await this.request(project, 'workspace.command', { input }) });
+      if (name === 'video_editing_command') {
+        const response = await this.request(project, 'workspace.command', { input });
+        return this.success(
+          { id, ...response },
+          videoToolMutatesWorkspace(name, fields) ? this.artifactFor(id, owner, response) : undefined,
+        );
+      }
       const editor = this.editors.get(project.id) ?? await this.editor(project);
       if (editor.owner !== owner) throw new Error('The video runtime belongs to another chat.');
       if (name === 'video_editing_job') {
@@ -373,7 +468,10 @@ export class VideoEditingService {
   }
   private async action(editor: Editor, action: Data): Promise<Data> {
     if (this.closed) throw new Error('The video service has closed.');
-    if (action.type === 'load') return { ...editor.info, version: editor.version, bridgeVersion: 1 };
+    if (action.type === 'load') {
+      const project = this.store.load(editor.id, editor.owner);
+      return { ...editor.info, title: project.title, language: this.studioLanguage(), version: editor.version, bridgeVersion: 1 };
+    }
     if (action.type === 'ready') {
       if (action.bridgeVersion !== 1 || action.version !== editor.version) throw new Error('The video editor runtime does not match this host.');
       editor.ready = true;
@@ -382,8 +480,12 @@ export class VideoEditingService {
     }
     if (action.type === 'error') { this.fail(editor, String(action.error ?? 'The video editor could not initialize.')); return { ok: true }; }
     if (action.type === 'changed') {
+      const previous = this.store.load(editor.id, editor.owner).title;
       const project = this.store.changed(editor.id, editor.owner, record(action.project));
       editor.info.project = record(action.project);
+      if (project.title && project.title !== previous) {
+        this.options.emit('video-editing:open-panel', { id: project.id, title: project.title, sessionId: project.sessionId, titleOnly: true });
+      }
       return { ok: true, title: project.title };
     }
     if (action.type === 'runtime') {

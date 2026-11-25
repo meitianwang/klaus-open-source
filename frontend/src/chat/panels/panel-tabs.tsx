@@ -1659,6 +1659,28 @@ async function openVideoEditing({ id, title, sessionId }: { id: string; title?: 
   return activateTab(tab)
 }
 
+function renameVideoEditing({ id, title, sessionId }: { id: string; title?: string; sessionId: string }): boolean {
+  const nextTitle = typeof title === 'string' ? title.trim() : ''
+  if (!id || !sessionId || !nextTitle) return false
+  activeScope()
+  if (sessionId === w().getCurrentSessionId?.()) {
+    const tab = find('video-editing', id)
+    if (!tab || tab.title === nextTitle) return Boolean(tab)
+    tab.title = nextTitle
+    saveFor(sessionId)
+    publish()
+    return true
+  }
+  const scope = scopes.get(scopeKeyForSession(sessionId))
+  const tab = scope ? findInScope(scope, 'video-editing', id) : null
+  if (!tab) return false
+  if (tab.title !== nextTitle) {
+    tab.title = nextTitle
+    saveFor(sessionId)
+  }
+  return true
+}
+
 async function openPpt({ id, title, sessionId }: { id: string; title?: string; sessionId: string }) {
   if (!id || !sessionId || sessionId !== w().getCurrentSessionId?.()) return false
   const tab = ensure('ppt', id, { title: title || defaultTitle('ppt') })
@@ -2370,10 +2392,16 @@ if (leftStripHost) {
 
 window.addEventListener('klaus:lang-change', () => {
   activeScope()
+  const zhUi = defaultTitle('video-editing') === '视频剪辑'
   for (const tab of tabs) {
     // Owner-titled kinds keep their own titles (browser page and side-task
     // title); fixed surfaces follow the UI language.
-    if (tab.kind !== 'browser' && tab.kind !== 'side-task' && tab.kind !== 'subagent' && tab.kind !== 'background-process' && tab.kind !== 'spec' && tab.kind !== 'canvas' && tab.kind !== 'prototype' && tab.kind !== 'video-editing' && tab.kind !== 'ppt' && tab.kind !== 'design' && tab.kind !== 'photo-editing' && tab.kind !== 'motion-graphics') tab.title = defaultTitle(tab.kind)
+    if (tab.kind === 'video-editing') {
+      if (tab.title === 'Untitled video' || tab.title === '未命名视频') tab.title = zhUi ? '未命名视频' : 'Untitled video'
+      else if (tab.title === 'Video Editing' || tab.title === '视频剪辑' || tab.title === 'Video') tab.title = defaultTitle('video-editing')
+      continue
+    }
+    if (tab.kind !== 'browser' && tab.kind !== 'side-task' && tab.kind !== 'subagent' && tab.kind !== 'background-process' && tab.kind !== 'spec' && tab.kind !== 'canvas' && tab.kind !== 'prototype' && tab.kind !== 'ppt' && tab.kind !== 'design' && tab.kind !== 'photo-editing' && tab.kind !== 'motion-graphics') tab.title = defaultTitle(tab.kind)
   }
   langTick++
   publish()
@@ -2423,6 +2451,7 @@ if (maximized) applyMaximized()
   openPrototype,
   clearPrototypes,
   openVideoEditing,
+  renameVideoEditing,
   clearVideoEditings,
   openPpt,
   clearPresentations,

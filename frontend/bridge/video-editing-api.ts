@@ -15,7 +15,7 @@ export function createVideoEditingHostSurface(call: (channel: string, args: unkn
 }
 
 export interface VideoEditingBounds { x: number; y: number; width: number; height: number }
-export interface VideoEditingOpenPayload { requestId?: string; id: string; title?: string; sessionId: string }
+export interface VideoEditingOpenPayload { requestId?: string; id: string; title?: string; sessionId: string; titleOnly?: boolean }
 export interface VideoEditingListRow { id: string; title: string }
 export interface VideoEditingPanelReply { ok?: boolean; error?: string }
 

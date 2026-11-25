@@ -1429,6 +1429,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   registerPrototypeHandlers(registry, { service: prototype });
   videoEditing = new VideoEditingService({
     configRoot, window, emit, enabled: () => videoEditingEnabled, pluginRoot: () => videoEditingPluginPath,
+    language: () => { const value = kvGet('language', configRoot); return typeof value === 'string' && value ? value : edition.defaultLanguage || app.getLocale(); },
     registerRenderer: (id, role) => windows.register(id, role),
     unregisterRenderer: id => { subscriptions.clearOwner(id); windows.unregister(id); },
     log: (event, data) => log.write(event, JSON.stringify(data)),
@@ -2000,6 +2001,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
         await desktopPet?.updateSettings({ language: petLanguage.startsWith('zh') ? 'zh' : 'en' });
         petActivity?.refresh();
         prototype.refreshLanguage();
+        videoEditing.refreshLanguage();
         ppt.refreshLanguage();
         design.refreshLanguage();
         photoEditing.refreshLanguage();

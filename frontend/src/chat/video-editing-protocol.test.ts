@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test'
 import { createVideoEditingHostSurface } from '../../bridge/video-editing-api'
-import { normalizeToolResultForReplay, normalizeVisualArtifact } from './transcript/factories'
+import { normalizeToolResultForReplay, normalizeVisualArtifact, visualArtifactHintState } from './transcript/factories'
 import { semanticActivity, semanticActivityLabel } from './transcript/activity-semantic'
 
 test('the video runtime exposes its lifecycle through one owned channel', async () => {
@@ -22,6 +22,11 @@ test('video artifacts survive replay with identity and reject failed or invalid 
   expect(normalizeVisualArtifact({ kind: 'video-editing', id: '' })).toBeUndefined()
   expect(normalizeVisualArtifact({ kind: 'video-editing', id: 'film-workspace' })?.title).toBe('Video Editing')
   expect(normalizeVisualArtifact({ kind: 'unknown-video', id: 'film-workspace' })).toBeUndefined()
+  const created = normalizeVisualArtifact({ kind: 'video-editing', id: 'film-workspace', title: '未命名视频', ready: false })!
+  const ready = normalizeVisualArtifact({ kind: 'video-editing', id: 'film-workspace', title: '口播成片', ready: true })!
+  expect(visualArtifactHintState(created)).toBe('created')
+  expect(visualArtifactHintState(ready)).toBe('ready')
+  expect(visualArtifactHintState({ kind: 'video-editing', id: 'film-workspace', title: 'Legacy' })).toBe('ready')
 })
 
 test('video activity keeps the owned namespace, action and localized result', () => {

@@ -90,3 +90,17 @@ test('video tabs come back with the owning chat after a session round trip', asy
   f.actions.beginSessionSwitch('other', 'owner')
   expect(f.snapshot().tabs.find((tab: any) => tab.kind === 'video-editing')).toMatchObject({ key: 'film', title: 'My video', sessionId: 'owner' })
 })
+
+test('renameVideoEditing updates the tab title in both active and background session scopes', async () => {
+  const f = fixture()
+  expect(await f.actions.openVideoEditing({ id: 'film', title: '未命名视频', sessionId: 'owner' })).toBe(true)
+  expect(f.actions.renameVideoEditing({ id: 'film', title: '口播成片终版', sessionId: 'owner' })).toBe(true)
+  expect(f.snapshot().tabs.find((tab: any) => tab.kind === 'video-editing')?.title).toBe('口播成片终版')
+
+  f.setSession('other')
+  f.actions.beginSessionSwitch('owner', 'other')
+  expect(f.actions.renameVideoEditing({ id: 'film', title: '口播成片精修版', sessionId: 'owner' })).toBe(true)
+  f.setSession('owner')
+  f.actions.beginSessionSwitch('other', 'owner')
+  expect(f.snapshot().tabs.find((tab: any) => tab.kind === 'video-editing')?.title).toBe('口播成片精修版')
+})

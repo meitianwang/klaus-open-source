@@ -12,6 +12,7 @@ async function tick() { for (let i = 0; i < 20; i++) await Promise.resolve() }
 function fixture() {
   const calls: Array<{ op: string; id?: string; sessionId?: string; bounds?: VideoEditingBounds }> = []
   const replies: Array<{ requestId: string; ok: boolean; error?: string }> = []
+  const renamed: Array<{ id: string; title?: string; sessionId: string }> = []
   const toasts: string[] = []
   let session = 'a', visible = true, width = 500
   let nextShow: ReturnType<typeof deferred<{ ok: boolean }>> | undefined
@@ -41,11 +42,12 @@ function fixture() {
     layout: async () => { const held = nextLayout; nextLayout = undefined; await held?.promise },
     openMode: () => { visible = true },
     openTab: async payload => { openCount++; return surface.activate(payload) },
+    renameTab: payload => { renamed.push(payload); return true },
     toast: message => toasts.push(message), text: key => key,
     schedule: () => { schedules++ },
   }
   const surface = createVideoEditingPanel(env)
-  return { surface, calls, replies, toasts, api,
+  return { surface, calls, replies, toasts, renamed, api,
     session: (value: string) => { session = value }, width: (value: number) => { width = value },
     visible: (value: boolean) => { visible = value },
     holdShow: () => (nextShow = deferred<{ ok: boolean }>()),
@@ -195,4 +197,16 @@ test('reports a failed foreground presentation and never treats failure as visib
   expect(f.toasts).toEqual(['Runtime unavailable'])
   expect(f.replies).toEqual([{ requestId: 'foreground', ok: false, error: 'video_editing_open_failed' }])
   expect(f.surface.state().lastBounds).toBeNull()
+})
+
+test('titleOnly notifications rename active and parked tabs without stealing focus or sending openResult', async () => {
+  const f = fixture()
+  await f.surface.onOpen({ id: 'film-a', title: '未命名视频', sessionId: 'a' })
+  expect(f.surface.state().activeTitle).toBe('未命名视频')
+  const openCountBefore = f.counts().openCount
+  await f.surface.onOpen({ id: 'film-a', title: '年度产品发布片', sessionId: 'a', titleOnly: true })
+  expect(f.counts().openCount).toBe(openCountBefore)
+  expect(f.replies).toHaveLength(0)
+  expect(f.surface.state().activeTitle).toBe('年度产品发布片')
+  expect(f.renamed).toEqual([{ id: 'film-a', title: '年度产品发布片', sessionId: 'a', titleOnly: true }])
 })

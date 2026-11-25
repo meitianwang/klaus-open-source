@@ -134,7 +134,7 @@ export function normalizeVisualArtifact(value: unknown): VisualArtifact | undefi
  * copy for saved history that predates explicit content state.
  */
 export function visualArtifactHintState(artifact: VisualArtifact): 'created' | 'ready' {
-  return (artifact.kind === 'prototype' || artifact.kind === 'ppt' || artifact.kind === 'design' || artifact.kind === 'photo-editing' || artifact.kind === 'motion-graphics') && artifact.ready === false ? 'created' : 'ready'
+  return (artifact.kind === 'prototype' || artifact.kind === 'video-editing' || artifact.kind === 'ppt' || artifact.kind === 'design' || artifact.kind === 'photo-editing' || artifact.kind === 'motion-graphics') && artifact.ready === false ? 'created' : 'ready'
 }
 
 export function normalizeToolResultForReplay(result: any): ReplayToolResult | null {

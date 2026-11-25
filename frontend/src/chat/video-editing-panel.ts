@@ -12,6 +12,7 @@ export interface VideoEditingPanelEnvironment {
   layout(): Promise<unknown>
   openMode(): void
   openTab(payload: VideoEditingOpenPayload): Promise<boolean>
+  renameTab?(payload: VideoEditingOpenPayload): boolean
   toast(message: string): void
   text(key: string): string
   schedule(): void
@@ -152,6 +153,17 @@ export function createVideoEditingPanel(env: VideoEditingPanelEnvironment) {
 
   async function onOpen(payload: VideoEditingOpenPayload): Promise<void> {
     if (!payload?.id || !payload.sessionId) return
+    if (payload.titleOnly) {
+      if (payload.title) {
+        if (activeId === payload.id && activeSession === payload.sessionId) activeTitle = payload.title
+        const slot = parked.get(payload.sessionId)
+        if (slot?.id === payload.id) parked.set(payload.sessionId, { id: slot.id, title: payload.title })
+        const queued = pending.get(payload.sessionId)
+        if (queued?.id === payload.id) pending.set(payload.sessionId, { ...queued, title: payload.title })
+      }
+      env.renameTab?.(payload)
+      return
+    }
     if (payload.sessionId !== env.currentSession()) {
       pending.set(payload.sessionId, payload)
       if (payload.requestId) await env.api()?.openResult(payload.requestId, false, env.text('video_editing_background_pending')).catch(() => {})
@@ -216,6 +228,7 @@ export function initVideoEditingPanel(): void {
     layout: () => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))),
     openMode: () => w().openArtifactsPanel?.('video-editing'),
     openTab: payload => w().KlausPanelTabs?.openVideoEditing?.(payload) ?? Promise.resolve(false),
+    renameTab: payload => w().KlausPanelTabs?.renameVideoEditing?.(payload) === true,
     toast: message => w().showToast?.(message), text,
     schedule: scheduleVideoEditingBoundsSync,
     host: () => host,

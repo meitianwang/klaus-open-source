@@ -1,9 +1,71 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, realpathSync } from 'node:fs';
-import { isAbsolute, join, resolve } from 'node:path';
-import { inside, record, text, writeAtomic, type Data } from '../visuals/data';
+import { homedir } from 'node:os';
+import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { inside, readBounded, record, text, writeAtomic, type Data } from '../visuals/data';
 
 const ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const DEFAULT_VIDEO_TITLES = new Set(['Untitled video', '未命名视频']);
+const GENERATED_FOLDER = /^(?:studio-[a-z0-9]{4,}-[0-9a-f]{6,}|out|dist|build|project|tmp|temp)$/i;
+const GENERIC_FILM_TITLE = /^(?:film|untitled|untitled\s+video|openfilm(?:\s+studio)?|video(?:\s+editing)?)$/i;
+const GENERIC_PARENT = new Set(['desktop', 'documents', 'downloads', 'movies', 'workspace', 'workspaces', 'users', 'home', 'tmp', 'var', 'private']);
+
+function decodeHtmlText(raw: string): string {
+  return raw
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export function projectFolderName(title: string): string {
+  const clean = String(title)
+    .replace(/\s*[/\\:*?"<>|\u0000-\u001f\u007f]+\s*/g, ' ')
+    .trim()
+    .replace(/^[.\s]+/, '')
+    .slice(0, 80)
+    .trimEnd();
+  return clean || 'video';
+}
+
+export function inferVideoProjectTitle(folder: string, fallback: string, managedRoot?: string): string {
+  try {
+    const exported = join(folder, 'studio-export.json');
+    if (existsSync(exported) && lstatSync(exported).isFile()) {
+      const manifest = record(JSON.parse(readBounded(exported, 64 * 1024)));
+      const exportedTitle = typeof manifest.title === 'string' ? manifest.title.trim().slice(0, 200) : '';
+      if (exportedTitle && !GENERATED_FOLDER.test(exportedTitle)) return exportedTitle;
+    }
+  } catch { /* optional export metadata */ }
+
+  try {
+    const film = join(folder, 'film.html');
+    if (existsSync(film) && lstatSync(film).isFile()) {
+      const match = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(readBounded(film, 64 * 1024));
+      const htmlTitle = match?.[1] ? decodeHtmlText(match[1]).slice(0, 200) : '';
+      if (htmlTitle && !GENERIC_FILM_TITLE.test(htmlTitle) && !GENERATED_FOLDER.test(htmlTitle)) return htmlTitle;
+    }
+  } catch { /* optional film title */ }
+
+  const home = resolve(homedir());
+  let cursor = resolve(folder);
+  for (let depth = 0; depth < 3; depth++) {
+    if (!cursor || cursor === dirname(cursor) || cursor === home) break;
+    if (managedRoot && (cursor === managedRoot || inside(managedRoot, cursor))) break;
+    const candidate = basename(cursor).trim();
+    if (candidate && !GENERATED_FOLDER.test(candidate)) {
+      if (depth > 0 && GENERIC_PARENT.has(candidate.toLowerCase())) break;
+      return candidate.slice(0, 200);
+    }
+    cursor = dirname(cursor);
+  }
+  return fallback;
+}
+
 export interface VideoEditingProject {
   schema: 1;
   id: string;
@@ -11,13 +73,17 @@ export interface VideoEditingProject {
   title: string;
   path: string;
   updatedAtMs: number;
+  untitled?: boolean;
 }
 
 /** A workspace owns an editor instance and its native projects, not a flattened movie. */
 export class VideoEditingStore {
   readonly root: string;
   private readonly latest = new Map<string, string>();
-  constructor(configRoot: string) {
+  constructor(
+    configRoot: string,
+    private readonly defaultTitle: () => string = () => 'Untitled video',
+  ) {
     const root = join(configRoot, 'video-editing');
     mkdirSync(root, { recursive: true, mode: 0o700 });
     this.root = realpathSync(root);
@@ -47,8 +113,14 @@ export class VideoEditingStore {
   }
   open(owner: string, fields: Data): VideoEditingProject {
     text(owner, 'video editing session');
+    const explicitTitle = typeof fields.title === 'string' ? fields.title.trim().slice(0, 200) : '';
     if (fields.id !== undefined) {
       const project = this.load(fields.id, owner);
+      if (explicitTitle && explicitTitle !== project.title) {
+        project.title = explicitTitle;
+        project.untitled = false;
+        this.save(project);
+      }
       this.latest.set(owner, project.id);
       return project;
     }
@@ -61,14 +133,18 @@ export class VideoEditingStore {
         const saved = record(JSON.parse(readFileSync(join(this.root, id, 'project.json'), 'utf8')));
         if (saved.path !== supplied) continue;
         if (saved.sessionId !== owner) throw new Error('This video project already belongs to another chat.');
-        return this.open(owner, { id });
+        return this.open(owner, explicitTitle ? { id, title: explicitTitle } : { id });
       }
     }
     const id = randomUUID(), directory = join(this.root, id);
     mkdirSync(directory, { mode: 0o700 });
+    const fallback = this.defaultTitle();
+    const title = explicitTitle || (supplied ? inferVideoProjectTitle(supplied, fallback, this.root) : fallback);
+    const untitled = !explicitTitle && title === fallback;
     const project: VideoEditingProject = {
-      schema: 1, id, sessionId: owner, title: String(fields.title ?? 'Untitled video').trim().slice(0, 200) || 'Untitled video',
-      path: supplied ?? join(directory, 'project'), updatedAtMs: Date.now(),
+      schema: 1, id, sessionId: owner, title,
+      path: supplied ?? join(directory, projectFolderName(title)), updatedAtMs: Date.now(),
+      ...(untitled ? { untitled: true } : {}),
     };
     this.save(project);
     this.latest.set(owner, id);
@@ -79,8 +155,23 @@ export class VideoEditingStore {
   }
   changed(id: string, owner: string, fields: Data): VideoEditingProject {
     const project = this.load(id, owner);
-    if (typeof fields.name === 'string' && fields.name.trim()) project.title = fields.name.trim().slice(0, 200);
-    if (typeof fields.path === 'string' && isAbsolute(fields.path)) project.path = fields.path;
+    const nextPath = typeof fields.path === 'string' && isAbsolute(fields.path) ? fields.path : undefined;
+    const pathRenamed = Boolean(nextPath && nextPath !== project.path);
+    const nextName = typeof fields.name === 'string' ? fields.name.trim().slice(0, 200) : '';
+    if (nextName && (fields.userRenamed === true || pathRenamed || !project.title)) {
+      project.title = nextName;
+      project.untitled = false;
+    }
+    if (nextPath) project.path = nextPath;
+    this.save(project);
+    return project;
+  }
+  relocalizeProject(id: string, owner: string): VideoEditingProject | null {
+    const project = this.load(id, owner);
+    const nextTitle = this.defaultTitle();
+    if (!(project.untitled === true || DEFAULT_VIDEO_TITLES.has(project.title)) || project.title === nextTitle) return null;
+    project.title = nextTitle;
+    project.untitled = true;
     this.save(project);
     return project;
   }
