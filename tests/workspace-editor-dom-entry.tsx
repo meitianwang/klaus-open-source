@@ -17,6 +17,16 @@ let writePause: (() => void) | undefined
 let pauseNext = false
 let pauseReadNext = false
 let completeRead: (() => void) | undefined
+function fixtureMediaUrl() {
+  const wav = new Uint8Array([
+    82, 73, 70, 70, 38, 0, 0, 0, 87, 65, 86, 69,
+    102, 109, 116, 32, 16, 0, 0, 0, 1, 0, 1, 0,
+    64, 31, 0, 0, 128, 62, 0, 0, 2, 0, 16, 0,
+    100, 97, 116, 97, 2, 0, 0, 0, 0, 0,
+  ])
+  return URL.createObjectURL(new Blob([wav], { type: 'audio/wav' }))
+}
+const mediaUrls = new Map([['/fixture/clip.mp4', fixtureMediaUrl()]])
 w.klaus = {
   settings: { kv: { get: async () => null } },
   app: { openExternal: async () => {} },
@@ -41,7 +51,7 @@ w.klaus = {
       if (pauseReadNext) { pauseReadNext = false; await new Promise<void>(resolve => { completeRead = resolve }) }
       return result
     },
-    fileUrl: async () => ({ ok: true, url: '' }),
+    fileUrl: async (_sessionId: string, path: string) => ({ ok: true, url: mediaUrls.get(path) ?? '' }),
   },
 }
 
@@ -270,6 +280,29 @@ async function run() {
   assert(sourceChanges === 1, 'Restoring source state does not emit stale content callbacks')
   source.destroy()
   sourceHost.remove()
+  const clip = '/fixture/clip.mp4'
+  w.currentSessionId = 's1'
+  panel.openWorkspaceFilePath(clip)
+  await panel.loadWorkspaceFile(clip)
+  const video = () => body().querySelector('video')
+  const initial = video()
+  assert(initial instanceof HTMLVideoElement && initial.src === mediaUrls.get(clip), 'Video mounts with its capability URL')
+  await settle(60)
+  await until(() => initial?.readyState, 'video metadata')
+  assert(initial?.error === null, 'Video fixture loads without a media error')
+  await panel.loadWorkspaceFile(clip)
+  assert(video() === initial, 'Loading a mounted video preserves the node')
+  panel.showWorkspaceMainView({ openPanel: true })
+  assert(video() === initial, 'Re-entering the Files panel preserves the video node')
+  await panel.loadWorkspaceFile(clip, { force: true, reloadMedia: false })
+  assert(video() === initial, 'Refreshing an unchanged capability preserves the video node')
+  assert(!panel.shouldReloadWorkspaceFileForEvent({ type: 'workspace:changed', events: [{ path: '/fixture/other.ts' }] }, clip), 'Unrelated file changes do not reload the video')
+  await panel.loadWorkspaceFile(clip, { force: true, reloadMedia: true })
+  const replaced = video()
+  assert(replaced instanceof HTMLVideoElement && replaced !== initial, 'Explicit media reload replaces the video node')
+  mediaUrls.set(clip, fixtureMediaUrl())
+  await panel.loadWorkspaceFile(clip, { force: true, reloadMedia: false })
+  assert(video() !== replaced && video()?.src === mediaUrls.get(clip), 'A new capability URL replaces the video node')
   const { applyTheme } = await import('../frontend/src/app/i18n')
   applyTheme('dark')
   w.currentSessionId = 's1'

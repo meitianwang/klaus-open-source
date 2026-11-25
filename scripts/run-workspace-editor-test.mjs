@@ -15,7 +15,7 @@ await build({
   loader: { '.module.css': 'local-css', '.svg': 'text', '.woff': 'file', '.woff2': 'file', '.ttf': 'file' }, logLevel: 'warning',
 })
 copyFileSync(join(desktop, 'frontend/css/styles.css'), join(logs, 'styles.css'))
-writeFileSync(join(logs, 'index.html'), `<!doctype html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none';script-src 'self';style-src 'self' 'unsafe-inline';font-src 'self';img-src 'self' data: blob: klaus-media:;connect-src 'none'">
+writeFileSync(join(logs, 'index.html'), `<!doctype html><html lang="en" data-theme="light"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none';script-src 'self';style-src 'self' 'unsafe-inline';font-src 'self';img-src 'self' data: blob: klaus-media:;media-src 'self' data: blob: klaus-media:;connect-src 'none'">
 <link rel="stylesheet" href="styles.css"><link rel="stylesheet" href="fixture.css">
 <style>body{margin:0;background:var(--bg)}#workspace-main-view{display:flex;height:740px;width:100%;position:relative}#artifacts-panel{display:flex!important;width:100vw!important;max-width:none!important;height:740px;position:relative!important}#artifacts-list{display:none!important}#workspace-main-view{max-width:none!important;flex:1;inset:0}.workspace-file-shell{display:flex;width:100%;flex:1;min-height:0;flex-direction:column}.workspace-file-body{flex:1;min-height:0}</style>
 </head><body><div id="artifacts-panel"><div id="artifacts-list"></div><div id="workspace-main-view">

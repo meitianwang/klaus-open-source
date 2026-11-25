@@ -51,7 +51,7 @@ export interface SessionRuntimeStatusEvent extends SessionScoped, GoalTurnMetada
 export interface ModelUpdateEvent extends SessionScoped, ModelUpdateState { type: 'model_update' }
 export interface ToolStartEvent extends SessionScoped { type: 'tool_start'; toolName: string; toolCallId: string; args: unknown }
 export interface ToolInputDeltaEvent extends SessionScoped { type: 'tool_input_delta'; toolCallId: string; delta: string }
-export interface VisualArtifactEvent { kind: 'diagram' | 'model3d' | 'prototype' | 'ppt' | 'design' | 'photo-editing' | 'motion-graphics'; id: string; title: string; ready?: boolean }
+export interface VisualArtifactEvent { kind: 'diagram' | 'model3d' | 'prototype' | 'video-editing' | 'ppt' | 'design' | 'photo-editing' | 'motion-graphics'; id: string; title: string; ready?: boolean }
 export interface ToolEndEvent extends SessionScoped {
   type: 'tool_end'
   toolCallId: string
@@ -217,7 +217,10 @@ export interface CompactionEndEvent extends SessionScoped { type: 'compaction_en
 export interface CompactionErrorEvent extends SessionScoped { type: 'compaction_error'; error: string }
 export interface PermissionCancelledEvent extends SessionScoped { type: 'permission_cancelled'; requestId: string }
 export interface ElicitCancelledEvent extends SessionScoped { type: 'elicit_cancelled'; requestId: string }
-export interface WorkspaceChangedEvent extends SessionScoped { type: 'workspace:changed' }
+export interface WorkspaceChangedEvent extends SessionScoped {
+  type: 'workspace:changed'
+  events?: Array<{ kind?: string; path?: string; isDir?: boolean }>
+}
 export interface WorkspaceInvalidatedEvent extends SessionScoped { type: 'workspace:invalidated' }
 export interface TasksChangedEvent extends SessionScoped { type: 'tasks_changed'; tasks: Record<string, AgentTask> }
 export interface AgentProgressEvent extends SessionScoped { type: 'agent_progress'; agentId: string; parentAgentId?: string; spawnTurnId?: string; depth?: number; toolUseId?: string; label?: string; event?: unknown }

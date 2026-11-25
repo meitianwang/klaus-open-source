@@ -1,3 +1,4 @@
+import { normalizeWorkspacePath, shouldReloadWorkspaceFileOnChange, shouldReloadWorkspaceMediaOnChange, workspaceEventTouchesAnyPath, type WorkspaceChangeNotification } from './workspace-reload-policy'
 // Workspace 面板域（自 chat.ts 拆出，逻辑原样，strict 类型化）。
 //
 // VSCode 风格文件树 + 多标签文件预览/编辑（源码高亮/markdown/svg/html/图片
@@ -128,6 +129,7 @@ const workspaceFileTabs = document.getElementById('workspace-file-tabs')
 const workspaceFileTitle = document.getElementById('workspace-file-title')
 const workspaceFilePath = document.getElementById('workspace-file-path')
 const workspaceFileStatus = document.getElementById('workspace-file-status')
+let workspaceMountedMedia: { tab: WorkspaceTab; kind: string; filePath: string; url: string; element: HTMLElement } | undefined
 const workspaceFileBody = document.getElementById('workspace-file-body')
 const workspaceFileTruncated = document.getElementById('workspace-file-truncated')
 const workspaceFileCopyBtn = document.getElementById('workspace-file-copy')
@@ -456,6 +458,7 @@ function clearWorkspaceImageZoom() {
 }
 
 function setWorkspaceFileBodyMode(mode: string) {
+  workspaceMountedMedia = undefined
   releaseWorkspaceEditor()
   if (workspaceDocumentNotice) workspaceDocumentNotice.hidden = true
   if (!workspaceFileBody) return
@@ -959,6 +962,7 @@ async function saveWorkspaceTab(tab: WorkspaceTab | null = getActiveWorkspaceTab
 }
 
 function renderWorkspaceFileEmpty() {
+  workspaceMountedMedia = undefined
   releaseWorkspaceEditor()
   if (workspaceDocumentNotice) workspaceDocumentNotice.hidden = true
   revokeWorkspacePreviewObjectUrl()
@@ -1185,8 +1189,13 @@ function renderWorkspaceFileContent() {
   applyPendingWorkspaceLine(workspaceFileContentPath)
 }
 
-function renderWorkspaceFileMedia(url: string, kind: string, filePath: string) {
+function renderWorkspaceFileMedia(url: string, kind: string, filePath: string, tab: WorkspaceTab, reloadMedia: boolean) {
   if (!workspaceFileBody) return
+  const mounted = workspaceMountedMedia
+  if (!reloadMedia && tab && kind !== 'image' && mounted?.tab === tab && mounted.kind === kind
+    && mounted.filePath === filePath && mounted.url === url && mounted.element.isConnected
+    && workspaceFileBody.contains(mounted.element)
+    && !(mounted.element instanceof HTMLMediaElement && mounted.element.error)) return
   revokeWorkspacePreviewObjectUrl()
   clearWorkspaceImageZoom()
   setWorkspaceFileBodyMode('media')
@@ -1198,7 +1207,6 @@ function renderWorkspaceFileMedia(url: string, kind: string, filePath: string) {
   let el: HTMLImageElement | HTMLAudioElement | HTMLVideoElement | HTMLIFrameElement | null = null
   if (kind === 'image') {
     workspaceFileBody.appendChild(wrap)
-    const tab = getActiveWorkspaceTab()
     imageViewerTab = tab
     imageTabViewer = mountImageViewer(wrap, [{ src: url, path: filePath, sessionId: tab?.ownerSessionId ?? currentSessionId() ?? '', name: workspaceBaseName(filePath) }], 0, { state: imageTabZoom(tab), onZoomChange: scale => rememberImageTabZoom(tab, scale) })
     return
@@ -1223,6 +1231,7 @@ function renderWorkspaceFileMedia(url: string, kind: string, filePath: string) {
   }
   wrap.appendChild(el)
   workspaceFileBody.appendChild(wrap)
+  workspaceMountedMedia = { tab, kind, filePath, url, element: el }
 }
 
 function showWorkspaceFileShell(filePath: string) {
@@ -1236,7 +1245,7 @@ function showWorkspaceFileShell(filePath: string) {
   }
 }
 
-export async function loadWorkspaceFile(filePath: string, { force = false } = {}) {
+export async function loadWorkspaceFile(filePath: string, { force = false, reloadMedia = false } = {}) {
   const seq = ++workspaceFileLoadSeq
   const requestSessionId = currentSessionId()
   if (!requestSessionId || !filePath) {
@@ -1268,7 +1277,7 @@ export async function loadWorkspaceFile(filePath: string, { force = false } = {}
     if (tab.error) {
       renderWorkspaceFileMessage(tab.error)
     } else if (tab.directKind) {
-      renderWorkspaceFileMedia(tab.mediaUrl, tab.directKind, tab.path)
+      renderWorkspaceFileMedia(tab.mediaUrl, tab.directKind, tab.path, tab, false)
     } else {
       renderWorkspaceFileContent()
     }
@@ -1309,7 +1318,7 @@ export async function loadWorkspaceFile(filePath: string, { force = false } = {}
       tab.loaded = true
       syncWorkspaceActiveTabGlobals(tab)
       updateWorkspaceFileChromeForTab(tab)
-      renderWorkspaceFileMedia(tab.mediaUrl, tab.directKind, tab.path)
+      renderWorkspaceFileMedia(tab.mediaUrl, tab.directKind, tab.path, tab, reloadMedia)
       return
     }
     const documentRevision = workspaceDocumentRevisions.get(tab) ?? 0
@@ -1634,10 +1643,6 @@ export function closeWorkspaceContextMenu() {
   workspaceContextRow = null
 }
 
-function normalizeWorkspacePath(p: unknown) {
-  return String(p || '').replace(/\\/g, '/').replace(/\/+$/, '')
-}
-
 function pruneWorkspaceSelfWrites() {
   const now = Date.now()
   for (const [path, timestamp] of workspaceSelfWrites) {
@@ -1655,24 +1660,29 @@ function clearWorkspaceSelfWrite(filePath: string) {
   workspaceSelfWrites.delete(normalizeWorkspacePath(filePath))
 }
 
-function workspacePathTouchesPath(changedPath: unknown, targetPath: unknown) {
-  const changed = normalizeWorkspacePath(changedPath)
-  const target = normalizeWorkspacePath(targetPath)
-  if (!changed || !target) return false
-  return changed === target || changed.startsWith(target + '/') || target.startsWith(changed + '/')
+function workspaceReloadTargets(filePath: string, previewPath?: string) {
+  return [filePath, previewPath ?? findWorkspaceTab(filePath)?.previewPath].filter((path): path is string => !!path)
 }
 
-function workspaceEventTouchesPath(event: { events?: { path?: string }[] }, filePath: string) {
-  const events = Array.isArray(event?.events) ? event.events : []
-  if (!events.length) return true
-  return events.some((item: { path?: string }) => workspacePathTouchesPath(item?.path, filePath))
-}
-
-export function shouldSkipWorkspaceFileReloadForOwnWrite(event: { type?: string; events?: { path?: string }[] }, filePath: string) {
-  if (event?.type !== 'workspace:changed' || !workspaceEventTouchesPath(event, filePath)) return false
-  pruneWorkspaceSelfWrites()
-  const timestamp = workspaceSelfWrites.get(normalizeWorkspacePath(filePath))
+function isRecentWorkspaceSelfWrite(normalizedPath: string) {
+  const timestamp = workspaceSelfWrites.get(normalizedPath)
   return typeof timestamp === 'number' && Date.now() - timestamp <= WORKSPACE_SELF_WRITE_RELOAD_SKIP_MS
+}
+
+export function shouldSkipWorkspaceFileReloadForOwnWrite(event: WorkspaceChangeNotification, filePath: string) {
+  const targets = workspaceReloadTargets(filePath)
+  if (event.type !== 'workspace:changed' || !workspaceEventTouchesAnyPath(event, targets)) return false
+  pruneWorkspaceSelfWrites()
+  return targets.some(path => isRecentWorkspaceSelfWrite(normalizeWorkspacePath(path)))
+}
+
+export function shouldReloadWorkspaceFileForEvent(event: WorkspaceChangeNotification, filePath: string, previewPath?: string) {
+  pruneWorkspaceSelfWrites()
+  return shouldReloadWorkspaceFileOnChange(event, workspaceReloadTargets(filePath, previewPath), isRecentWorkspaceSelfWrite)
+}
+
+export function shouldReloadWorkspaceMediaForEvent(event: WorkspaceChangeNotification, filePath: string, previewPath?: string) {
+  return shouldReloadWorkspaceMediaOnChange(event, workspaceReloadTargets(filePath, previewPath))
 }
 
 export function workspaceRelativePath(filePath: string, sessionId = currentSessionId()) {

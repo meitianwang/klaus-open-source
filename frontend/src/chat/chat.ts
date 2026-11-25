@@ -257,7 +257,7 @@ import { executionModeFlags, resolveSessionExecutionMode, runContextControls, ru
 import { initAuthScreen, hideBootScreen, showLoginScreen, hideLoginScreen, seedIdentityKv, beginAccountLogin } from './auth-screen'
 import { initGuestSignin, syncGuestSigninUi } from './sidebar/guest-signin'
 import { initFeatureGates, type FeatureGateController } from './sidebar/feature-gate'
-import { initWorkspacePanel, hideWorkspaceMainView, showWorkspaceMainView, isWorkspaceMainActive, loadWorkspace, loadArtifacts, loadWorkspaceFile, scheduleWorkspaceReload, selectedWorkspaceFile, shouldSkipWorkspaceFileReloadForOwnWrite, closeWorkspaceContextMenu, fileIconSvg, folderIconSvg, workspaceRelativePath, workspaceRootFor, setWorkspaceRoot } from './workspace-panel'
+import { initWorkspacePanel, hideWorkspaceMainView, showWorkspaceMainView, isWorkspaceMainActive, loadWorkspace, loadArtifacts, loadWorkspaceFile, scheduleWorkspaceReload, selectedWorkspaceFile, shouldReloadWorkspaceFileForEvent, shouldReloadWorkspaceMediaForEvent, closeWorkspaceContextMenu, fileIconSvg, folderIconSvg, workspaceRelativePath, workspaceRootFor, setWorkspaceRoot } from './workspace-panel'
 import composerStyles from './composer/composer.module.css'
 import { openImagePreview, configureImagePreview, type ImagePreviewOptions } from './image-preview'
 import sidebarStyles from './sidebar/sidebar.module.css'
@@ -16439,8 +16439,8 @@ function handleChatEvent(event: ChatEvent) {
       scheduleWorkspaceReload(event.sessionId)
       if (event.sessionId === window.currentSessionId && isWorkspaceMainActive() && selectedWorkspaceFile()) {
         const selected = selectedWorkspaceFile()
-        if (!shouldSkipWorkspaceFileReloadForOwnWrite(event, selected)) {
-          loadWorkspaceFile(selected, { force: true })
+        if (shouldReloadWorkspaceFileForEvent(event, selected)) {
+          loadWorkspaceFile(selected, { force: true, reloadMedia: shouldReloadWorkspaceMediaForEvent(event, selected) })
         }
       }
       break
