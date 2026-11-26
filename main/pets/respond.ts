@@ -104,7 +104,7 @@ export class DesktopPetResponder {
         const reply = await this.deps.sessions.interrupt(sessionId, turnId, 'targeted-turn');
         requireInterruptConfirmation(reply);
         if (object(reply)?.accepted !== true) throw new IpcHandlerError('QUESTION_EXPIRED', 'The question turn did not accept interruption');
-        this.resolved('elicit:resolved', sessionId, requestId); return reply;
+        this.resolved('elicit:resolved', sessionId, requestId, { interrupted: true }); return reply;
       }
       let answer: Record<string, Json>;
       if (response.kind === 'decline' || response.kind === 'cancel') answer = { kind: 'decline' };

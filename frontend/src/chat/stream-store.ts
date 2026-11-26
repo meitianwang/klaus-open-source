@@ -1,3 +1,4 @@
+import { canonicalQuestionMap } from '../../../contracts/user-questions'
 import { forgetApprovalReviewSession, replaceApprovalReviewHistory, type DeniedApprovalReview } from './approval-review-state'
 import type { SessionRuntimeSnapshot } from '../../../contracts/session-runtime'
 import { clientMessageId, sameUserMessage } from '../../../contracts/message-identity'
@@ -1839,6 +1840,31 @@ export function ingestChatEvent(event: any, context: { userInterrupted?: boolean
       break
     // 引擎撤销待处理审批/追问（如用户 Stop）：卡降为终态。AskUser 卡的撤销
     // 对齐旧版 finalizeQuestionCard(card, 'skipped')，其余按 cancelled 收。
+    case 'permission_resolved': {
+      const decision = event.decision === 'allow' ? 'allow' : 'deny'
+      resolveLiveApproval(sessionId, event.requestId, (unit: LiveUnit) => {
+        if (unit.type === 'live-ask') {
+          const answers = decision === 'allow' ? normalizeQuestionAnswers(unit, event.updatedInput?.answers) : {}
+          return { mode: decision === 'allow' && Object.keys(answers).length ? 'submitted' : 'skipped', answers }
+        }
+        if (unit.type === 'live-plan-review' || unit.type === 'live-execution-mode') return { decision }
+        return { decision, allowSession: event.allowSession === true, savedRules: event.savedRules === true }
+      }, { toolCallId: typeof event.toolCallId === 'string' ? event.toolCallId : undefined, keepExisting: true })
+      break
+    }
+    case 'elicit_resolved': {
+      const response = event.response && typeof event.response === 'object' ? event.response : null
+      const declined = response?.kind === 'decline'
+      resolveLiveApproval(sessionId, event.requestId, (unit: LiveUnit) => {
+        if (unit.type === 'live-ask') {
+          const answers = !declined && response?.kind === 'answers' ? normalizeQuestionAnswers(unit, response.answers) : {}
+          return { mode: !declined && Object.keys(answers).length ? 'submitted' : 'skipped', answers }
+        }
+        if (unit.type === 'live-execution-mode') return { decision: declined ? 'deny' : 'allow' }
+        return declined ? 'declined' : 'submitted'
+      }, { keepExisting: true })
+      break
+    }
     case 'permission_cancelled':
       resolveLiveApproval(sessionId, event.requestId, (unit: LiveUnit) =>
         unit.type === 'live-ask' ? { mode: 'skipped', answers: {} }
@@ -2539,13 +2565,20 @@ export function ingestAsyncQuestionResolution(resolution: { sessionId: string; r
       : resolution.state === 'answered' ? 'submitted' : 'cancelled')
 }
 
-export function resolveLiveApproval(sessionId: string, requestId: string, resolution: any): void {
+function normalizeQuestionAnswers(unit: LiveUnit, rawAnswers: unknown): Record<string, string> {
+  const entries: Record<string, string> = rawAnswers && typeof rawAnswers === 'object' && !Array.isArray(rawAnswers)
+    ? Object.fromEntries(Object.entries(rawAnswers).filter((entry): entry is [string, string] => typeof entry[1] === 'string')) : {}
+  const questions = unit.type === 'live-ask' ? unit.req?.toolInput?.questions : undefined
+  return Array.isArray(questions) ? canonicalQuestionMap(questions, entries) ?? entries : entries
+}
+
+export function resolveLiveApproval(sessionId: string, requestId: string, resolution: any, options?: { toolCallId?: string; keepExisting?: boolean }): void {
   if (!sessionId) {
     // 撤销事件可能只有 requestId：全会话扫描。
     const state = chatStreamStore.getState()
     for (const sid of Object.keys(state.sessions)) {
       if (state.sessions[sid].liveUnits.some(u => 'req' in u && (u as any).req?.requestId === requestId)) {
-        resolveLiveApproval(sid, requestId, resolution)
+        resolveLiveApproval(sid, requestId, resolution, options)
       }
     }
     return
@@ -2558,9 +2591,11 @@ export function resolveLiveApproval(sessionId: string, requestId: string, resolu
       if (!('req' in unit) || (unit as any).req?.requestId !== requestId) return unit
       releasedToolCallId = String((unit as any).req?.toolCallId || '')
       // resolution 可为工厂（按单元类型给不同终态形状，如 permission_cancelled）。
+      if (options?.keepExisting && 'resolved' in unit && unit.resolved != null) return unit
       const resolved = typeof resolution === 'function' ? resolution(unit) : resolution
       return { ...unit, resolved } as LiveUnit
     })
+    if (!releasedToolCallId && options?.toolCallId) releasedToolCallId = options.toolCallId
     const parkedId = releasedToolCallId ? resolveLiveToolCardId(prev.tools, releasedToolCallId, 'awaiting-approval') : undefined
     const parked = parkedId ? prev.tools[parkedId] : undefined
     return {

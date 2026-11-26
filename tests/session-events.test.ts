@@ -294,12 +294,12 @@ h.test('structured elicitation preserves questions and cannot use the permission
   f.forwarder.close();
 });
 
-function questionRequest(attachmentsSupported = true) {
+function questionRequest(attachmentsSupported = true, question: { id?: string; question: string } = { question: 'Which details?' }) {
   const responses: Json[] = [];
   const request: ReverseRequest = {
     id: 'question-wire', method: 'elicitation/request', outstanding: true,
     params: { sessionId: 'engine-session', elicitation: { requestId: 'ask', request: {
-      prompt: 'Which details?', questions: [{ question: 'Which details?' }], ...(attachmentsSupported ? { attachmentsSupported: true } : {}),
+      prompt: question.question, questions: [question], ...(attachmentsSupported ? { attachmentsSupported: true } : {}),
     } } },
     respond: async response => { request.outstanding = false; responses.push(response as Json); },
     respondError: async (code, message) => { request.outstanding = false; responses.push({ code, message }); },
@@ -317,6 +317,28 @@ h.test('question responses normalize attachments before settling the waiting eng
   await f.pump.respond({ requestId: '1:elicit:ask', response: attachmentAnswer }, false);
   assertDeepEqual(normalized, [attachmentAnswer.attachments], 'the uploader owns attachment normalization');
   assertDeepEqual(q.responses, [{ kind: 'answers', answers: attachmentAnswer.answers, attachments: attachmentMedia }], 'the engine receives image bytes with the exact answer');
+  f.forwarder.close();
+});
+
+h.test('parked answers publish canonical resolution events without attachment bytes', async () => {
+  const f = fixture(undefined, async () => ({ platforms: attachmentMedia['Which details?'] }));
+  const q = questionRequest(true, { id: 'platforms', question: 'Which platforms?' });
+  f.pump.receive({ type: 'reverseRequest', request: q.request }, 1);
+  await f.pump.respond({ requestId: '1:elicit:ask', response: {
+    kind: 'answers', answers: { 'Which platforms?': 'macOS' }, attachments: { platforms: attachmentAnswer.attachments['Which details?'] },
+  } }, false);
+  f.forwarder.flush();
+  assertDeepEqual(f.delivered[1]!.value, [{ type: 'elicit_resolved', sessionId: 'conversation', requestId: '1:elicit:ask',
+    response: { kind: 'answers', answers: { platforms: 'macOS' } } }], 'the renderer gets the canonical answer without attachments');
+  const a = approval();
+  const params = a.request.params as { request: { suggestions: Array<Record<string, Json>> } };
+  params.request.suggestions.push({ ...params.request.suggestions[0], destination: 'userSettings' });
+  f.pump.receive({ type: 'reverseRequest', request: a.request }, 1);
+  const updatedInput = { command: 'printf reviewed' };
+  await f.pump.respond({ requestId: '1:approval:tool-call', decision: 'allow', acceptedSuggestionIndices: [0, 1], updatedInput }, true);
+  f.forwarder.flush();
+  assertDeepEqual(f.delivered[3]!.value, [{ type: 'permission_resolved', sessionId: 'conversation', requestId: '1:approval:tool-call',
+    decision: 'allow', toolCallId: 'tool-call', allowSession: true, savedRules: true, updatedInput }], 'the renderer gets the applied approval details');
   f.forwarder.close();
 });
 
@@ -507,6 +529,10 @@ h.test('MCP url and arbitrary-schema elicitations reach the renderer instead of 
   }, 'the URL flow publishes its own renderer shape');
   await f.pump.respond({ requestId: '1:mcp:engine-session:mcp-url', response: { kind: 'accept' } }, false);
   assertDeepEqual(calls, [['engine-session', 1, 'mcp-url', { action: 'accept' }]], 'Done reaches the named resolver without a spurious form content object');
+  f.forwarder.flush();
+  assertDeepEqual(f.delivered[1]!.value, [{
+    type: 'elicit_resolved', sessionId: 'conversation', requestId: '1:mcp:engine-session:mcp-url', response: { kind: 'accept' },
+  }], 'the accepted URL request emits a resolution');
   f.pump.receive(mcpFrame({ requestId: 'mcp-url-notified', serverName: 'calendar', request: { mode: 'url', message: 'Complete authorization', url: 'https://example.com/callback', elicitationId: 'el-2' } }), 1);
   f.pump.receive({
     type: 'rawSessionEvent',
@@ -516,12 +542,12 @@ h.test('MCP url and arbitrary-schema elicitations reach the renderer instead of 
     },
   }, 1);
   f.forwarder.flush();
-  assertDeepEqual(f.delivered[2]!.value, [{
+  assertDeepEqual(f.delivered[3]!.value, [{
     type: 'elicit_cancelled', requestId: '1:mcp:engine-session:mcp-url-notified', sessionId: 'conversation', reason: 'resolved',
   }], 'engine-side URL completion notification retires the card as resolved');
   assertEqual(f.state.pendingCount(), 0, 'server-completed URL elicitation releases the parked reverse entry');
   f.pump.receive(mcpFrame({ requestId: 'mcp-openai', serverName: 'other', request: { mode: 'openai/form', message: 'Pick one', requestedSchema: { type: 'object', properties: { choice: { type: 'string', enum: ['a', 'b'] } } } } }), 1);
-  assertDeepEqual(f.delivered[3]!.value, {
+  assertDeepEqual(f.delivered[4]!.value, {
     requestId: '1:mcp:engine-session:mcp-openai', sessionId: 'conversation', type: 'mcp-elicit', serverName: 'other',
     prompt: 'Pick one', message: 'Pick one', requestedSchema: { type: 'object', properties: { choice: { type: 'string', enum: ['a', 'b'] } } },
   }, 'the arbitrary-schema form keeps the structured card shape');

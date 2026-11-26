@@ -733,3 +733,7 @@ export function cancelledEvent(isApproval: boolean, requestId: string, sessionId
     requestId,
   };
 }
+
+export function resolvedEvent(isApproval: boolean, requestId: string, sessionId: string, details: Record<string, Json>): Json {
+  return { type: isApproval ? 'permission_resolved' : 'elicit_resolved', sessionId, requestId, ...details };
+}

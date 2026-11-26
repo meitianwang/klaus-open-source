@@ -521,6 +521,8 @@ export function compactMobileEngineEvent(event: JsonObject): JsonObject | null {
     || type === 'tool_input_delta'
     || type === 'input_json_delta'
     || type === 'diff_update'
+    || type === 'permission_resolved'
+    || type === 'elicit_resolved'
   ) {
     return null;
   }

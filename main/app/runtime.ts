@@ -2742,7 +2742,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     },
     resolved: (channel, payload) => {
       if (channel === 'question:resolved') emit(channel, payload);
-      else chat.enqueue([{ type: channel === 'permission:resolved' ? 'permission_cancelled' : 'elicit_cancelled', ...payload, reason: 'resolved' }]);
+      else if (payload.interrupted === true) chat.enqueue([{ type: 'elicit_cancelled', sessionId: payload.sessionId ?? null, requestId: payload.requestId ?? null, reason: 'resolved' }]);
     },
   });
   petComposer = new PetComposer({

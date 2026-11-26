@@ -5,7 +5,7 @@ import { object, requiredString } from '../ipc/arguments';
 import type { Json } from '../ipc/contract';
 import { projectEngineEvent } from '../ipc/project';
 import { IpcHandlerError } from '../ipc/registry';
-import { HostState, cancelledEvent } from '../services/host-state';
+import { HostState, cancelledEvent, resolvedEvent } from '../services/host-state';
 import { AgentTaskTracker } from './agent-tasks';
 import { McpElicitationPump } from './mcp-elicitation';
 import { queueSnapshotEvent } from './queue';
@@ -554,6 +554,7 @@ export class SessionEventPump {
       throw new IpcHandlerError('UNKNOWN_REQUEST', 'No matching pending request');
     }
     let response: Json;
+    let resolvedDetails: Record<string, Json>;
     if (approval) {
       if (payload.decision !== 'allow' && payload.decision !== 'deny') {
         throw new IpcHandlerError('BAD_REQUEST', 'decision must be allow or deny');
@@ -563,12 +564,19 @@ export class SessionEventPump {
         throw new IpcHandlerError('BAD_REQUEST', 'Invalid permission suggestion index');
       }
       response = { decision: payload.decision };
+      resolvedDetails = { decision: payload.decision };
+      const toolCallId = object(entry.card)?.toolCallId;
+      if (typeof toolCallId === 'string' && toolCallId) resolvedDetails.toolCallId = toolCallId;
       if (payload.decision === 'allow') {
         if (payload.updatedInput !== undefined && payload.updatedInput !== null) {
           if (!object(payload.updatedInput)) throw new IpcHandlerError('BAD_REQUEST', 'updatedInput must be an object');
           response.updatedInput = payload.updatedInput;
+          resolvedDetails.updatedInput = payload.updatedInput;
         }
         if (selected.length) response.updatedPermissions = selected.map(index => entry.suggestions![index as number]!);
+        const destinations = selected.map(index => object(entry.suggestions?.[index as number])?.destination);
+        if (destinations.includes('session')) resolvedDetails.allowSession = true;
+        if (destinations.some(destination => typeof destination === 'string' && destination !== '' && destination !== 'session')) resolvedDetails.savedRules = true;
       }
     } else {
       const answer = object(payload.response);
@@ -599,6 +607,11 @@ export class SessionEventPump {
           answer.attachments = groups;
         }
       }
+      const clientResponse: Record<string, Json> = { kind: answer.kind! };
+      if (answer.answers !== undefined) clientResponse.answers = answer.answers;
+      if (answer.values !== undefined) clientResponse.values = answer.values;
+      if (typeof answer.reason === 'string') clientResponse.reason = answer.reason;
+      resolvedDetails = { response: clientResponse };
       response = answer;
       if (answer.attachments !== undefined) {
         const groups = object(answer.attachments), answers = object(answer.answers);
@@ -622,7 +635,10 @@ export class SessionEventPump {
     try {
       assertCurrent?.();
       await entry.request.respond(response);
-      if (approval && payload.decision === 'allow') this.deps.forwarder.enqueue(this.agentTasks.approve(entry.sessionId, String(object(entry.card)?.toolCallId ?? '')));
+      this.deps.forwarder.enqueue([
+        resolvedEvent(approval, requestId, entry.sessionId, resolvedDetails),
+        ...(approval && payload.decision === 'allow' ? this.agentTasks.approve(entry.sessionId, String(object(entry.card)?.toolCallId ?? '')) : []),
+      ]);
     } catch (error) {
       if (entry.request.outstanding) await entry.request.respondError(-32000, 'Approval could not be applied').catch(() => {});
       this.deps.forwarder.enqueue([cancelledEvent(approval, requestId, entry.sessionId)]);

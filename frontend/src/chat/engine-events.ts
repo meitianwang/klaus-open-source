@@ -215,6 +215,14 @@ export interface CompactBoundaryEvent extends SessionScoped {
 }
 export interface CompactionEndEvent extends SessionScoped { type: 'compaction_end' }
 export interface CompactionErrorEvent extends SessionScoped { type: 'compaction_error'; error: string }
+export interface PermissionResolvedEvent extends SessionScoped {
+  type: 'permission_resolved'; requestId: string; decision: 'allow' | 'deny'; toolCallId?: string;
+  allowSession?: boolean; savedRules?: boolean; updatedInput?: Record<string, unknown> | null
+}
+export interface ElicitResolvedEvent extends SessionScoped {
+  type: 'elicit_resolved'; requestId: string;
+  response?: { kind?: string; answers?: Record<string, string>; values?: string[] | Record<string, unknown>; reason?: string } | null
+}
 export interface PermissionCancelledEvent extends SessionScoped { type: 'permission_cancelled'; requestId: string }
 export interface ElicitCancelledEvent extends SessionScoped { type: 'elicit_cancelled'; requestId: string }
 export interface WorkspaceChangedEvent extends SessionScoped {
@@ -318,6 +326,8 @@ export type ChatEvent =
   | CompactBoundaryEvent
   | CompactionEndEvent
   | CompactionErrorEvent
+  | PermissionResolvedEvent
+  | ElicitResolvedEvent
   | PermissionCancelledEvent
   | ElicitCancelledEvent
   | WorkspaceChangedEvent

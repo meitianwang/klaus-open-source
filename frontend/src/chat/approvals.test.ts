@@ -1,9 +1,13 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { liveApprovalsOf } from './sidebar/attention'
+import { resolvedQuestionPresentation } from './transcript/question-state'
+
+const badgeCounts: number[] = []
 
 ;(globalThis as any).window = {
   addEventListener: () => {},
   klaus: {
-    app: { setApprovalBadge: async () => {} },
+    app: { setApprovalBadge: async (count: number) => { badgeCounts.push(count) } },
     permission: { respond: () => {}, pending: async () => [] },
     elicit: { pending: async () => [] },
     memorySnapshot: { respond: () => {} },
@@ -12,7 +16,7 @@ import { describe, expect, test } from 'bun:test'
 }
 
 const store = await import('./stream-store')
-const { initApprovals, showPermissionRequest } = await import('./approvals')
+const { initApprovals, showPermissionRequest, showElicitRequest, untrackApprovalRequest, untrackApprovalRequestsOfSession } = await import('./approvals')
 import type { ApprovalsDeps } from './approvals'
 
 const CURRENT = 'session-current'
@@ -29,6 +33,11 @@ function makeDeps(): ApprovalsDeps {
 }
 
 initApprovals(makeDeps())
+
+afterEach(() => {
+  untrackApprovalRequestsOfSession(CURRENT)
+  untrackApprovalRequestsOfSession('session-background')
+})
 
 /** The unit kind a request was routed into, or null when nothing mounted. */
 function routedKind(sessionId: string, requestId: string): string | null {
@@ -87,4 +96,60 @@ describe('Permission request routing', () => {
     expect(routedKind(CURRENT, requestId)).toBeNull()
     expect(deps.pendingPermissionsBySession.get('session-background')?.[0]?.requestId).toBe(requestId)
   })
+})
+
+const questions = [{ id: 'platforms', question: 'Which platforms?', options: [] }]
+function findRequest(sessionId: string, requestId: string) {
+  return store.getSessionStream(sessionId).liveUnits.find(unit => 'req' in unit && unit.req?.requestId === requestId)
+}
+function resolution(sessionId: string, requestId: string) {
+  const unit = findRequest(sessionId, requestId)
+  return unit && 'resolved' in unit ? unit.resolved : undefined
+}
+
+test('remote elicitation settles a question and clears waiting and badge state', () => {
+  const requestId = 'remote-elicit'
+  showElicitRequest({ requestId, sessionId: CURRENT, toolName: 'ask_user', toolInput: { questions } })
+  expect(badgeCounts.at(-1)).toBe(1)
+  const waiting = () => liveApprovalsOf(store.getSessionStream(CURRENT).liveUnits as unknown as Array<Record<string, unknown>>).filter(row => row.requestId === requestId)
+  expect(waiting()).toHaveLength(1)
+  store.ingestChatEvent({ type: 'elicit_resolved', sessionId: CURRENT, requestId, response: { kind: 'answers', answers: { platforms: 'macOS' } } })
+  const unit = findRequest(CURRENT, requestId)
+  if (unit?.type !== 'live-ask' || !unit.resolved) throw new Error('Expected a settled question')
+  expect(unit.resolved).toEqual({ mode: 'submitted', answers: { platforms: 'macOS' } })
+  expect(resolvedQuestionPresentation(questions, unit.resolved).rows).toEqual([{ index: 1, question: 'Which platforms?', answer: 'macOS' }])
+  expect(waiting()).toHaveLength(0)
+  untrackApprovalRequest(requestId)
+  expect(badgeCounts.slice(-2)).toEqual([1, 0])
+})
+
+test('remote permission answers are normalized by question ID', () => {
+  const requestId = 'remote-permission-question'
+  showPermissionRequest({ requestId, sessionId: CURRENT, toolName: 'AskUserQuestion', toolInput: { questions } })
+  store.ingestChatEvent({ type: 'permission_resolved', sessionId: CURRENT, requestId, decision: 'allow', updatedInput: { answers: { 'Which platforms?': 'macOS' } } })
+  expect(resolution(CURRENT, requestId)).toEqual({ mode: 'submitted', answers: { platforms: 'macOS' } })
+})
+
+test('an echoed resolution preserves the local answer object', () => {
+  const requestId = 'local-elicit'
+  showElicitRequest({ requestId, sessionId: CURRENT, toolName: 'ask_user', toolInput: { questions } })
+  store.resolveLiveApproval(CURRENT, requestId, { mode: 'submitted', answers: { platforms: 'macOS' } })
+  const local = resolution(CURRENT, requestId)
+  expect(local).toBeDefined()
+  store.ingestChatEvent({ type: 'elicit_resolved', sessionId: CURRENT, requestId, response: { kind: 'decline' } })
+  expect(resolution(CURRENT, requestId)).toBe(local)
+})
+
+test('remote approval preserves rule flags and releases a parked background tool', () => {
+  for (const sessionId of [CURRENT, 'session-background']) {
+    const requestId = `allow-${sessionId}`, toolCallId = `tool-${sessionId}`
+    store.ingestChatEvent({ type: 'tool_start', sessionId, toolCallId, toolName: 'write', args: {} })
+    showPermissionRequest({ requestId, sessionId, toolCallId, toolName: 'write', toolInput: {} })
+    const toolStatus = () => Object.values(store.getSessionStream(sessionId).tools).find(tool => tool.status === 'awaiting-approval' || tool.status === 'running')?.status
+    expect(toolStatus()).toBe('awaiting-approval')
+    expect(routedKind(sessionId, requestId)).toBe(sessionId === CURRENT ? 'live-permission' : null)
+    store.ingestChatEvent({ type: 'permission_resolved', sessionId, requestId, toolCallId, decision: 'allow', allowSession: true, savedRules: true })
+    expect(toolStatus()).toBe('running')
+    if (sessionId === CURRENT) expect(resolution(sessionId, requestId)).toEqual({ decision: 'allow', allowSession: true, savedRules: true })
+  }
 })

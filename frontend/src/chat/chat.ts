@@ -799,6 +799,16 @@ window.isSessionRunning = (sessionId?: string | null) => !!sessionId
 // here too. We don't try to render into the off-screen session's DOM because
 // chat:event for off-screen sessions is fully filtered out (see
 // klausApi.on.chatEvent), so no tool_use anchors exist to attach to anyway.
+function dropQueuedApproval(queue: Map<string, ApprovalRequest[]>, sessionId: string, requestId: string): boolean {
+  const list = queue.get(sessionId)
+  if (!list) return false
+  const remaining = list.filter(request => request.requestId !== requestId)
+  if (remaining.length === list.length) return false
+  if (remaining.length) queue.set(sessionId, remaining)
+  else queue.delete(sessionId)
+  return true
+}
+
 let pendingPermissionsBySession = new Map<string, ApprovalRequest[]>()
 // sessionId → ElicitRequestCard[]: 引擎内置 ask_user 追问，到达时用户正看着别的会话。
 // 与 pendingPermissionsBySession 同构：switchSession 切回时物化，elicit_cancelled 撤销时移除。
@@ -1788,6 +1798,8 @@ function isTranscriptAffectingEvent(event: ChatEvent) {
     'file',
     'mcp_auth_url',
     'permission_cancelled',
+    'permission_resolved',
+    'elicit_resolved',
     'elicit_cancelled',
     'done',
   ].includes(event?.type)
@@ -16376,27 +16388,13 @@ function handleChatEvent(event: ChatEvent) {
           scheduleAgentTasksSave(sid)
         }
       }
-    } else if (event.type === 'permission_cancelled') {
-      // Engine withdrew a pending ask while we weren't looking at that
-      // session — drop it from the queued list so we don't pop a stale
-      // approve/deny card the next time the user opens that session.
+    } else if (event.type === 'permission_cancelled' || event.type === 'permission_resolved') {
       untrackApprovalRequest(event.requestId)
-      const list = pendingPermissionsBySession.get(event.sessionId)
-      if (list) {
-        const filtered = list.filter((r) => r.requestId !== event.requestId)
-        if (filtered.length === 0) pendingPermissionsBySession.delete(event.sessionId)
-        else pendingPermissionsBySession.set(event.sessionId, filtered)
-      }
-    } else if (event.type === 'elicit_cancelled') {
-      // 同理：撤销后台会话里积压的追问，避免切回时弹出已失效的追问卡。
+      if (dropQueuedApproval(pendingPermissionsBySession, event.sessionId, event.requestId)) renderSessionList()
+    } else if (event.type === 'elicit_cancelled' || event.type === 'elicit_resolved') {
       untrackApprovalRequest(event.requestId)
-      const list = pendingElicitsBySession.get(event.sessionId)
-      if (list) {
-        const filtered = list.filter((r) => r.requestId !== event.requestId)
-        if (filtered.length === 0) pendingElicitsBySession.delete(event.sessionId)
-        else pendingElicitsBySession.set(event.sessionId, filtered)
-      }
       elicitRequestsById.delete(event.requestId)
+      if (dropQueuedApproval(pendingElicitsBySession, event.sessionId, event.requestId)) renderSessionList()
     }
     return
   }
@@ -16570,12 +16568,16 @@ function handleChatEvent(event: ChatEvent) {
     // Pending permission cancelled by engine (e.g., user hit Stop mid-ask).
     // store 已把卡降终态（resolveLiveApproval）；此处只回收角标与本地表。
     case 'permission_cancelled':
+    case 'permission_resolved':
       untrackApprovalRequest(event.requestId)
+      if (dropQueuedApproval(pendingPermissionsBySession, event.sessionId, event.requestId)) renderSessionList()
       break
     // 引擎撤销待回答的追问（如用户在追问期间按 Stop）。
     case 'elicit_cancelled':
+    case 'elicit_resolved':
       untrackApprovalRequest(event.requestId)
       elicitRequestsById.delete(event.requestId)
+      if (dropQueuedApproval(pendingElicitsBySession, event.sessionId, event.requestId)) renderSessionList()
       break
     case 'compaction_start':
       // store 已置 compactionPendingTrigger（乐观 loading pill）+ historyStale。

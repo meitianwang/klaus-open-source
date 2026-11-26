@@ -2022,6 +2022,20 @@ export class MobileBridgeService {
       this.broadcast(run, engineFrame, id ?? undefined);
       if (id) this.taskStreams.publish(id, engineFrame);
     }
+    if (type === 'permission_resolved' || type === 'elicit_resolved') {
+      const kind = type === 'permission_resolved' ? 'permission' : 'elicit';
+      const requestId = string(event.requestId), entries = this.pending(kind), pending = entries.get(requestId);
+      if (pending && !pending.resolving) {
+        entries.delete(requestId);
+        if (id) this.publishPushNotice(id, kind === 'permission' ? 'permission' : 'elicitation', requestId, true);
+        if (id && this.syncAwaitingSession(id)) this.scheduleState(run, owner, true);
+        const frame = { type, sessionId: id, requestId,
+          ...(kind === 'permission' ? { decision: event.decision ?? null,
+            ...(event.updatedInput === undefined ? {} : { updatedInput: event.updatedInput }) } : { response: event.response ?? null }) };
+        this.broadcast(run, frame, id ?? undefined, () => true, true);
+        if (id) this.taskStreams.publish(id, frame);
+      }
+    }
     if (type === 'permission_cancelled' || type === 'elicit_cancelled') {
       const requestId = string(event.requestId); this.pending(type === 'permission_cancelled' ? 'permission' : 'elicit').delete(requestId);
       if (id) this.publishPushNotice(id, type === 'permission_cancelled' ? 'permission' : 'elicitation', requestId, true);
