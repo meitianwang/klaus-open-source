@@ -39,15 +39,18 @@ async function worker(state) {
     remove: async key => { for (const name of Array.isArray(key) ? key : [key]) map.delete(name); },
   });
   const getTab = id => { const tab = state.tabs.get(id); if (!tab) throw new Error(`No tab with id ${id}`); return { ...tab }; };
-  const port = { onMessage: event(), onDisconnect: event(), postMessage: message => messages.push(plain(message)) };
+  const port = { onMessage: event(), onDisconnect: event(), postMessage: message => messages.push(plain(message)),
+    disconnect: () => { state.effects.push(['port-disconnect']); } };
   let startupComplete;
   const startup = new Promise(resolve => { startupComplete = resolve; });
+  const alarmsOnAlarm = event();
+  const attachedDebuggerTabs = new Set();
   const chrome = {
-    runtime: { id: 'fixture-extension', connectNative: () => port, getManifest: () => manifest,
+    runtime: { id: 'fixture-extension', connectNative: () => { state.effects.push(['connect-native']); return port; }, getManifest: () => manifest,
       getURL: path => `chrome-extension://fixture-extension/${path}`, reload: () => state.effects.push(['reload']),
       onInstalled: event(), onMessage: event(), onUpdateAvailable: event(), onStartup: event() },
     storage: { local: storage(state.local), session: storage(state.session) },
-    alarms: { onAlarm: event(), get: async () => undefined, create: async name => { if (name === 'client-heartbeat-alarm') startupComplete(); }, clear: async () => true },
+    alarms: { onAlarm: alarmsOnAlarm, get: async () => undefined, create: async name => { if (name === 'client-heartbeat-alarm') startupComplete(); }, clear: async () => true },
     tabs: {
       onActivated: events.activated, onCreated: events.created, onUpdated: events.updated, onRemoved: events.removed,
       onReplaced: events.replaced, onAttached: events.attached, onDetached: events.detached,
@@ -66,9 +69,9 @@ async function worker(state) {
     tabGroups: { onCreated: event(), onUpdated: event(), onRemoved: event(),
       get: async id => { const group = state.groups.get(id); if (!group) throw new Error('No such group'); return { ...group }; },
       update: async (id, fields) => { Object.assign(state.groups.get(id), fields); state.effects.push(['group-update', id, plain(fields)]); return { ...state.groups.get(id) }; } },
-    debugger: { onEvent: event(), onDetach: event(), getTargets: async () => [],
-      attach: async target => { state.effects.push(['debugger-attach', plain(target)]); },
-      detach: async target => { state.effects.push(['debugger-detach', plain(target)]); },
+    debugger: { onEvent: event(), onDetach: event(), getTargets: async () => [...attachedDebuggerTabs].map(tabId => ({ tabId })),
+      attach: async target => { if (Number.isInteger(target?.tabId)) attachedDebuggerTabs.add(target.tabId); state.effects.push(['debugger-attach', plain(target)]); },
+      detach: async target => { if (Number.isInteger(target?.tabId)) attachedDebuggerTabs.delete(target.tabId); state.effects.push(['debugger-detach', plain(target)]); },
       sendCommand: async () => ({}) },
     downloads: { onCreated: event(), onChanged: event(), cancel: async id => { state.effects.push(['cancel-download', id]); } },
     scripting: { executeScript: async () => [{ result: true }] },
@@ -78,7 +81,9 @@ async function worker(state) {
     console: { error: (...args) => errors.push(args.join(' ')), warn: (...args) => errors.push(args.join(' ')) },
     setTimeout: (callback, ms) => { const id = setTimeout(() => { timers.delete(id); callback(); }, ms); timers.add(id); return id; },
     clearTimeout: id => { timers.delete(id); clearTimeout(id); },
-    fetch: async address => { state.fetches.push(String(address)); const parsed = new URL(address);
+    fetch: async address => { const parsed = new URL(address);
+      if (parsed.pathname === '/klaus-build.json') return { ok: false };
+      state.fetches.push(String(address));
       assert.equal(parsed.origin, 'null'); assert.equal(parsed.protocol, 'chrome-extension:'); assert.equal(parsed.hostname, 'fixture-extension');
       assert.equal(parsed.pathname, '/_favicon/'); assert.equal(parsed.searchParams.get('size'), '16');
       const value = state.favicon(parsed.searchParams.get('pageUrl'));
@@ -94,8 +99,10 @@ async function worker(state) {
   } finally { clearTimeout(startupTimeout); }
   await Promise.resolve();
   assert.deepEqual(errors, [], 'the unmodified service worker starts successfully');
+  state.effects.length = 0;
   return {
-    messages, events,
+    messages, events, port, alarms: alarmsOnAlarm,
+    heartbeat: () => context.heartbeatNativeHost(),
     dispatch: async (method, fields = {}) => plain(await context.dispatch(method, turn('task-a', fields))),
     forTask: async (session, method, fields = {}) => plain(await context.dispatch(method, turn(session, fields))),
     dispose: () => { for (const id of timers) clearTimeout(id); },
@@ -233,3 +240,30 @@ test('external tab changes invalidate inventory and closing a borrowed tab clear
   assert.deepEqual(await instance.dispatch('getUserTabs', { tabId: 17 }), []);
   assert.equal(state.session.get('KLAUS_BORROWED_TABS')?.['17'], undefined);
 });
+
+test('idle heartbeat keeps the native port open when no client socket is attached while detaching orphaned control', async t => {
+  const state = browserState();
+  const instance = await worker(state); t.after(instance.dispose);
+  await instance.dispatch('claimUserTab', { tabId: 17 });
+  await instance.dispatch('attach', { tabId: 17 });
+  assert.equal((await instance.dispatch('getInfo')).metadata.controlActive, true);
+  state.effects.length = 0;
+
+  const heartbeatDone = instance.heartbeat();
+  await Promise.resolve();
+  const ping = instance.messages.findLast(message => message.method === 'ping');
+  assert(ping && typeof ping.id === 'number', 'heartbeat sends ping over native messaging');
+  await instance.port.onMessage.emit({
+    jsonrpc: '2.0',
+    id: ping.id,
+    error: { code: 1, message: 'No Klaus client is connected to the Chrome relay.' },
+  });
+  await heartbeatDone;
+
+  assert(!state.effects.some(effect => effect[0] === 'port-disconnect'), 'healthy idle native host is not torn down');
+  assert(!state.effects.some(effect => effect[0] === 'connect-native'), 'no unnecessary native host respawn while idle');
+  assert(state.effects.some(effect => effect[0] === 'debugger-detach' && effect[1].tabId === 17), 'orphaned debugger attachment is still detached');
+  assert.equal((await instance.dispatch('getInfo')).metadata.controlActive, false, 'orphaned active session is stopped');
+  assert.equal((await instance.dispatch('getUserTabs', { limit: 10 }))[0].id, 17, 'user tab inventory remains immediately available');
+});
+

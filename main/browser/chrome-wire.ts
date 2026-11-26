@@ -1,7 +1,9 @@
 import { endianness } from 'node:os';
 import { BrowserError, object, type BrowserObject } from './types';
 
-export const MAX_CHROME_FRAME = 8 * 1024 * 1024;
+// Chrome native messaging permits up to 64 MiB from the extension to the
+// native host while capping host-to-extension messages at 1 MiB.
+export const MAX_CHROME_FRAME = 64 * 1024 * 1024;
 export const MAX_NATIVE_OUTBOUND = 1024 * 1024;
 
 /** Chrome native messaging uses native endian; Klaus relay clients use LE. */

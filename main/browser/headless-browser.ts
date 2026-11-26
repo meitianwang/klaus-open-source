@@ -289,11 +289,13 @@ export function runHeadlessBrowser(argv: readonly string[] = process.argv): void
         }
 
         if (!msg.sessionId && msg.method === 'Target.closeTarget') {
-          const targetId = typeof msg.params?.targetId === 'string' ? msg.params.targetId : '';
-          const win = windowsByTarget.get(targetId);
-          if (win && !win.isDestroyed()) win.destroy();
-          windowsByTarget.delete(targetId);
-          sendClient({ id: msg.id, result: { success: Boolean(win) } });
+          await serialize(async () => {
+            const targetId = typeof msg.params?.targetId === 'string' ? msg.params.targetId : '';
+            const win = windowsByTarget.get(targetId);
+            if (win && !win.isDestroyed()) win.destroy();
+            windowsByTarget.delete(targetId);
+            sendClient({ id: msg.id, result: { success: Boolean(win) } });
+          });
           return;
         }
 

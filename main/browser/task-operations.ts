@@ -13,13 +13,13 @@ export interface ReadUrlsContext {
 }
 
 function assertActive(signal?: AbortSignal): void {
-  if (signal?.aborted) throw new BrowserError('cancelled', 'The browser page read was cancelled.');
+  if (signal?.aborted) throw (signal.reason instanceof BrowserError ? signal.reason : new BrowserError('cancelled', 'The browser page read was cancelled.'));
 }
 
 function abortable<T>(pending: Promise<T>, signal?: AbortSignal): Promise<T> {
   if (!signal) return pending;
   return new Promise<T>((resolve, reject) => {
-    const abort = (): void => reject(new BrowserError('cancelled', 'The browser page read was cancelled.'));
+    const abort = (): void => reject((signal.reason instanceof BrowserError ? signal.reason : new BrowserError('cancelled', 'The browser page read was cancelled.')));
     signal.addEventListener('abort', abort, { once: true });
     pending.then(value => { signal.removeEventListener('abort', abort); resolve(value); }, error => { signal.removeEventListener('abort', abort); reject(error); });
     if (signal.aborted) { signal.removeEventListener('abort', abort); abort(); }

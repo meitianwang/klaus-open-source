@@ -20,6 +20,7 @@ const CURSOR_ARRIVAL_TIMEOUT_MS = 1_500
 const MAX_USER_TABS = 1_000
 
 let nativePort = null
+let connectedSince = 0
 let reconnectTimeoutId = null
 let reconnectAttempt = 0
 let nativeStatus = {
@@ -327,7 +328,7 @@ function connectNative(options = {}) {
   }
 
   nativePort = port
-  reconnectAttempt = 0
+  connectedSince = Date.now()
   clearReconnectTimeout()
   clearAlarm(NATIVE_RECONNECT_ALARM)
   updateNativeStatus('connected')
@@ -335,6 +336,8 @@ function connectNative(options = {}) {
   port.onDisconnect.addListener(() => {
     if (nativePort !== port) return
     nativePort = null
+    if (connectedSince > 0 && Date.now() - connectedSince >= RECONNECT_MS) reconnectAttempt = 0
+    connectedSince = 0
     for (const owner of [...ownedMediaTransfers.values()]) void cancelPageMedia(owner.sessionId, owner.tabId)
     rejectPendingNativeRequests(chrome.runtime.lastError?.message || 'native host disconnected')
     updateNativeStatus('disconnected', { error: chrome.runtime.lastError?.message })
@@ -343,21 +346,26 @@ function connectNative(options = {}) {
   return true
 }
 
+function reconnectDelayMs() {
+  return reconnectAttempt <= 1 ? 250 : RECONNECT_MS
+}
+
 function scheduleReconnect() {
   if (!nativePort) {
     reconnectAttempt += 1
-    updateNativeStatus('reconnecting', { error: nativeStatus.error, nextRetryMs: RECONNECT_MS })
-    scheduleReconnectTimeout()
+    const nextRetryMs = reconnectDelayMs()
+    updateNativeStatus('reconnecting', { error: nativeStatus.error, nextRetryMs })
+    scheduleReconnectTimeout(nextRetryMs)
     ensureAlarm(NATIVE_RECONNECT_ALARM, 0.5).catch(() => {})
   }
 }
 
-function scheduleReconnectTimeout() {
+function scheduleReconnectTimeout(delayMs = reconnectDelayMs()) {
   if (nativePort || reconnectTimeoutId != null) return
   reconnectTimeoutId = setTimeout(() => {
     reconnectTimeoutId = null
     runReconnectAttempt()
-  }, RECONNECT_MS)
+  }, delayMs)
 }
 
 function clearReconnectTimeout() {
@@ -436,6 +444,7 @@ function rejectPendingNativeRequests(message) {
 
 function handleNativeMessage(message) {
   if (!message || typeof message !== 'object') return
+  reconnectAttempt = 0
 
   if (typeof message.id === 'number' && !('method' in message) && pendingNativeRequests.has(message.id)) {
     const pending = pendingNativeRequests.get(message.id)
@@ -578,17 +587,22 @@ async function getInfo() {
   }
 }
 
+function getTabZoom(tabId) {
+  return withTimeout(Promise.resolve().then(() => chrome.tabs.getZoom(tabId)), 500, 'tab zoom').catch(() => 1)
+}
+
 async function getTabs(params) {
   const session = resolveSession(params)
   const tabs = await listSessionTabs(session)
-  return Promise.all(tabsWithLogicalActive(session, tabs).map(async tab => ({ ...tab, zoomFactor: await chrome.tabs.getZoom(tab.id) })))
+  return Promise.all(tabsWithLogicalActive(session, tabs).map(async tab => ({ ...tab, zoomFactor: await getTabZoom(tab.id) })))
 }
 
 async function focusTab(params) {
   const session = resolveSession(params)
   const tabId = numericTabId(params.tabId)
   // A preview is a reference to an already owned tab, never permission to claim
-  // a user's tab or a different task's page. Restore only durable group ownership.
+  // a user's tab or a different task's page. Restore only durable session ownership.
+  if (!session.tabIds.has(tabId)) await restoreBorrowedSessionTabs(session)
   if (!session.tabIds.has(tabId) && !(await restoreSessionTabFromGroup(session, tabId))) {
     throw new Error(`Tab ${tabId} is not part of browser session ${session.sessionId}`)
   }
@@ -1140,7 +1154,8 @@ async function ensureSessionTab(session, tabId, origin) {
 
 async function requireSessionTab(session, tabId, options = {}) {
   if (!session.tabIds.has(tabId)) {
-    const restored = await restoreSessionTabFromGroup(session, tabId)
+    await restoreBorrowedSessionTabs(session)
+    const restored = session.tabIds.has(tabId) || await restoreSessionTabFromGroup(session, tabId)
     if (!restored) throw new Error(`Tab ${tabId} is not part of browser session ${session.sessionId}`)
   }
   await startSession(session, { publishTabs: options.trackOverlay === true })
@@ -1243,7 +1258,27 @@ async function untrackTab(session, tabId) {
   await publishTabState(tabId)
 }
 
+async function restoreBorrowedSessionTabs(session) {
+  await initializeBorrowedTabs()
+  const missing = [...borrowedTabs].filter(([id, owner]) => owner === session.sessionId && !session.tabIds.has(id))
+  let pruned = false
+  await Promise.all(missing.map(async ([tabId]) => {
+    const tab = await chrome.tabs.get(tabId).catch(() => null)
+    if (borrowedTabs.get(tabId) !== session.sessionId) return
+    if (!tab) {
+      borrowedTabs.delete(tabId)
+      pruned = true
+    } else if (tabHasId(tab) && !tab.url?.startsWith('chrome://')) {
+      session.tabIds.add(tabId)
+      if (!session.tabOrigins.has(tabId)) session.tabOrigins.set(tabId, 'user')
+      attachTabSession(tabId, session.sessionId)
+    }
+  }))
+  if (pruned) await saveBorrowedTabs()
+}
+
 async function listSessionTabs(session) {
+  await restoreBorrowedSessionTabs(session)
   const tabIds = await getSessionGroupTabIds(session)
   for (const tabId of tabIds) {
     session.tabIds.add(tabId)
@@ -1251,18 +1286,22 @@ async function listSessionTabs(session) {
     attachTabSession(tabId, session.sessionId)
   }
 
-  const tabs = []
-  for (const tabId of session.tabIds) {
+  let pruned = false
+  const tabs = (await Promise.all(Array.from(session.tabIds, async tabId => {
     try {
       const tab = await chrome.tabs.get(tabId)
-      if (tabHasId(tab) && !tab.url?.startsWith('chrome://')) tabs.push(tab)
+      if (tabHasId(tab) && !tab.url?.startsWith('chrome://')) return tab
     } catch {
-      if (borrowedTabs.get(tabId) === session.sessionId) { borrowedTabs.delete(tabId); await saveBorrowedTabs() }
+      if (borrowedTabs.get(tabId) === session.sessionId) {
+        borrowedTabs.delete(tabId)
+        pruned = true
+      }
       session.tabIds.delete(tabId)
       session.tabOrigins.delete(tabId)
       detachTabSession(tabId, session.sessionId)
     }
-  }
+  }))).filter(Boolean)
+  if (pruned) await saveBorrowedTabs()
 
   if (tabs.length === 0) await cleanupSessionGroup(session)
   return tabs.map(toBasicTab)
@@ -1962,6 +2001,15 @@ function emitDownloadChange(change) {
   })
 }
 
+async function releaseDetachedControl() {
+  await stopActiveSessions()
+  const targets = await chrome.debugger.getTargets().catch(() => [])
+  await Promise.allSettled(targets
+    .filter(target => Number.isInteger(target.tabId))
+    .map(target => chrome.debugger.detach({ tabId: target.tabId }).catch(() => {})))
+  attachedTargets.clear()
+}
+
 async function heartbeatNativeHost() {
   if (!nativePort) {
     scheduleReconnect()
@@ -1969,18 +2017,26 @@ async function heartbeatNativeHost() {
   }
   try {
     await requestNative('ping', {}, 3_000)
-  } catch {
+  } catch (error) {
+    const message = normalizeError(error)
+    // When the native host answers immediately that no client socket is
+    // attached yet, the stdio pipe and published discovery socket are both
+    // healthy; disconnecting here would tear down the socket every 30 seconds
+    // while idle. Still release any orphaned sessions or debuggers left behind
+    // by a departed client.
+    if (message.includes('No Klaus client is connected to the Chrome relay.')) {
+      if (isBrowserControlActive() || attachedTargets.size > 0) {
+        await releaseDetachedControl()
+      }
+      return
+    }
     try {
       nativePort.disconnect()
     } catch {}
     nativePort = null
+    connectedSince = 0
     scheduleReconnect()
-    await stopActiveSessions()
-    const targets = await chrome.debugger.getTargets().catch(() => [])
-    await Promise.allSettled(targets
-      .filter(target => Number.isInteger(target.tabId))
-      .map(target => chrome.debugger.detach({ tabId: target.tabId }).catch(() => {})))
-    attachedTargets.clear()
+    await releaseDetachedControl()
   }
 }
 

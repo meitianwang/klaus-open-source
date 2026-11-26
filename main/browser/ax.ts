@@ -3,7 +3,7 @@ import { BrowserError, object, type BrowserObject } from './types';
 import type { BrowserCdp } from './page-operations';
 import { domScript, frameCdp } from './dom';
 import { click, computerInput, typeText } from './page-input';
-import { frameDispatch } from './pointer-action';
+import { frameDispatch, pointerTarget } from './pointer-action';
 import { saveScreenshot } from './page-capture';
 import { readLimit } from './page-reading';
 import { locatorBudget } from './locator-policy';
@@ -311,23 +311,25 @@ async function recaptureForError(context: AxContext, store: AxTabStore): Promise
   } catch { return undefined; }
 }
 
-const MARK_REF_SOURCE = `function () {
+export const MARK_REF_SOURCE = `function () {
+  const element = this && this.nodeType === 1 ? this : this?.parentElement ?? null;
+  if (!element) return { connected: false };
   const global = globalThis;
   const refs = global.__klausBrowserRefs || (global.__klausBrowserRefs = Object.create(null));
   const keys = global.__klausBrowserRefKeys || (global.__klausBrowserRefKeys = new WeakMap());
-  let ref = keys.get(this);
-  if (!ref || refs[ref] !== this) {
+  let ref = keys.get(element);
+  if (!ref || refs[ref] !== element) {
     ref = 'e-ax-' + (global.__klausBrowserRefNext = (global.__klausBrowserRefNext || 0) + 1);
-    refs[ref] = this;
-    keys.set(this, ref);
+    refs[ref] = element;
+    keys.set(element, ref);
   }
-  const tag = this.tagName ? String(this.tagName).toLowerCase() : '';
-  return { ref, connected: this.isConnected === true, tag, type: this.type ? String(this.type).toLowerCase() : '', editable: this.isContentEditable === true };
+  const tag = element.tagName ? String(element.tagName).toLowerCase() : '';
+  return { ref, connected: element.isConnected === true, tag, type: element.type ? String(element.type).toLowerCase() : '', editable: element.isContentEditable === true };
 }`;
 
 const SET_VALUE_SOURCE = `function (value) {
-  const element = this;
-  if (!element.isConnected) return { ok: false, reason: 'gone' };
+  const element = this && this.nodeType === 1 ? this : this?.parentElement ?? null;
+  if (!element?.isConnected) return { ok: false, reason: 'gone' };
   const tag = String(element.tagName || '').toLowerCase();
   const type = String(element.type || '').toLowerCase();
   const editable = element.isContentEditable === true;
@@ -394,8 +396,8 @@ const SET_VALUE_SOURCE = `function (value) {
 }`;
 
 const SELECT_TEXT_SOURCE = `function (text, prefix, suffix, selectionType) {
-  const element = this;
-  if (!element.isConnected) return { ok: false, reason: 'gone' };
+  const element = this && this.nodeType === 1 ? this : this?.parentElement ?? null;
+  if (!element?.isConnected) return { ok: false, reason: 'gone' };
   const tag = String(element.tagName || '').toLowerCase();
   const hasValue = tag === 'input' || tag === 'textarea';
   if (!hasValue && element.isContentEditable !== true) return { ok: false, reason: 'not_editable' };
@@ -441,14 +443,104 @@ const SELECT_TEXT_SOURCE = `function (text, prefix, suffix, selectionType) {
   return { ok: true, start, end };
 }`;
 
-const ELEMENT_POINT_SOURCE = `function () {
-  this.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
-  const rect = this.getBoundingClientRect();
+export const ELEMENT_POINT_SOURCE = `function () {
+  const element = this && this.nodeType === 1 ? this : this?.parentElement ?? null;
+  if (!element) return { connected: false };
+  element.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+  let rect;
+  if (this.nodeType === 3) {
+    const range = this.ownerDocument.createRange();
+    range.selectNodeContents(this);
+    rect = range.getClientRects()[0] || range.getBoundingClientRect();
+    if (rect && !rect.width && !rect.height) rect = null;
+  }
+  rect ||= element.getBoundingClientRect();
   return {
-    x: rect.x + rect.width / 2, y: rect.y + rect.height / 2,
-    clientHeight: this.clientHeight || 0,
-    scrollable: (this.scrollHeight > this.clientHeight + 1) || (this.scrollWidth > this.clientWidth + 1),
+    x: Math.max(0, Math.min(innerWidth, rect.x + rect.width / 2)),
+    y: Math.max(0, Math.min(innerHeight, rect.y + rect.height / 2)),
+    clientHeight: element.clientHeight || 0,
+    scrollable: (element.scrollHeight > element.clientHeight + 1) || (element.scrollWidth > element.clientWidth + 1),
   };
+}`;
+
+export const AX_CLICK_PREPARE_SOURCE = `function () {
+  const target = this && this.nodeType === 1 ? this : this?.parentElement ?? null;
+  if (!target?.isConnected) return { connected: false };
+  const mark = (${MARK_REF_SOURCE});
+  const tag = target.tagName?.toLowerCase();
+  if (tag === 'option') {
+    const select = target.closest('select');
+    if (select && !select.multiple && (select.size || 0) <= 1) {
+      if (target.disabled || select.disabled) return { kind: 'disabled' };
+      return { ...mark.call(select), kind: 'option' };
+    }
+  }
+  const positive = rect => rect.width > 0 && rect.height > 0;
+  const hitAt = rect => {
+    const x = Math.max(0, Math.min(innerWidth - 1, rect.x + rect.width / 2));
+    const y = Math.max(0, Math.min(innerHeight - 1, rect.y + rect.height / 2));
+    let hit = target.ownerDocument.elementFromPoint(x, y);
+    while (hit?.shadowRoot) {
+      const inner = hit.shadowRoot.elementFromPoint(x, y);
+      if (!inner || inner === hit) break;
+      hit = inner;
+    }
+    return hit;
+  };
+  if (['input', 'textarea', 'select', 'button'].includes(tag)) {
+    const box = target.getBoundingClientRect();
+    const style = getComputedStyle(target);
+    const labels = Array.from(target.labels ?? []);
+    const wrappingLabel = target.closest('label');
+    if (wrappingLabel?.control === target && !labels.includes(wrappingLabel)) labels.push(wrappingLabel);
+    const label = labels.find(item => item.isConnected && positive(item.getBoundingClientRect()));
+    if (label) {
+      const hit = positive(box) ? hitAt(box) : null;
+      if (!positive(box) || style.opacity === '0' || style.visibility === 'hidden' ||
+          (hit && hit !== target && !target.contains(hit) && labels.some(item => item.contains(hit)))) {
+        if (target.disabled) return { kind: 'disabled' };
+        return mark.call(label);
+      }
+    } else if (tag === 'input' && ['radio', 'checkbox'].includes(target.type)) {
+      if (target.disabled) return { kind: 'disabled' };
+      const wrapper = target.parentElement;
+      if (wrapper && !['body','html','form','fieldset','main','section','article','header','footer','nav','aside','dialog','table','tbody','tr','ul','ol'].includes(wrapper.tagName.toLowerCase()) &&
+          wrapper.querySelectorAll('input,button,select,textarea,a[href],[role=dialog],[aria-modal=true]').length === 1) {
+        wrapper.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
+        const useWrapper = !positive(box) || style.opacity === '0';
+        const probe = (useWrapper ? wrapper : target).getBoundingClientRect();
+        if (positive(probe) && (!useWrapper || (probe.width <= 320 && probe.height <= 96))) {
+          const hit = hitAt(probe);
+          if (hit && hit !== target && wrapper.contains(hit) && ['ins','span','i','svg','path','b','em'].includes(hit.tagName.toLowerCase())) {
+            return { ...mark.call(hit), kind: 'skinned_toggle', checked: Boolean(target.checked) };
+          }
+        }
+      }
+    }
+  }
+  return mark.call(target);
+}`;
+
+const AX_SELECT_OPTION_SOURCE = `function (ref) {
+  const option = this.nodeType === 1 ? this : this.parentElement;
+  const select = option?.closest('select');
+  if (!option?.isConnected || !select || select !== globalThis.__klausBrowserRefs?.[ref] || select.multiple || select.size > 1) return { connected: false };
+  if (option.disabled || select.disabled) return { kind: 'disabled' };
+  select.value = option.value;
+  option.selected = true;
+  select.dispatchEvent(new Event('input', { bubbles: true, composed: true }));
+  select.dispatchEvent(new Event('change', { bubbles: true }));
+  return { connected: true };
+}`;
+
+const AX_TOGGLE_POSTCHECK_SOURCE = `function (expectedChecked) {
+  const target = this.nodeType === 1 ? this : this.parentElement;
+  if (target?.isConnected && target.tagName?.toLowerCase() === 'input' && ['radio', 'checkbox'].includes(target.type) &&
+      !target.disabled && Boolean(target.checked) === expectedChecked) {
+    target.focus?.({ preventScroll: true });
+    if (target.isConnected && !target.disabled && Boolean(target.checked) === expectedChecked) target.click();
+  }
+  return {};
 }`;
 
 const MODIFIER_VIRTUAL_KEY_CODES: Record<string, number> = { Alt: 18, Control: 17, Meta: 91, Shift: 16 };
@@ -576,7 +668,7 @@ async function bridgeAxRef(root: BrowserCdp, entry: AxRenderEntry): Promise<{ sc
 }
 
 async function focusAxElement(root: BrowserCdp, entry: AxRenderEntry): Promise<BrowserCdp> {
-  await callOnAxElement(root, entry, 'function () { this.focus(); return { ok: true }; }', []);
+  await callOnAxElement(root, entry, `function () { const element = this && this.nodeType === 1 ? this : this?.parentElement ?? null; element?.focus(); return { ok: Boolean(element) }; }`, []);
   return entry.frameTarget ? frameCdp(root, entry.frameTarget) : root;
 }
 
@@ -698,6 +790,28 @@ async function dispatchAxAction(context: AxContext, root: BrowserCdp, store: AxT
         return { ok: true, action, via: 'point' };
       }
       const entry = await resolveAxEntry(root, store, fields);
+      if (button === 'left' && clickCount === 1 && !holdMs && !combo) {
+        const prepared = await callOnAxElement(root, entry, AX_CLICK_PREPARE_SOURCE, []);
+        if (prepared.kind === 'disabled') throw new BrowserError('not_enabled', 'The matched element is disabled.');
+        if (prepared.connected !== true) throw new BrowserError('not_found', 'The element was detached. Call ax_state again for fresh element indices.');
+        const scoped = entry.frameTarget ? frameCdp(root, entry.frameTarget) : root;
+        const ref = String(prepared.ref);
+        if (prepared.kind === 'option') {
+          const acquired = await pointerTarget(scoped, { ref, timeoutMs: budget }, signal);
+          acquired.guard?.abandon();
+          assertBrowserActionActive(signal);
+          const selected = await callOnAxElement(root, entry, AX_SELECT_OPTION_SOURCE, [{ value: ref }]);
+          if (selected.kind === 'disabled') throw new BrowserError('not_enabled', 'The matched element is disabled.');
+          if (selected.connected !== true) throw new BrowserError('not_found', 'The option changed. Call ax_state again for fresh element indices.');
+        } else {
+          await click(scoped, { ref, timeoutMs: budget, button, clickCount }, signal);
+          if (prepared.kind === 'skinned_toggle') {
+            assertBrowserActionActive(signal);
+            await callOnAxElement(root, entry, AX_TOGGLE_POSTCHECK_SOURCE, [{ value: prepared.checked === true }]);
+          }
+        }
+        return { ok: true, action, elementIndex: entry.index, via: 'ax' };
+      }
       const bridged = await bridgeAxRef(root, entry);
       await withHeldKey(bridged.scoped, combo, signal, async () => {
         await click(bridged.scoped, { ref: bridged.ref, timeoutMs: budget, button, clickCount, ...(modifiersList ? { modifiers: modifiersList } : {}), ...(holdMs ? { holdMs } : {}) }, signal);
@@ -775,6 +889,7 @@ async function dispatchAxAction(context: AxContext, root: BrowserCdp, store: AxT
       if (rawAxIndex(fields) !== undefined) {
         const entry = await resolveAxEntry(root, store, fields);
         const located = await callOnAxElement(root, entry, ELEMENT_POINT_SOURCE, []);
+        if (located.connected === false) throw new BrowserError('not_found', 'The element is no longer in the page. Call ax_state again.');
         x = Number(located.x);
         y = Number(located.y);
         if (located.scrollable === true && Number(located.clientHeight) > 0) basis = Number(located.clientHeight);
@@ -829,7 +944,7 @@ async function dispatchAxAction(context: AxContext, root: BrowserCdp, store: AxT
         const bridged = await bridgeAxRef(root, entry);
         await click(bridged.scoped, { ref: bridged.ref, timeoutMs: locatorBudget(fields.timeoutMs, 30000, 60000, 'AX action timeoutMs') }, signal);
       } else {
-        await callOnAxElement(root, entry, 'function () { this.scrollIntoView({ block: \'center\', inline: \'center\', behavior: \'instant\' }); return { ok: true }; }', []);
+        await callOnAxElement(root, entry, `function () { const element = this && this.nodeType === 1 ? this : this?.parentElement ?? null; element?.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' }); return { ok: Boolean(element) }; }`, []);
       }
       return { ok: true, action, elementIndex: entry.index, secondaryAction: name };
     }

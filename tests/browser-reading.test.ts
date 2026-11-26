@@ -1,6 +1,6 @@
 import { join } from 'node:path';
 import { boundedEvaluation, evaluationExpression } from '../main/browser/page-evaluate';
-import { readLimit } from '../main/browser/page-reading';
+import { readLimit, readPage, snapshotPage } from '../main/browser/page-reading';
 import { boundedWaitDuration, waitForPage, waitedUrlMatches, waitSubject } from '../main/browser/page-wait';
 import { assert, assertEqual, assertRejects, Harness } from './harness';
 
@@ -8,6 +8,25 @@ const h=new Harness();
 h.test('read budgets reject nonfinite values and preserve requested small limits',async()=>{
   assertEqual(readLimit(3,10,100,'maxChars'),3,'exact budget');
   for(const value of [0,-1,NaN,Infinity,101,'10'])await assertRejects(async()=>readLimit(value,10,100,'maxChars'),'invalid budget refused');
+});
+h.test('reads and snapshots resolve object scopes to a scoped element',async()=>{
+  for(const read of [readPage,snapshotPage]){
+    const locators:Record<string,string>[]=[{selector:'#main'},{role:'main'}];
+    for(const locator of locators){
+      for(const scope of [locator,JSON.stringify(locator)]){
+        const expressions:string[]=[];
+        const cdp={remoteFrameIds:()=>[],evaluate:async(expression:string)=>{
+          expressions.push(expression);
+          if(expressions.length===1)return {elements:[{ref:'e-main'}],count:1,total:1};
+          return {count:1};
+        }} as unknown as Parameters<typeof readPage>[0];
+        assertEqual((await read(cdp,{scope})).count,1,'scoped result');
+        const expected=JSON.stringify(locator).slice(1,-1);
+        assert(expressions[0]?.includes(`const all=locate({${expected},`),'locator is passed to the element search');
+        assert(expressions[1]?.includes('"ref":"e-main"'),'read uses the resolved scope');
+      }
+    }
+  }
 });
 h.test('read-only result limits preserve small data and mark depth and byte truncation',()=>{
   assertEqual(boundedEvaluation('你好'),'你好','small Unicode result');

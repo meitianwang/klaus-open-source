@@ -268,6 +268,100 @@ h.test('an idle relay with an intact endpoint never exits on its own', async () 
   test.input.end();
 });
 
+h.test('inbound browser replies above 8 MiB relay cleanly without tearing down the native host', async () => {
+  const largePayload = 'a'.repeat(9 * 1024 * 1024);
+  const test = await fixture('large-inbound', undefined, {
+    capabilities: ['task_downloads', 'flat_cdp_sessions'],
+    cdp: () => ({ snapshot: largePayload }),
+  });
+  const reply = object(await test.relay.request('executeCdp', { session_id: 'S', turn_id: 'T', method: 'Accessibility.getFullAXTree', commandParams: {} }));
+  assertEqual(String(reply.snapshot).length, largePayload.length, '9 MiB inbound CDP payload arrives intact');
+  assert(existsSync(test.host.endpoint), 'native host endpoint stays published after large inbound reply');
+  test.host.close();
+});
+
+h.test('a wedged cached relay is evicted and replaced when the extension reconnects on a new endpoint', async () => {
+  const dir = mkdtempSync(join(process.platform === 'win32' ? process.env.TEMP || __dirname : '/tmp', 'kls-zmb-'));
+  watchDirs.push(dir);
+  const makePeer = async (tabs: BrowserObject[]) => {
+    let stalled = false;
+    const input = new PassThrough(); const output = new PassThrough();
+    const decoder = new ChromeFrameDecoder(true);
+    const host = new ChromeNativeHost({ directory: dir, input, output, parentExecutable: '/fixture/Chrome' });
+    hosts.push(host);
+    output.on('data', (chunk: Buffer) => {
+      for (const request of decoder.push(chunk)) {
+        if (stalled) continue;
+        if (request.method === 'getInfo') {
+          input.write(chromeFrame({ jsonrpc: '2.0', id: request.id ?? null, result: { name: 'Chrome', version: 'fixture', metadata: { extensionInstanceId: 'reconnecting', capabilities: ['task_downloads', 'flat_cdp_sessions', 'tab_mentions_v1'] } } }, true));
+        } else if (request.method === 'getUserTabs') {
+          input.write(chromeFrame({ jsonrpc: '2.0', id: request.id ?? null, result: tabs }, true));
+        } else if (request.method === 'getTabs') {
+          input.write(chromeFrame({ jsonrpc: '2.0', id: request.id ?? null, result: [] }, true));
+        }
+      }
+    });
+    await host.start();
+    return { host, input, stall: () => { stalled = true; } };
+  };
+  const first = await makePeer([{ id: 11, title: 'Before', url: 'https://example.com/before' }]);
+  const service = new ChromeBrowserService({ enabled: () => true, discoveryDirectory: dir, requestTimeoutMs: 120, livenessTimeoutMs: 120, reconnectWaitMs: 80 });
+  try {
+    const initial = await service.inventoryTabs('chrome:reconnecting');
+    assertEqual(initial[0]?.id, 11, 'initial connection reads from the first host');
+    first.stall();
+    await wait(15);
+    const second = await makePeer([{ id: 22, title: 'After', url: 'https://example.com/after' }]);
+    const recovered = await service.inventoryTabs('chrome:reconnecting');
+    assertEqual(recovered[0]?.id, 22, 'wedged connection is evicted and inventory recovers on the replacement endpoint');
+    second.stall();
+    await wait(15);
+    const third = await makePeer([{ id: 33, title: 'Task recovered', url: 'https://example.com/task' }]);
+    const content = await service.execute('task-1', 'chrome:reconnecting', 'tabs_content', {}, {});
+    const rows = object(content.structuredContent).value as BrowserObject[];
+    assertEqual(object(rows[0]).id, 33, 'task execute evicts a wedged cached connection and retries on the replacement endpoint');
+    second.host.close(); second.input.end();
+    third.host.close(); third.input.end();
+  } finally {
+    await service.shutdown();
+    first.host.close(); first.input.end();
+  }
+});
+
+h.test('a known browser that briefly drops its endpoint during reconnect recovers within the handoff window', async () => {
+  const dir = mkdtempSync(join(process.platform === 'win32' ? process.env.TEMP || __dirname : '/tmp', 'kls-gap-'));
+  watchDirs.push(dir);
+  const spawnHost = async (tabId: number) => {
+    const input = new PassThrough(); const output = new PassThrough();
+    const decoder = new ChromeFrameDecoder(true);
+    const host = new ChromeNativeHost({ directory: dir, input, output, parentExecutable: '/fixture/Chrome' });
+    hosts.push(host);
+    output.on('data', (chunk: Buffer) => {
+      for (const request of decoder.push(chunk)) {
+        if (request.method === 'getInfo') {
+          input.write(chromeFrame({ jsonrpc: '2.0', id: request.id ?? null, result: { name: 'Chrome', version: 'fixture', metadata: { extensionInstanceId: 'handoff', capabilities: ['task_downloads', 'flat_cdp_sessions', 'tab_mentions_v1'] } } }, true));
+        } else if (request.method === 'getUserTabs') {
+          input.write(chromeFrame({ jsonrpc: '2.0', id: request.id ?? null, result: [{ id: tabId, title: 'Handoff', url: 'https://example.com/handoff' }] }, true));
+        }
+      }
+    });
+    await host.start();
+    return { host, input };
+  };
+  const first = await spawnHost(31);
+  const service = new ChromeBrowserService({ enabled: () => true, discoveryDirectory: dir, requestTimeoutMs: 250, livenessTimeoutMs: 120, reconnectWaitMs: 250 });
+  try {
+    assertEqual((await service.mentionTabs('chrome:handoff'))[0]?.id, 31, 'known browser recorded on initial connection');
+    first.host.close(); first.input.end();
+    await wait(20);
+    setTimeout(() => { void spawnHost(42); }, 60);
+    const tabs = await service.mentionTabs('chrome:handoff');
+    assertEqual(tabs[0]?.id, 42, 'brief endpoint gap waits once and connects to the republished host');
+  } finally {
+    await service.shutdown();
+  }
+});
+
 h.test('a closed relay stops watching and reports a second close only once', async () => {
   const test = watchFixture();
   await test.host.start();

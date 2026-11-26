@@ -13,7 +13,17 @@ export function readLimit(input:unknown,fallback:number,max:number,field:string)
 const FRAME_MERGE_LIMIT = 8;
 
 async function readScope(cdp:BrowserCdp,fields:BrowserObject):Promise<{cdp:BrowserCdp;expression:string;whole:boolean}>{
-  const criteria=fields.scope!==undefined?{...fields,selector:fields.scope}:fields;
+  const {scope,...criteria}=fields;
+  let locator=scope;
+  if(typeof scope==='string'&&scope.trimStart().startsWith('{')){
+    try{locator=JSON.parse(scope);}catch{locator=scope;}
+  }
+  if(typeof locator==='string')criteria.selector=locator;
+  else if(locator&&typeof locator==='object'&&!Array.isArray(locator)){
+    for(const key of ['selector','role','name','text','label','placeholder','testId','title','alt','xpath','ref','nth','exact','frame']){
+      if(Object.hasOwn(locator,key))criteria[key]=object(locator)[key]!;
+    }
+  }
   if(namesElement(criteria)||criteria.text!==undefined){const found=await resolveElement(cdp,{...criteria,visible:false});return {cdp:found.cdp,expression:elementScript(found.fields),whole:false};}
   return {cdp,expression:'document.body',whole:true};
 }

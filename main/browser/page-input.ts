@@ -13,7 +13,7 @@ export function modifiers(value: unknown): number {
   const values = Array.isArray(value) ? value : typeof value === 'string' ? value.split('+') : [];
   if (!values.length) throw new BrowserError('invalid_request', 'Modifiers must be a key list or a bitmask between 0 and 15.');
   return values.reduce((mask, value) => {
-    const bit = ({ alt:1,option:1,control:2,ctrl:2,meta:4,cmd:4,command:4,super:4,shift:8,primary:process.platform==='darwin'?4:2,accel:process.platform==='darwin'?4:2 } as Record<string, number>)[String(value).trim().toLowerCase()];
+    const bit = ({ alt:1,option:1,control:2,controlormeta:process.platform==='darwin'?4:2,ctrl:2,meta:4,cmd:4,command:4,super:4,shift:8,primary:process.platform==='darwin'?4:2,accel:process.platform==='darwin'?4:2 } as Record<string, number>)[String(value).trim().toLowerCase()];
     if (!bit) throw new BrowserError('invalid_request', `Unknown modifier key: ${String(value)}`);
     return mask | bit;
   }, 0);
@@ -182,7 +182,7 @@ export async function typeText(cdp: BrowserCdp, fields: BrowserObject, signal?: 
   // the focus through CDP so validation and input run in the focused world.
   const target = named ? cdp : await focusRoute(cdp, signal);
   const selected = named ? elementScript(fields) : 'active()';
-  await browserAction(() => target.evaluate(domScript(`const e=${selected}; if(!e||!e.isConnected)throw new Error('Element not found');if(e.disabled||e.readOnly||(!e.isContentEditable&&!e.matches('input:not([type=button]):not([type=checkbox]):not([type=radio]):not([type=submit]),textarea')))throw new Error('Element is not editable');e.focus();`)), signal);
+  await browserAction(() => target.evaluate(domScript(`const e=${selected}; if(!e||!e.isConnected)throw new Error('Element not found');if(e.disabled||e.readOnly||(${named}&&!e.isContentEditable&&!e.matches('input:not([type=button]):not([type=checkbox]):not([type=radio]):not([type=submit]),textarea')))throw new Error('Element is not editable');if(${named})e.focus();`)), signal);
   if (fields.clear === true) { await pressKey(target, process.platform === 'darwin' ? 'Meta+A' : 'Control+A', signal); await pressKey(target, 'Backspace', signal); }
   const delay = fields.delayMs ?? fields.delay;
   if (delay !== undefined && (typeof delay !== 'number' || !Number.isFinite(delay) || delay < 0)) throw new BrowserError('invalid_request', 'delayMs must be a non-negative number.');

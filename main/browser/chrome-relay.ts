@@ -86,6 +86,8 @@ export class ChromeRelay extends EventEmitter {
     });
   }
 
+  isClosed(): boolean { return this.closed; }
+
   close(error: Error = new BrowserError('unavailable', 'The Chrome relay disconnected.')): void {
     if (this.closed) return;
     this.closed = true; this.socket.destroy();
@@ -102,15 +104,23 @@ export async function discoverChrome(directory = chromeDiscoveryDirectory()): Pr
     const endpoint = join(directory, file);
     let relay: ChromeRelay | undefined;
     try {
+      const stat = await lstat(endpoint);
       relay = await ChromeRelay.connect(endpoint);
       const info = object(await relay.request('getInfo', { session_id: 'klaus-discovery', turn_id: 'discovery' }, 1500));
       const instance = object(info.metadata).extensionInstanceId;
       if (typeof instance !== 'string' || !instance) throw new BrowserError('unavailable', 'Chrome did not return a stable extension instance id.');
       let executable: string | null = null;
       try { const host = object(await relay.request('host/browser', {}, 1500)); executable = typeof host.executable === 'string' ? host.executable : null; } catch { /* Older hosts still relay browser commands. */ }
-      return { endpoint, id: `chrome:${instance}`, info, executable };
+      return { endpoint, id: `chrome:${instance}`, info, executable, mtimeMs: stat.mtimeMs };
     } catch (error) { return `${endpoint}: ${String(error)}`; }
     finally { relay?.close(); }
   }));
-  return { browsers: results.filter((entry): entry is ChromeInstance => typeof entry !== 'string'), candidatePipeCount: files.length, failures: results.filter((entry): entry is string => typeof entry === 'string').slice(0, 8) };
+  const latestById = new Map<string, ChromeInstance & { mtimeMs: number }>();
+  for (const entry of results) {
+    if (typeof entry === 'string') continue;
+    const previous = latestById.get(entry.id);
+    if (!previous || entry.mtimeMs >= previous.mtimeMs) latestById.set(entry.id, entry);
+  }
+  const browsers = [...latestById.values()].map(({ mtimeMs: _mtimeMs, ...instance }) => instance);
+  return { browsers, candidatePipeCount: files.length, failures: results.filter((entry): entry is string => typeof entry === 'string').slice(0, 8) };
 }

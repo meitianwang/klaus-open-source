@@ -1,10 +1,11 @@
 import { join } from 'node:path';
+import { runInNewContext } from 'node:vm';
 import {
   AX_DIFF_HEADER, AX_MOUSE_BUTTONS, AX_NO_CHANGE_TEXT, AX_REMOVED_PREFIX, AX_SELECTED_TEXT_NOTE, AX_SCROLL_DIRECTIONS,
   buildAxEntries, buildDialogAxEntries, holdDurationMs, parseAxClickKey, parseXdotoolKey, removedIdRanges, renderAxStateText,
   type AxFrameInput, type AxNodeMeta, type AxPreviousLine, type AxRenderEntry, type AxWireNode,
 } from '../main/browser/ax-serialize';
-import { captureAxState, performAxAction } from '../main/browser/ax';
+import { AX_CLICK_PREPARE_SOURCE, ELEMENT_POINT_SOURCE, MARK_REF_SOURCE, captureAxState, performAxAction } from '../main/browser/ax';
 import { click } from '../main/browser/page-input';
 import type { BrowserCdp } from '../main/browser/page-operations';
 import { browserTools, parseOperation } from '../main/browser/operations';
@@ -330,6 +331,62 @@ h.test('active JavaScript dialogs synthesize an alertdialog tree and accept inde
   const accepted = await performAxAction({ cdp, dialog }, { action: 'click', elementIndex: 5 });
   assertEqual(accepted.dialog, 'accept', 'clicking OK accepts the dialog');
   assertDeepEqual(answered, { accept: true, promptText: 'Alice', id: 'dlg-1' }, 'dialog answer receives the updated prompt text');
+});
+
+function runAxScript(source: string, receiver: object, globals: Record<string, unknown> = {}) {
+  return runInNewContext(`(${source}).call(receiver)`, { receiver, innerWidth: 100, innerHeight: 100, ...globals });
+}
+
+h.test('AX text nodes register their parent and use the text range for scroll coordinates', () => {
+  const refs: Record<string, object> = {};
+  let scrolled = false;
+  let selected: unknown;
+  const parent = { nodeType: 1, isConnected: true, clientHeight: 40, scrollHeight: 80, scrollIntoView: () => { scrolled = true; } };
+  const text = { nodeType: 3, parentElement: parent, ownerDocument: { createRange: () => ({
+    selectNodeContents: (node: unknown) => { selected = node; },
+    getClientRects: () => [{ x: 80, y: -20, width: 50, height: 30 }],
+  }) } };
+  const info = runAxScript(MARK_REF_SOURCE, text, { __klausBrowserRefs: refs });
+  assertEqual(refs[info.ref], parent, 'the ref resolves to the parent element');
+  assertEqual(runAxScript(MARK_REF_SOURCE, { nodeType: 3 }).connected, false, 'orphan text cannot be addressed');
+  const point = runAxScript(ELEMENT_POINT_SOURCE, text);
+  assert(scrolled && selected === text, 'scroll the parent but measure the text');
+  assertDeepEqual({ ...point }, { x: 100, y: 0, clientHeight: 40, scrollable: true }, 'clamped text midpoint and parent scroll metrics');
+});
+
+h.test('AX option preparation uses the single-select ref and rejects disabled options', () => {
+  const refs: Record<string, object> = {};
+  const select = { nodeType: 1, tagName: 'SELECT', isConnected: true, multiple: false, size: 0 };
+  const option = { nodeType: 1, tagName: 'OPTION', isConnected: true, disabled: false, closest: () => select };
+  const prep = () => runAxScript(AX_CLICK_PREPARE_SOURCE, option, { __klausBrowserRefs: refs });
+  const prepared = prep();
+  assertEqual(prepared.kind, 'option', 'a collapsed single select gets special handling');
+  assertEqual(refs[prepared.ref], select, 'pointer actionability targets the select');
+  option.disabled = true;
+  assertEqual(prep().kind, 'disabled', 'disabled option does not proceed');
+  select.multiple = true;
+  assertEqual(refs[prep().ref], option, 'a multiple select uses the normal option target');
+});
+
+h.test('AX radio preparation targets only the hit skin in a compact single-control wrapper', () => {
+  const refs: Record<string, object> = {};
+  const skin = { nodeType: 1, tagName: 'INS', isConnected: true };
+  let hit: object = skin;
+  const wrapper = { tagName: 'DIV', querySelectorAll: () => [radio], scrollIntoView() {},
+    getBoundingClientRect: () => ({ x: 0, y: 0, width: 40, height: 30 }), contains: (node: object) => node === skin };
+  const radio = { nodeType: 1, tagName: 'INPUT', type: 'radio', checked: false, isConnected: true,
+    closest: () => null, parentElement: wrapper, getBoundingClientRect: () => ({ x: 0, y: 0, width: 0, height: 0 }),
+    ownerDocument: { elementFromPoint: () => hit } };
+  const prep = () => runAxScript(AX_CLICK_PREPARE_SOURCE, radio, { __klausBrowserRefs: refs, getComputedStyle: () => ({ opacity: '0' }) });
+  const prepared = prep();
+  assertEqual(prepared.kind, 'skinned_toggle', 'skin hit is eligible for a post-check');
+  assertEqual(prepared.checked, false, 'preparation captures the original checked state');
+  assertEqual(refs[prepared.ref], skin, 'pointer action targets the exact hit');
+  hit = { tagName: 'SPAN' };
+  assertEqual(refs[prep().ref], radio, 'an outside overlay does not become a click target');
+  hit = skin;
+  wrapper.querySelectorAll = () => [radio, radio];
+  assertEqual(refs[prep().ref], radio, 'multi-control wrappers do not retarget');
 });
 
 void h.finish(join(__dirname, 'browser-ax-result.json'), 'browser-ax').then(code => process.exit(code));

@@ -89,6 +89,8 @@ export class ChromePageDebugger implements BrowserCdp {
   /** True while the task holds raw Fetch interception on any session of this page. */
   rawFetchActive(): boolean { return this.rawFetchPatterns.size > 0; }
 
+  isClosed(): boolean { return this.closed; }
+
   acceptNotification(notification: BrowserObject): void {
     if (this.closed) return;
     if (notification.method !== 'onCDPEvent') return;

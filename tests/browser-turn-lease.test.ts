@@ -12,7 +12,8 @@ const h = new Harness();
 interface RelayLog { method: string; params: BrowserObject }
 
 /** A unix-socket stand-in for the native host plus extension relay peer. */
-async function fakeRelay(log: RelayLog[], metadata: BrowserObject = {}): Promise<{ directory: string; close: () => void }> {
+async function fakeRelay(log: RelayLog[], metadata: BrowserObject = {},
+  intercept?: (row: RelayLog, send: (message: BrowserObject) => void) => Promise<BrowserObject | undefined>): Promise<{ directory: string; close: () => void }> {
   const directory = mkdtempSync(join(tmpdir(), 'klaus-turn-lease-'));
   const endpoint = join(directory, 'klaus-lease.sock');
   const server = createServer(socket => {
@@ -22,7 +23,11 @@ async function fakeRelay(log: RelayLog[], metadata: BrowserObject = {}): Promise
         if (typeof message.id !== 'number' || typeof message.method !== 'string') continue;
         const params = (message.params ?? {}) as BrowserObject;
         log.push({ method: message.method, params });
-        socket.write(chromeFrame({ jsonrpc: '2.0', id: message.id, result: reply(message.method, params, metadata) }));
+        const { id, method } = message;
+        const send = (payload: BrowserObject): void => { if (!socket.destroyed) socket.write(chromeFrame(payload)); };
+        void Promise.resolve(intercept?.({ method, params }, send)).then(result => {
+          send({ jsonrpc: '2.0', id, result: result ?? reply(method, params, metadata) });
+        });
       }
     });
   });
@@ -85,6 +90,76 @@ void h.test('one debugger attach per turn lease, released at turn end', async ()
   } finally {
     await service.shutdown();
     relay.close();
+  }
+});
+
+void h.test('a delayed old turn release does not detach the new turn', async () => {
+  const log: RelayLog[] = [];
+  let release!: () => void;
+  const oldRelease = new Promise<void>(resolve => { release = resolve; });
+  let delivered = false;
+  const relay = await fakeRelay(log, {}, async ({ method, params }, send): Promise<BrowserObject | undefined> => {
+    if (method === 'turnEnded' && params.turn_id === 'old') {
+      await oldRelease;
+      setImmediate(() => send({ jsonrpc: '2.0', method: 'onTabsChanged' }));
+    }
+    return undefined;
+  });
+  const service = new ChromeBrowserService({ enabled: () => true, discoveryDirectory: relay.directory,
+    onTabsChanged: () => { delivered = true; } });
+  const run = () => service.execute('S1', 'chrome:lease-inst', 'console', {}, {});
+  try {
+    service.turnStarted('S1', 'old');
+    await run();
+    service.turnStarted('S1', 'new');
+    await run();
+    assertEqual(attachCount(log), 2, 'new turn attaches once before old release resolves');
+    delivered = false;
+    release();
+    await waitFor(() => delivered, 3000, 'old release reply has been delivered');
+    await run();
+    assertEqual(attachCount(log), 2, 'old release leaves the new attachment intact');
+  } finally {
+    release();
+    await service.shutdown();
+    relay.close();
+  }
+});
+
+void h.test('navigation waits for load after same-document changes and client redirects', async () => {
+  for (const redirect of [false, true]) {
+    const log: RelayLog[] = [];
+    let readyChecks = 0;
+    const relay = await fakeRelay(log, {}, async ({ method, params }, send): Promise<BrowserObject | undefined> => {
+      if (method !== 'executeCdp') return undefined;
+      const event = (name: string, fields: BrowserObject) => send({ jsonrpc: '2.0', method: 'onCDPEvent',
+        params: { source: { tabId: 7 }, method: name, params: fields } });
+      if (params.method === 'Page.navigate') {
+        event('Page.frameNavigated', { frame: { id: 'F1', loaderId: 'L1' } });
+        return { frameId: 'F1', loaderId: 'L1' };
+      }
+      if (params.method === 'Runtime.evaluate' && (params.commandParams as BrowserObject)?.expression === 'document.readyState') {
+        if (++readyChecks === 1) {
+          event('Page.navigatedWithinDocument', { frameId: 'F1', url: 'https://example.com/#ready' });
+          if (redirect) {
+            event('Page.frameStartedNavigating', { frameId: 'F1', loaderId: 'L2' });
+            event('Page.frameNavigated', { frame: { id: 'F1', loaderId: 'L2' } });
+          }
+          return { result: { value: 'loading' } };
+        }
+        return { result: { value: 'complete' } };
+      }
+      return undefined;
+    });
+    const service = new ChromeBrowserService({ enabled: () => true, discoveryDirectory: relay.directory });
+    try {
+      await service.execute('S1', 'chrome:lease-inst', 'navigate', { url: 'https://example.com/', waitUntil: 'load', timeoutMs: 1000 }, {});
+      assertEqual(readyChecks, 2, 'navigation waits for the complete document');
+      assert(!cdpCalls(log).some(row => row.params.method === 'Page.stopLoading'), 'navigation does not stop the committed load');
+    } finally {
+      await service.shutdown();
+      relay.close();
+    }
   }
 });
 

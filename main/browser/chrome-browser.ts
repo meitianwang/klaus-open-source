@@ -25,13 +25,18 @@ export interface ChromeBrowserOptions {
   artifactDirectory?: string;
   authorize?: (sessionId: string, url: string, resource: BrowserResource, signal?: AbortSignal) => Promise<void>;
   setup?: Omit<ChromeSetupOptions, 'enabled' | 'discoveryDirectory'>;
+  requestTimeoutMs?: number;
+  livenessTimeoutMs?: number;
+  reconnectWaitMs?: number;
 }
-interface Connection { instance: ChromeInstance; relay: ChromeRelay; pages: Map<number, ChromePageDebugger>; active: Map<string, number>; sessions: Set<string>; dispositions: Map<number, string> }
+interface Connection { instance: ChromeInstance; relay: ChromeRelay; pages: Map<number, ChromePageDebugger>; active: Map<string, number>; sessions: Set<string>; dispositions: Map<number, string>; replies: number }
 
 /** External Chrome stays an explicit backend with extension-enforced task ownership. */
 export class ChromeBrowserService {
   private readonly connections = new Map<string, Connection>();
   private readonly connecting = new Map<string, Promise<Connection>>();
+  private readonly knownBrowsers = new Set<string>();
+  private readonly probing = new WeakMap<Connection, Promise<boolean>>();
   private readonly turns = new Map<string, { sessionId: string; generation: number }>();
   // One debugger lease per session turn: the extension attaches lazily on the
   // first page use and holds the attachment across operations until the turn
@@ -44,6 +49,7 @@ export class ChromeBrowserService {
   private readonly pageUrls = new WeakMap<ChromePageDebugger, string>();
   // Root frame loader events revoke an operation's lease when another
   // navigation takes over, including navigation started outside this service.
+  private readonly navigationSupersede = new WeakMap<ChromePageDebugger, () => void>();
   private readonly navigationMarks = new WeakMap<ChromePageDebugger, symbol>();
   private readonly mediaDownloads: DownloadStore | undefined;
   private closed = false;
@@ -64,7 +70,73 @@ export class ChromeBrowserService {
 
   async discover(): Promise<Awaited<ReturnType<typeof discoverChrome>>> {
     if (!this.isEnabled()) return { browsers: [], candidatePipeCount: 0, failures: [] };
-    return discoverChrome(this.options.discoveryDirectory);
+    const found = await discoverChrome(this.options.discoveryDirectory);
+    for (const instance of found.browsers) {
+      this.knownBrowsers.add(instance.id);
+      const cached = this.connections.get(instance.id);
+      if (cached && (cached.relay.isClosed() || cached.instance.endpoint !== instance.endpoint)) {
+        this.evictConnection(instance.id, cached, new BrowserError('unavailable', 'The Chrome relay reconnected on a new endpoint.'));
+      }
+    }
+    return found;
+  }
+
+  private evictConnection(browserId: string, connection: Connection, error?: Error): void {
+    connection.relay.close(error);
+    if (this.connections.get(browserId) === connection) this.connections.delete(browserId);
+    for (const page of connection.pages.values()) void this.disposePage(page);
+    connection.pages.clear();
+    connection.active.clear();
+    connection.sessions.clear();
+    connection.dispositions.clear();
+  }
+
+  private isRelayFailure(error: unknown): boolean {
+    return error instanceof BrowserError && (error.code === 'timeout' || error.code === 'unavailable');
+  }
+
+  private probeAndEvictIfStale(browserId: string, connection: Connection): Promise<boolean> {
+    if (!this.isEnabled()) return Promise.resolve(false);
+    if (connection.relay.isClosed() || this.connections.get(browserId) !== connection) {
+      this.evictConnection(browserId, connection);
+      return Promise.resolve(true);
+    }
+    const existing = this.probing.get(connection);
+    if (existing) return existing;
+    const probe = (async () => {
+      try {
+        const current = object(await connection.relay.request('getInfo', { session_id: 'klaus-liveness', turn_id: 'liveness' }, this.options.livenessTimeoutMs ?? 1000));
+        if (`chrome:${object(current.metadata).extensionInstanceId}` !== browserId) {
+          this.evictConnection(browserId, connection, new BrowserError('stale_browser', 'The browser profile changed on the Chrome relay.'));
+          return true;
+        }
+        const found = await this.discover();
+        if (this.connections.get(browserId) !== connection || !found.browsers.some(row => row.id === browserId && row.endpoint === connection.instance.endpoint)) {
+          this.evictConnection(browserId, connection, new BrowserError('unavailable', 'The Chrome relay endpoint is no longer active.'));
+          return true;
+        }
+        return false;
+      } catch (error) {
+        this.evictConnection(browserId, connection, error instanceof Error ? error : new BrowserError('unavailable', 'The cached Chrome relay stopped responding.'));
+        return true;
+      } finally {
+        this.probing.delete(connection);
+      }
+    })();
+    this.probing.set(connection, probe);
+    return probe;
+  }
+
+  private async withReadConnection<T>(browserId: string, run: (connection: Connection) => Promise<T>): Promise<T> {
+    const reused = this.connections.get(browserId);
+    const connection = await this.connect(browserId);
+    try {
+      return await run(connection);
+    } catch (error) {
+      if (!reused || reused !== connection || !this.isRelayFailure(error)) throw error;
+      if (!(await this.probeAndEvictIfStale(browserId, connection))) throw error;
+      return run(await this.connect(browserId));
+    }
   }
 
   /** Refresh the unpacked extension copy when this app's build moved on. */
@@ -79,29 +151,31 @@ export class ChromeBrowserService {
 
   /** Inventory never claims, focuses, navigates, or creates a user tab. */
   async mentionTabs(browserId: string, query = '', limit = 100, tabId?: string): Promise<BrowserObject[]> {
-    const connection = await this.connect(browserId);
-    this.requireTabMentions(connection);
-    // A fixed inventory lease also works with already-installed extensions.
-    // It is isolated from real task turns and cannot grow per picker refresh.
-    const rows = await connection.relay.request('getUserTabs', { session_id: 'klaus-tab-mention-inventory', turn_id: 'inventory', query, limit, includeFavicons: true,
-      ...(tabId ? { tabId: Number(tabId) } : {}) }, 3000);
-    if (!Array.isArray(rows)) throw new BrowserError('host_error', 'The browser returned an invalid tab inventory.');
-    return rows.map(object);
+    return this.withReadConnection(browserId, async connection => {
+      this.requireTabMentions(connection);
+      // A fixed inventory lease also works with already-installed extensions.
+      // It is isolated from real task turns and cannot grow per picker refresh.
+      const rows = await connection.relay.request('getUserTabs', { session_id: 'klaus-tab-mention-inventory', turn_id: 'inventory', query, limit, includeFavicons: true,
+        ...(tabId ? { tabId: Number(tabId) } : {}) }, this.options.requestTimeoutMs ?? 3000);
+      if (!Array.isArray(rows)) throw new BrowserError('host_error', 'The browser returned an invalid tab inventory.');
+      return rows.map(object);
+    });
   }
 
   /** Global user-tab inventory for cross-surface state; never claims, focuses, or navigates. */
   async inventoryTabs(browserId: string): Promise<BrowserObject[]> {
-    const connection = await this.connect(browserId);
-    this.requireTabMentions(connection);
-    // A fixed inventory lease keeps aggregation isolated from real task turns
-    // and bounded per connected instance, like the mention picker's lease.
-    const rows = await connection.relay.request('getUserTabs', { session_id: 'klaus-browser-inventory', turn_id: 'inventory', query: '', limit: 100, includeFavicons: false }, 3000);
-    if (!Array.isArray(rows)) throw new BrowserError('host_error', 'The browser returned an invalid tab inventory.');
-    return rows.flatMap(row => {
-      const entry = object(row);
-      const id = Number(entry.id);
-      if (!Number.isSafeInteger(id) || id < 1 || typeof entry.url !== 'string') return [];
-      return [{ id, title: String(entry.title || entry.url), url: entry.url }];
+    return this.withReadConnection(browserId, async connection => {
+      this.requireTabMentions(connection);
+      // A fixed inventory lease keeps aggregation isolated from real task turns
+      // and bounded per connected instance, like the mention picker's lease.
+      const rows = await connection.relay.request('getUserTabs', { session_id: 'klaus-browser-inventory', turn_id: 'inventory', query: '', limit: 100, includeFavicons: false }, this.options.requestTimeoutMs ?? 3000);
+      if (!Array.isArray(rows)) throw new BrowserError('host_error', 'The browser returned an invalid tab inventory.');
+      return rows.flatMap(row => {
+        const entry = object(row);
+        const id = Number(entry.id);
+        if (!Number.isSafeInteger(id) || id < 1 || typeof entry.url !== 'string') return [];
+        return [{ id, title: String(entry.title || entry.url), url: entry.url }];
+      });
     });
   }
 
@@ -112,11 +186,23 @@ export class ChromeBrowserService {
 
   private async connect(browserId: string): Promise<Connection> {
     this.requireEnabled();
-    const present = this.connections.get(browserId); if (present) return present;
+    const present = this.connections.get(browserId);
+    if (present && !present.relay.isClosed()) return present;
+    if (present) this.evictConnection(browserId, present);
     const starting = this.connecting.get(browserId); if (starting) return starting;
     const promise = (async () => {
-      const found = await this.discover();
-      const instance = found.browsers.find(row => row.id === browserId);
+      let found = await this.discover();
+      let instance = found.browsers.find(row => row.id === browserId);
+      if (!instance && (this.knownBrowsers.has(browserId) || found.failures.length > 0)) {
+        const waitMs = this.options.reconnectWaitMs ?? 350;
+        if (waitMs > 0) {
+          await new Promise<void>(resolve => setTimeout(resolve, waitMs));
+          if (this.isEnabled()) {
+            found = await this.discover();
+            instance = found.browsers.find(row => row.id === browserId);
+          }
+        }
+      }
       if (!instance) throw new BrowserError('unavailable', `External browser '${browserId}' is not connected. No built-in-browser fallback was performed.`);
       const capabilities = object(instance.info.metadata).capabilities;
       if (!Array.isArray(capabilities) || !['task_downloads', 'flat_cdp_sessions'].every(feature => capabilities.includes(feature))) throw new BrowserError('unavailable', 'Reload the bundled Klaus Chrome extension to enable task-owned downloads and frame sessions. No built-in-browser fallback was performed.');
@@ -140,7 +226,7 @@ export class ChromeBrowserService {
         instance.info = current;
       } catch (error) { relay.close(); throw error; }
       if (!this.isEnabled()) { relay.close(); this.requireEnabled(); }
-      const connection: Connection = { instance, relay, pages: new Map(), active: new Map(), sessions: new Set(), dispositions: new Map() };
+      const connection: Connection = { instance, relay, pages: new Map(), active: new Map(), sessions: new Set(), dispositions: new Map(), replies: 0 };
       relay.on('notification', (notification: BrowserObject) => {
         if (notification.method === 'onTabsChanged') this.options.onTabsChanged?.();
         for (const page of connection.pages.values()) page.acceptNotification(notification);
@@ -149,8 +235,12 @@ export class ChromeBrowserService {
         if (this.connections.get(browserId) === connection) this.connections.delete(browserId);
         for (const page of connection.pages.values()) void this.disposePage(page);
         connection.pages.clear();
+        connection.active.clear();
+        connection.sessions.clear();
+        connection.dispositions.clear();
         this.options.onTabsChanged?.();
       });
+      this.knownBrowsers.add(browserId);
       this.connections.set(browserId, connection); return connection;
     })();
     this.connecting.set(browserId, promise);
@@ -165,10 +255,14 @@ export class ChromeBrowserService {
       for (const browser of await this.list()) {
         if (browser.available !== true || typeof browser.id !== 'string') continue;
         try {
-          const connection = await this.connect(browser.id); const turnId = randomUUID();
-          const params = { session_id: sessionId, turn_id: turnId };
-          const tabs = await connection.relay.request('getUserTabs', params);
-          const visits = await connection.relay.request('getUserHistory', { ...params, query: host, limit: 50 });
+          const { tabs, visits } = await this.withReadConnection(browser.id, async connection => {
+            const turnId = randomUUID();
+            const params = { session_id: sessionId, turn_id: turnId };
+            return {
+              tabs: await connection.relay.request('getUserTabs', params, this.options.requestTimeoutMs),
+              visits: await connection.relay.request('getUserHistory', { ...params, query: host, limit: 50 }, this.options.requestTimeoutMs),
+            };
+          });
           const mentions = (rows: Json): number => (Array.isArray(rows) ? rows : []).filter(row => {
             try { const current = new URL(String(object(row).url)); return ['http:', 'https:'].includes(current.protocol) && (current.hostname === host || current.hostname.endsWith(`.${host}`)); } catch { return false; }
           }).length;
@@ -187,7 +281,11 @@ export class ChromeBrowserService {
     return new ChromeSetup({ ...this.options.setup, enabled: () => this.isEnabled(), discoveryDirectory: this.options.discoveryDirectory }).action(action);
   }
 
-  async select(browserId: string): Promise<void> { await this.connect(browserId); }
+  async select(browserId: string): Promise<void> {
+    const cached = this.connections.get(browserId);
+    if (cached) await this.probeAndEvictIfStale(browserId, cached);
+    await this.connect(browserId);
+  }
 
   /** True when the connected extension announces the browser-management backend. */
   managementSupported(browserId: string): boolean {
@@ -204,7 +302,10 @@ export class ChromeBrowserService {
     this.requireEnabled();
     const turn = this.turns.get(turnId);
     if (!turn || turn.sessionId !== sessionId || turn.generation !== (this.generations.get(sessionId) ?? 0)) throw new BrowserError('unavailable', 'The Chrome task capability was released.');
-    return connection.relay.request(method, { ...fields, session_id: sessionId, turn_id: turnId });
+    return connection.relay.request(method, { ...fields, session_id: sessionId, turn_id: turnId }, this.options.requestTimeoutMs).then(value => {
+      connection.replies += 1;
+      return value;
+    });
   }
 
   private async tabs(connection: Connection, sessionId: string, turnId: string): Promise<BrowserObject[]> {
@@ -221,7 +322,14 @@ export class ChromeBrowserService {
   }
 
   private async discardCreatedPage(connection: Connection, sessionId: string, turnId: string, id: number): Promise<void> {
-    await this.request(connection, sessionId, turnId, 'discardCreatedTab', { tabId: id });
+    try {
+      await this.request(connection, sessionId, turnId, 'discardCreatedTab', { tabId: id });
+    } catch (error) {
+      if (!(error instanceof Error) || !error.message.includes('discardCreatedTab')) throw error;
+      const rows = await this.tabs(connection, sessionId, turnId);
+      const keep = rows.filter(row => row.id !== id).map(row => ({ tabId: row.id ?? null, status: connection.dispositions.get(Number(row.id)) ?? 'handoff' }));
+      await this.request(connection, sessionId, turnId, 'finalizeTabs', { keep });
+    }
     const page = connection.pages.get(id);
     if (page?.sessionId === sessionId) { connection.pages.delete(id); await this.disposePage(page); }
     connection.dispositions.delete(id);
@@ -241,7 +349,7 @@ export class ChromeBrowserService {
       signal?.throwIfAborted();
       return { created, page };
     } catch (error) {
-      await this.discardCreatedPage(connection, sessionId, turnId, id);
+      await this.discardCreatedPage(connection, sessionId, turnId, id).catch(() => {});
       throw error;
     }
   }
@@ -257,7 +365,7 @@ export class ChromeBrowserService {
     if (checkAccess) await this.options.authorize?.(sessionId, String(owned.url ?? 'about:blank'), 'browsing', signal);
     signal?.throwIfAborted();
     const previous = connection.pages.get(id);
-    if (previous && previous.sessionId !== sessionId) { await previous.dispose(); connection.pages.delete(id); }
+    if (previous && (previous.sessionId !== sessionId || previous.isClosed())) { await this.disposePage(previous); connection.pages.delete(id); }
     let page = connection.pages.get(id);
     if (!page) {
       const generation = this.generations.get(sessionId) ?? 0;
@@ -292,11 +400,24 @@ export class ChromeBrowserService {
     try { return await pending; } finally { active.delete(pending); if (!active.size) this.inFlight.delete(sessionId); }
   }
 
-  private async executeRequest(sessionId: string, browserId: string, kind: string, fields: BrowserObject, target: BrowserObject, signal?: AbortSignal): Promise<BrowserObject> {
+  private async executeRequest(sessionId: string, browserId: string, kind: string, fields: BrowserObject, target: BrowserObject, signal?: AbortSignal, allowReconnect = true): Promise<BrowserObject> {
     signal?.throwIfAborted();
     const generation = this.generations.get(sessionId) ?? 0;
+    const reused = this.connections.get(browserId);
     const connection = await this.connect(browserId);
     if (generation !== (this.generations.get(sessionId) ?? 0)) throw new BrowserError('unavailable', 'The Chrome task capability was released.');
+    const repliesBefore = connection.replies;
+    try {
+      return await this.executeConnectedRequest(connection, sessionId, browserId, generation, kind, fields, target, signal);
+    } catch (error) {
+      if (!allowReconnect || !reused || reused !== connection || connection.replies !== repliesBefore || signal?.aborted) throw error;
+      if (generation !== (this.generations.get(sessionId) ?? 0) || !this.isRelayFailure(error)) throw error;
+      if (!(await this.probeAndEvictIfStale(browserId, connection))) throw error;
+      return this.executeRequest(sessionId, browserId, kind, fields, target, signal, false);
+    }
+  }
+
+  private async executeConnectedRequest(connection: Connection, sessionId: string, browserId: string, generation: number, kind: string, fields: BrowserObject, target: BrowserObject, signal?: AbortSignal): Promise<BrowserObject> {
     connection.sessions.add(sessionId);
     const turnId = this.leaseFor(sessionId, generation);
     const handle = fields.tabId === undefined ? undefined : Number(fields.tabId);
@@ -395,7 +516,7 @@ export class ChromeBrowserService {
           signal?.throwIfAborted();
           return await answer({ value: { ...created, tabId: page.tabId, url } }, page);
         } catch (error) {
-          await this.discardCreatedPage(connection, sessionId, turnId, page.tabId);
+          await this.discardCreatedPage(connection, sessionId, turnId, page.tabId).catch(() => {});
           throw error;
         }
       }
@@ -491,6 +612,7 @@ export class ChromeBrowserService {
     const frameId = object(tree.frame).id;
     if (typeof frameId !== 'string') throw new BrowserError('chrome_error', 'Chrome did not return the main frame.');
     outerSignal?.throwIfAborted();
+    this.navigationSupersede.get(page)?.();
     const mark = Symbol('navigation'), controller = new AbortController();
     const signal = outerSignal ? AbortSignal.any([outerSignal, controller.signal]) : controller.signal;
     this.navigationMarks.set(page, mark);
@@ -502,9 +624,10 @@ export class ChromeBrowserService {
       if (this.navigationMarks.get(page) === mark) this.navigationMarks.delete(page);
       controller.abort(new BrowserError('navigation_interrupted', 'Another main-frame navigation replaced this operation.'));
     };
+    this.navigationSupersede.set(page, supersede);
     const observeLoader = (value: unknown): void => {
       if (typeof value !== 'string' || !value) return;
-      if (loaderId === undefined) loaderId = value;
+      if (loaderId === undefined || committed) loaderId = value;
       else if (loaderId !== value) supersede();
     };
     const remove = page.onEvent((method, params, child) => {
@@ -518,8 +641,7 @@ export class ChromeBrowserService {
         else observeLoader(object(params.frame).loaderId);
         if (!signal.aborted) { committed = true; resolveCommit(); }
       } else if (method === 'Page.navigatedWithinDocument' && params.frameId === frameId) {
-        if (committed) supersede();
-        else { committed = true; resolveCommit(); }
+        if (!committed) { committed = true; resolveCommit(); }
       }
     });
     let stopped = false;
@@ -532,6 +654,7 @@ export class ChromeBrowserService {
     if (signal.aborted) stop();
     return { signal, commit, stop, close: () => {
       signal.removeEventListener('abort', stop); remove();
+      if (this.navigationSupersede.get(page) === supersede) this.navigationSupersede.delete(page);
       if (this.navigationMarks.get(page) === mark) this.navigationMarks.delete(page);
     } };
   }
@@ -647,11 +770,20 @@ export class ChromeBrowserService {
     const lease = this.leases.get(sessionId);
     if (!lease) return;
     this.leases.delete(sessionId);
-    this.turns.delete(lease.turnId);
+    const closingTurnId = lease.turnId;
+    this.turns.delete(closingTurnId);
     for (const connection of this.connections.values()) {
       if (!connection.sessions.has(sessionId)) continue;
-      await connection.relay.request('turnEnded', { session_id: sessionId, turn_id: lease.turnId }, 1500).catch(() => {});
-      for (const page of connection.pages.values()) if (page.sessionId === sessionId) await page.detached();
+      for (const page of connection.pages.values()) {
+        if (page.sessionId === sessionId && page.turnId === closingTurnId) void page.detached();
+      }
+    }
+    for (const connection of this.connections.values()) {
+      if (!connection.sessions.has(sessionId)) continue;
+      await connection.relay.request('turnEnded', { session_id: sessionId, turn_id: closingTurnId }, 1500).catch(() => {});
+      for (const page of connection.pages.values()) {
+        if (page.sessionId === sessionId && page.turnId === closingTurnId && this.leases.get(sessionId)?.turnId !== closingTurnId) await page.detached();
+      }
     }
   }
 
@@ -709,6 +841,6 @@ export class ChromeBrowserService {
       await Promise.race([Promise.allSettled(this.releases), new Promise<void>(resolve => { timer = setTimeout(() => { this.options.reportDiagnostic?.('Chrome cleanup exceeded the shutdown deadline; its native connections will close.'); resolve(); }, 7000); })]);
     } finally { clearTimeout(timer); }
     for (const connection of this.connections.values()) connection.relay.close();
-    this.connections.clear(); this.connecting.clear(); this.generations.clear(); this.turns.clear(); this.leases.clear();
+    this.connections.clear(); this.connecting.clear(); this.knownBrowsers.clear(); this.generations.clear(); this.turns.clear(); this.leases.clear();
   }
 }

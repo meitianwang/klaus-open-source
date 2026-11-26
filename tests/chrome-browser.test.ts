@@ -164,6 +164,7 @@ h.test('external frame evaluation admits only an iframe of this task\'s page', a
     if (notification.method === 'onCDPEvent' && object(event.source).tabId === tabB && event.method === 'Target.attachedToTarget') childSession = String(object(event.params).sessionId ?? '');
   });
   await relay.request('attach', { session_id: 'B', turn_id: 'frame-boundary', tabId: tabB });
+  await relay.request('executeCdp', { session_id: 'B', turn_id: 'frame-boundary', tabId: tabB, method: 'Target.setAutoAttach', commandParams: { autoAttach: false, waitForDebuggerOnStart: false, flatten: true } });
   await relay.request('executeCdp', { session_id: 'B', turn_id: 'frame-boundary', tabId: tabB, method: 'Target.setAutoAttach', commandParams: { autoAttach: true, waitForDebuggerOnStart: false, flatten: true } });
   await waitFor(() => Boolean(childSession), 1500, 'real child debugger session');
   await assertRejects(() => relay.request('executeCdp', { session_id: 'A', turn_id: 'foreign-frame', tabId: tabA, sessionId: childSession, method: 'Runtime.evaluate', commandParams: { expression: 'document.title' } }), 'extension rejects a frame session from another page');

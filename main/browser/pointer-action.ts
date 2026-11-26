@@ -28,7 +28,26 @@ const HIT_GUARD_EVENTS: Record<'hover' | 'mouse', readonly string[]> = {
 /** The resident runtime listens for the union of every guarded mode plus touch events. */
 const HIT_GUARD_RUNTIME_EVENTS = [...new Set([...HIT_GUARD_EVENTS.hover, ...HIT_GUARD_EVENTS.mouse, 'touchstart', 'touchend', 'touchcancel'])];
 
+const POINTER_POINT_HELPER = `
+const viewportMidpoint = (rect, view) => {
+  const cl = Math.max(0, rect.left), cr = Math.min(view.innerWidth, rect.right);
+  const ct = Math.max(0, rect.top), cb = Math.min(view.innerHeight, rect.bottom);
+  return { x: cr > cl ? (cl + cr) / 2 : rect.left + rect.width / 2,
+    y: cb > ct ? (ct + cb) / 2 : rect.top + rect.height / 2 };
+};`;
+
+const POINTER_LABEL_HELPER = `
+const matchesLabel = (goal, hit, parent) => {
+  if (!hit) return false;
+  if (goal.localName === 'label' && goal.control?.contains(hit)) return true;
+  for (let at = hit; at; at = parent(at)) {
+    if (at.localName === 'label' && (at.control === goal || Array.from(goal.labels ?? []).includes(at))) return true;
+  }
+  return false;
+};`;
+
 const HIT_GUARD_HELPERS = `
+${POINTER_LABEL_HELPER}
 const parentUp = n => n.parentElement ?? (n.parentNode && n.parentNode.nodeType === 11 && n.parentNode.host ? n.parentNode.host : undefined);
 const rootOf = n => { let t = n; while (t.parentNode) t = t.parentNode; return t.nodeType === 11 || t.nodeType === 9 ? t : undefined; };
 const HIT_BOOLEAN = new Set(['allowfullscreen','async','autofocus','autoplay','checked','controls','default','defer','disabled','formnovalidate','hidden','inert','ismap','itemscope','loop','multiple','muted','nomodule','novalidate','open','playsinline','readonly','required','reversed','selected']);
@@ -73,7 +92,7 @@ const expectHitTarget = (point, goal, view) => {
   const blockers = [];
   let walk = hit;
   for (; walk && walk !== goal;) { blockers.push(walk); walk = walk.assignedSlot ?? parentUp(walk); }
-  if (walk === goal) return 'done';
+  if (walk === goal || matchesLabel(goal, hit, at => at.assignedSlot ?? parentUp(at))) return 'done';
   const first = describeHit(blockers[0] || document.documentElement);
   let subtree, ancestor = goal;
   for (; ancestor;) { const index = blockers.indexOf(ancestor); if (index !== -1) { if (index > 1) subtree = describeHit(blockers[index - 1]); break; } ancestor = parentUp(ancestor); }
@@ -138,7 +157,8 @@ function hitGuardInstallScript(fields: BrowserObject, events: readonly string[])
     // The pre-flight point must be frame-local: getBoundingClientRect lives in
     // the element's own viewport, unlike the mapped dispatch coordinates.
     const rect = target.getBoundingClientRect();
-    const early = runtime.expectHitTarget({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 }, target, view);
+    ${POINTER_POINT_HELPER}
+    const early = runtime.expectHitTarget(viewportMidpoint(rect, view), target, view);
     if (early !== 'done') return { intercepted: early };
     runtime.active = { target, types, verdict: undefined, view };
     return { ok: true };
@@ -290,8 +310,11 @@ function preparation(fields: BrowserObject, alignment: string, force: boolean): 
     problem=state();if(problem)return problem;
     if(!${force}&&stable<2)return fail('not_stable','The matched element is still moving.');
     if(rect.width<=0||rect.height<=0)return fail('not_visible','The matched element has no clickable bounding box.');
-    let x=rect.left+rect.width/2,y=rect.top+rect.height/2,node=e,view=e.ownerDocument.defaultView;
-    const contains=(owner,hit)=>{for(let at=hit;at;at=at.parentNode||at.host)if(at===owner)return true;return false};
+    ${POINTER_POINT_HELPER}
+    ${POINTER_LABEL_HELPER}
+    let node=e,view=e.ownerDocument.defaultView;
+    let {x,y}=viewportMidpoint(rect,view);
+    const contains=(owner,hit)=>{for(let at=hit;at;at=at.parentNode||at.host)if(at===owner)return true;return matchesLabel(owner,hit,at=>at.parentNode||at.host)};
     for(let depth=0;depth<9;depth++){
       if(!${force}){
         if(x<0||y<0||x>=view.innerWidth||y>=view.innerHeight)return fail('not_visible','The matched element could not be scrolled into the viewport.');
