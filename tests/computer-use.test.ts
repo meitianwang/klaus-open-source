@@ -203,6 +203,31 @@ h.test('a valid capture crop maps its pixels independently while actions retain 
     const invalid = state(); invalid.screenshot.bounds = outside; strict.throws(() => snapshot(invalid, app), /outside the approved window/);
   }
 });
+h.test('alternate app selectors reuse turn state and lose it after a failed input', async () => {
+  let fail = false;
+  const f = fixture(async request => {
+    if (request.method === 'resolve') return { ...app, input: String(request.args.input) };
+    if (request.method === 'activate') return app;
+    if (request.method === 'state') return state();
+    strict.equal(request.method, 'action');
+    if (fail) throw new Error('Fixture input failed');
+    return { applied: true };
+  });
+  const context = f.context();
+  const click = (selector: string) => f.connector.call('click', { app: selector, element_index: '1' }, context);
+  await f.read(context);
+  const before = f.requests.length;
+  await click(app.bundleId);
+  strict.deepEqual(f.requests.slice(before).map(request => request.method), ['resolve', 'activate', 'action', 'state']);
+  fail = true;
+  await strict.rejects(click(app.bundleId), /Fixture input failed/);
+  const after = f.requests.length;
+  for (const selector of [app.input, app.bundleId]) await strict.rejects(click(selector), /get_app_state/);
+  strict.deepEqual(f.requests.slice(after).map(request => request.method), ['resolve', 'resolve']);
+  fail = false;
+  await f.read(context);
+  await click(app.bundleId);
+});
 h.test('new sessions and new turns cannot use another stored element or screenshot', async () => {
   const f = fixture(); await f.read();
   for (const context of [f.context('b'), f.context('a', 'turn2')]) await strict.rejects(f.connector.call('click', { app: app.input, element_index: '1' }, context), /this assistant turn/);

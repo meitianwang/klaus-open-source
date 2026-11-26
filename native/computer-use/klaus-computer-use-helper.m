@@ -110,6 +110,13 @@ static NSDictionary *SelectApplication(NSArray<NSDictionary *> *candidates, NSSt
             : ([Text(candidate[@"bundleId"]).lowercaseString isEqualToString:token] || [Text(candidate[@"name"]).lowercaseString isEqualToString:token]);
         if (match) [matches addObject:candidate];
     }
+    if (!path && matches.count > 1) {
+        NSArray *topLevel = [matches filteredArrayUsingPredicate:[NSPredicate predicateWithBlock:^BOOL(NSDictionary *candidate, NSDictionary *bindings) {
+            (void)bindings; NSString *candidatePath = Text(candidate[@"path"]);
+            return [candidatePath hasSuffix:@".app"] && ![candidatePath containsString:@".app/Contents/"];
+        }]];
+        if (topLevel.count) matches = [topLevel mutableCopy];
+    }
     if (matches.count == 1) return matches.firstObject;
     if (matches.count > 1) {
         // Several running instances can share one installation. Its foreground
@@ -173,11 +180,17 @@ static void Permissions(BOOL screenshot) {
     if (!AXIsProcessTrusted()) Fail(@"Accessibility permission is required. Enable Klaus in System Settings > Privacy & Security > Accessibility");
     if (screenshot && !CGPreflightScreenCaptureAccess()) Fail(@"Screen Recording permission is required. Enable Klaus in System Settings > Privacy & Security > Screen Recording");
 }
+static double SecondsSinceDiscretePhysicalInput(void) {
+    const CGEventType types[] = {kCGEventLeftMouseDown, kCGEventRightMouseDown, kCGEventOtherMouseDown, kCGEventKeyDown};
+    double idle = INFINITY;
+    for (NSUInteger i = 0; i < sizeof(types) / sizeof(types[0]); i++) idle = fmin(idle, CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, types[i]));
+    return isfinite(idle) ? idle : CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGAnyInputEventType);
+}
 static BOOL GuardInteraction(NSDictionary *args) {
     BOOL unlocked = KlausEnsureUnlocked(KlausSystemLockScreenPlatform(), [args[@"autoUnlock"] boolValue], ^{ return KlausSystemAncestryTrusted(); }, ^{ Check(); }, ^(double seconds) { Pause(seconds); }, ^{ PostedAt = NowMs(); });
     NSDictionary *app = Dict(args[@"app"]); NSString *name = Text(app[@"name"]).length ? Text(app[@"name"]) : Text(app[@"input"]);
     if (NowMs() < [args[@"cooldownUntil"] doubleValue]) Fail(KlausInteractionWaitMessage(name));
-    double idle = CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGAnyInputEventType);
+    double idle = SecondsSinceDiscretePhysicalInput();
     if (!isfinite(idle) || idle < 0) Fail(@"User input presence could not be determined");
     double own = [args[@"lastOwnInputAt"] doubleValue], sinceOwn = own > 0 ? (NowMs() - own) / 1000 : INFINITY;
     if (PostedAt > own) sinceOwn = (NowMs() - PostedAt) / 1000;
@@ -204,9 +217,23 @@ static NSDictionary *Activate(NSDictionary *args) {
         NSMutableDictionary *running = [identity mutableCopy]; running[@"pid"] = @(app.processIdentifier); app = VerifiedApplication(running);
     }
     Check();
-    if (@available(macOS 14.0, *)) { [NSApp yieldActivationToApplication:app]; [app activateWithOptions:0]; }
-    else [app activateWithOptions:NSApplicationActivateIgnoringOtherApps];
-    WaitUntil(^BOOL { return NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier == app.processIdentifier; }, 2);
+    if (@available(macOS 14.0, *)) {
+        [NSApp yieldActivationToApplication:app];
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+        [app activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+#pragma clang diagnostic pop
+        AXUIElementRef target = AXUIElementCreateApplication(app.processIdentifier);
+        if (target) {
+            AXUIElementSetAttributeValue(target, kAXFrontmostAttribute, kCFBooleanTrue);
+            CFRelease(target);
+        }
+    } else [app activateWithOptions:NSApplicationActivateIgnoringOtherApps];
+    BOOL inputAction = [args[@"inputAction"] boolValue];
+    WaitUntil(^BOOL {
+        return NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier == app.processIdentifier
+            || (!inputAction && app.activationPolicy != NSApplicationActivationPolicyRegular && app.active);
+    }, 2);
     if (!unlocked) return Identity(app, Text(identity[@"input"]));
     NSMutableDictionary *activated = [Identity(app, Text(identity[@"input"])) mutableCopy];
     activated[@"autoUnlocked"] = @YES; return activated;
@@ -235,22 +262,77 @@ static CGWindowID WindowIdentifier(AXUIElementRef window) {
     id number = CopyAttribute(window, CFSTR("AXWindowNumber"));
     return [number isKindOfClass:NSNumber.class] ? [number unsignedIntValue] : kCGNullWindowID;
 }
+static BOOL WithinFrameTolerance(CGRect a, CGRect b, double x, double y, double w, double h) {
+    return fabs(a.origin.x - b.origin.x) <= x && fabs(a.origin.y - b.origin.y) <= y
+        && fabs(a.size.width - b.size.width) <= w && fabs(a.size.height - b.size.height) <= h;
+}
+static CGRect WindowServerBounds(NSDictionary *info) {
+    CGRect bounds;
+    return info && CGRectMakeWithDictionaryRepresentation((__bridge CFDictionaryRef)info[(__bridge NSString *)kCGWindowBounds], &bounds) ? bounds : CGRectZero;
+}
+static NSDictionary *ResolveAppWindow(NSArray<NSDictionary *> *infos, pid_t pid, CGWindowID identifier, CGRect axBounds, BOOL allowSingleWindowFallback) {
+    if (identifier == kCGNullWindowID && !CGRectIsEmpty(axBounds)) {
+        NSDictionary *exact = SelectWindow(infos, pid, identifier, axBounds);
+        if (exact) return exact;
+    }
+    NSMutableArray *inset = [NSMutableArray array], *normal = [NSMutableArray array], *large = [NSMutableArray array];
+    for (NSDictionary *info in infos) {
+        if ([info[(__bridge NSString *)kCGWindowOwnerPID] intValue] != pid) continue;
+        CGRect frame = WindowServerBounds(info);
+        if (CGRectIsEmpty(frame)) continue;
+        if (identifier != kCGNullWindowID) {
+            if ([info[(__bridge NSString *)kCGWindowNumber] unsignedIntValue] == identifier) return info;
+            continue;
+        }
+        if (!CGRectIsEmpty(axBounds) && WithinFrameTolerance(frame, axBounds, 24, 36, 48, 64)) [inset addObject:info];
+        if (allowSingleWindowFallback && frame.size.width >= 60 && frame.size.height >= 40) {
+            [large addObject:info];
+            if ([info[(__bridge NSString *)kCGWindowLayer] intValue] == 0) [normal addObject:info];
+        }
+    }
+    if (inset.count == 1) return inset.firstObject;
+    NSArray *fallback = normal.count ? normal : large;
+    return fallback.count == 1 ? fallback.firstObject : nil;
+}
 static NSDictionary *Window(AXUIElementRef app, pid_t pid, id *rootOut, BOOL allowAppearance) {
     double limit = CFAbsoluteTimeGetCurrent() + (allowAppearance ? 1 : 0), lastTrace = 0;
     for (;;) {
-        Check(); id focused = CopyAttribute(app, kAXFocusedWindowAttribute); NSArray *windows = Children(app, kAXWindowsAttribute);
-        if (!IsElement(focused)) focused = windows.firstObject;
-        if (IsElement(focused)) {
-            NSUInteger index = [windows indexOfObject:focused];
-            if (index == NSNotFound) {
-                id parentWindow = CopyAttribute((__bridge AXUIElementRef)focused, kAXWindowAttribute);
-                if (IsElement(parentWindow)) { index = [windows indexOfObject:parentWindow]; if (index != NSNotFound) focused = parentWindow; }
+        Check();
+        NSArray *windows = Children(app, kAXWindowsAttribute);
+        id focusedElement = CopyAttribute(app, kAXFocusedUIElementAttribute);
+        id focusedParent = IsElement(focusedElement) ? CopyAttribute((__bridge AXUIElementRef)focusedElement, kAXWindowAttribute) : nil;
+        NSMutableArray *axCandidates = [NSMutableArray array];
+        for (id candidate in @[CopyAttribute(app, kAXFocusedWindowAttribute) ?: NSNull.null, CopyAttribute(app, kAXMainWindowAttribute) ?: NSNull.null, focusedParent ?: NSNull.null]) {
+            if (IsElement(candidate)) [axCandidates addObject:candidate];
+        }
+        for (id candidate in windows) if (IsElement(candidate)) [axCandidates addObject:candidate];
+        NSArray *infos = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID));
+        id root = nil;
+        NSDictionary *selected = nil;
+        for (id candidate in axCandidates) {
+            for (id window in @[candidate, CopyAttribute((__bridge AXUIElementRef)candidate, kAXWindowAttribute) ?: NSNull.null]) {
+                if (!IsElement(window)) continue;
+                AXUIElementRef axWindow = (__bridge AXUIElementRef)window;
+                selected = ResolveAppWindow(infos, pid, WindowIdentifier(axWindow), ElementBounds(axWindow), NO);
+                if (selected) { root = window; break; }
             }
+            if (selected) break;
+        }
+        if (!selected) {
+            selected = ResolveAppWindow(infos, pid, kCGNullWindowID, CGRectZero, YES);
+            root = axCandidates.firstObject ?: (__bridge id)app;
+        }
+        if (selected) {
+            *rootOut = root;
+            NSNumber *identifier = selected[(__bridge NSString *)kCGWindowNumber];
+            return @{ @"windowId": identifier, @"bounds": Rectangle(WindowServerBounds(selected)), @"path": [NSString stringWithFormat:@"w%@", identifier] };
+        }
+        if (axCandidates.count) {
+            id focused = axCandidates.firstObject;
+            NSUInteger index = [windows indexOfObject:focused];
             CGRect bounds = ElementBounds((__bridge AXUIElementRef)focused);
-            NSArray *infos = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID));
             CGWindowID identifier = WindowIdentifier((__bridge AXUIElementRef)focused);
-            NSDictionary *selected = SelectWindow(infos, pid, identifier, bounds);
-            if ([NSProcessInfo.processInfo.environment[@"KLAUS_COMPUTER_USE_DIAGNOSTICS"] isEqualToString:@"1"] && (!selected || index == NSNotFound) && CFAbsoluteTimeGetCurrent() - lastTrace > 0.25) {
+            if ([NSProcessInfo.processInfo.environment[@"KLAUS_COMPUTER_USE_DIAGNOSTICS"] isEqualToString:@"1"] && !selected && CFAbsoluteTimeGetCurrent() - lastTrace > 0.25) {
                 NSMutableArray *candidates = [NSMutableArray array];
                 for (NSDictionary *info in infos) if ([info[(__bridge NSString *)kCGWindowOwnerPID] intValue] == pid) [candidates addObject:@{@"id": info[(__bridge NSString *)kCGWindowNumber] ?: @0, @"layer": info[(__bridge NSString *)kCGWindowLayer] ?: @0, @"bounds": info[(__bridge NSString *)kCGWindowBounds] ?: @{}}];
                 NSMutableArray *allCandidates = [NSMutableArray array];
@@ -261,14 +343,9 @@ static NSDictionary *Window(AXUIElementRef app, pid_t pid, id *rootOut, BOOL all
                 if (data) fprintf(stderr, "%s\n", [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding].UTF8String);
                 lastTrace = CFAbsoluteTimeGetCurrent();
             }
-            if (selected && index != NSNotFound) {
-                *rootOut = focused;
-                return @{@"windowId": selected[(__bridge NSString *)kCGWindowNumber], @"bounds": Rectangle(bounds), @"path": [NSString stringWithFormat:@"w%@", selected[(__bridge NSString *)kCGWindowNumber]]};
-            }
         }
         if (CFAbsoluteTimeGetCurrent() >= limit) Fail(@"Approved window could not be identified uniquely; no desktop fallback was captured");
         // Only observations wait through window creation and focus transitions.
-        // Input and post-capture validation still reject a changed target.
         Pause(0.03);
     }
 }
@@ -359,11 +436,12 @@ static NSDictionary *Capture(pid_t pid, CGWindowID windowId, CGRect bounds, BOOL
     }];
     WaitUntil(^BOOL { return found; }, 4); if (failure || !content) Fail(@"ScreenCaptureKit could not enumerate the approved window");
     SCWindow *target = nil; for (SCWindow *window in content.windows) if (window.windowID == windowId && window.owningApplication.processID == pid) target = window;
-    if (!target || !SameRectangle(target.frame, bounds)) Fail(@"Approved capture window changed");
+    CGRect frame = target ? target.frame : CGRectZero;
+    if (!target || CGRectIsEmpty(frame) || !WithinFrameTolerance(frame, bounds, 8, 8, 16, 16)) Fail(@"Approved capture window changed");
     SCContentFilter *filter = [[SCContentFilter alloc] initWithDesktopIndependentWindow:target];
-    double scale = fmin(2, 2560 / fmax(bounds.size.width, bounds.size.height));
+    double scale = fmin(2, 2560 / fmax(frame.size.width, frame.size.height));
     SCStreamConfiguration *configuration = [SCStreamConfiguration new];
-    configuration.width = (NSUInteger)fmax(1, floor(bounds.size.width * scale)); configuration.height = (NSUInteger)fmax(1, floor(bounds.size.height * scale));
+    configuration.width = (NSUInteger)fmax(1, floor(frame.size.width * scale)); configuration.height = (NSUInteger)fmax(1, floor(frame.size.height * scale));
     configuration.pixelFormat = kCVPixelFormatType_32BGRA; configuration.showsCursor = NO; configuration.queueDepth = 3;
     configuration.minimumFrameInterval = CMTimeMake(1, 30); configuration.capturesAudio = NO;
     if (@available(macOS 14.0, *)) { configuration.ignoreShadowsSingleWindow = YES; configuration.shouldBeOpaque = YES; }
@@ -383,7 +461,12 @@ static NSDictionary *Capture(pid_t pid, CGWindowID windowId, CGRect bounds, BOOL
         while (!capture.stopped && CFAbsoluteTimeGetCurrent() < limit) [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
     }
     if (capture.error || !capture.image.length || capture.image.length > 15 * 1024 * 1024) Fail(@"Approved window capture failed");
-    return @{@"data": [capture.image base64EncodedStringWithOptions:0], @"mimeType": jpeg ? @"image/jpeg" : @"image/png", @"width": @(capture.width), @"height": @(capture.height)};
+    NSMutableDictionary *result = [@{@"data": [capture.image base64EncodedStringWithOptions:0], @"mimeType": jpeg ? @"image/jpeg" : @"image/png", @"width": @(capture.width), @"height": @(capture.height)} mutableCopy];
+    if (!CGRectEqualToRect(frame, bounds) && CGRectContainsRect(CGRectInset(bounds, -0.5, -0.5), frame)) {
+        CGRect crop = CGRectIntersection(bounds, frame);
+        if (!CGRectIsEmpty(crop)) result[@"bounds"] = Rectangle(crop);
+    }
+    return result;
 }
 static NSDictionary *State(NSDictionary *args) {
     Permissions(YES); NSRunningApplication *running = VerifiedApplication(Dict(args[@"app"]));
@@ -448,7 +531,7 @@ static NSDictionary *State(NSDictionary *args) {
         }
     } @finally { CFRelease(app); }
 }
-static id ResolveElement(AXUIElementRef app, id windowRoot, NSDictionary *expected, NSString *windowPath) {
+static id ResolveElement(AXUIElementRef app, id windowRoot, NSDictionary *expected, NSString *windowPath, BOOL checkValue) {
     NSString *path = Text(expected[@"path"]); NSArray *parts = [path componentsSeparatedByString:@"."];
     BOOL menu = [parts.firstObject isEqualToString:@"menubar"];
     if (!menu && ![parts.firstObject isEqualToString:windowPath]) Fail(@"Element belongs to a different window; request fresh state");
@@ -460,7 +543,7 @@ static id ResolveElement(AXUIElementRef app, id windowRoot, NSDictionary *expect
     }
     NSDictionary *fresh = Describe((__bridge AXUIElementRef)element, path, 0);
     for (NSString *key in @[@"role", @"subrole", @"identifier", @"title", @"label", @"description"]) if (![Text(fresh[key]) isEqualToString:Text(expected[key])]) Fail(@"Element identity changed; request fresh state");
-    if (![Text(fresh[@"value"]) isEqualToString:Text(expected[@"value"])]) Fail(@"Element value changed; request fresh state");
+    if (checkValue && ![Text(fresh[@"value"]) isEqualToString:Text(expected[@"value"])]) Fail(@"Element value changed; request fresh state");
     if (expected[@"bounds"] && (!fresh[@"bounds"] || !SameRectangle(ReadRectangle(Dict(expected[@"bounds"])), ReadRectangle(Dict(fresh[@"bounds"]))))) Fail(@"Element position changed; request fresh state");
     if ([fresh[@"enabled"] isEqual:@NO]) Fail(@"The requested element is disabled"); return element;
 }
@@ -670,16 +753,23 @@ static NSDictionary *Action(NSDictionary *args) {
     @try {
         id root; NSDictionary *window = Window(app, running.processIdentifier, &root, NO); CGRect rect = ReadRectangle(window[@"bounds"]);
         if (![window[@"windowId"] isEqual:args[@"windowId"]] || !SameRectangle(rect, ReadRectangle(Dict(args[@"windowBounds"])))) Fail(@"Approved window changed; read fresh app state before sending input");
-        id selected = args[@"element"] ? ResolveElement(app, root, Dict(args[@"element"]), window[@"path"]) : nil;
-        AXUIElementRef element = selected ? (__bridge AXUIElementRef)selected : NULL; NSString *name = Text(args[@"name"]);
+        NSString *name = Text(args[@"name"]);
+        id selected = args[@"element"] ? ResolveElement(app, root, Dict(args[@"element"]), window[@"path"], [name isEqualToString:@"set_value"]) : nil;
+        AXUIElementRef element = selected ? (__bridge AXUIElementRef)selected : NULL;
         if (([name isEqualToString:@"press_key"] || [name isEqualToString:@"type_text"] || [name isEqualToString:@"paste"]) && args[@"focusedElement"]) {
-            id observed = ResolveElement(app, root, Dict(args[@"focusedElement"]), window[@"path"]);
+            id observed = ResolveElement(app, root, Dict(args[@"focusedElement"]), window[@"path"], NO);
             id focused = CopyAttribute(app, kAXFocusedUIElementAttribute);
             if (!IsElement(focused) || !CFEqual((__bridge CFTypeRef)observed, (__bridge CFTypeRef)focused)) Fail(@"Focused element changed; request fresh state before typing");
         }
         if ([name isEqualToString:@"click"]) {
             NSString *button = Text(args[@"mouse_button"]); NSUInteger count = (NSUInteger)Numeric(args[@"click_count"], 1, 5);
+            NSArray *actions = nil;
             if (element && count == 1 && [button isEqualToString:@"left"] && !args[@"key"] && !args[@"duration"]) {
+                CFArrayRef names = NULL;
+                if (AXUIElementCopyActionNames(element, &names) == kAXErrorSuccess) actions = CFBridgingRelease(names);
+                else if (names) CFRelease(names);
+            }
+            if ([actions containsObject:(__bridge NSString *)kAXPressAction]) {
                 Foreground(running); ActionStarted = YES; AXError error = AXUIElementPerformAction(element, kAXPressAction);
                 if (error != kAXErrorActionUnsupported && error != kAXErrorNotImplemented) PostedAt = NowMs();
                 if (error == kAXErrorSuccess) { Pause(0.12); return @{@"applied": @YES}; }
@@ -767,8 +857,8 @@ static NSDictionary *Appshot(NSDictionary *args) {
         for (id window in Children(application, kAXWindowsAttribute)) {
             if (!IsElement(window)) continue;
             CGWindowID candidate = WindowIdentifier((__bridge AXUIElementRef)window);
-            if ((candidate == identifier || (candidate == kCGNullWindowID && SameRectangle(ElementBounds((__bridge AXUIElementRef)window), bounds)))
-                && SameRectangle(ElementBounds((__bridge AXUIElementRef)window), bounds)) { root = window; break; }
+            if ((identifier != kCGNullWindowID && candidate == identifier)
+                || (candidate == kCGNullWindowID && SameRectangle(ElementBounds((__bridge AXUIElementRef)window), bounds))) { root = window; break; }
         }
         if (root) {
             NSUInteger budget = 0; Walk((__bridge AXUIElementRef)root, [NSString stringWithFormat:@"w%u", identifier], 0, nodes, &budget, &truncated);
@@ -1330,8 +1420,15 @@ static void WatchHistory(NSData *leftover) {
 }
 static NSDictionary *ListApps(void) {
     NSMutableDictionary *apps = [NSMutableDictionary dictionary];
+    NSMutableSet *windowOwners = [NSMutableSet set];
+    NSArray *infos = CFBridgingRelease(CGWindowListCopyWindowInfo(kCGWindowListOptionOnScreenOnly | kCGWindowListExcludeDesktopElements, kCGNullWindowID));
+    for (NSDictionary *info in infos) {
+        CGRect frame = WindowServerBounds(info);
+        NSNumber *owner = info[(__bridge NSString *)kCGWindowOwnerPID];
+        if (owner && [info[(__bridge NSString *)kCGWindowLayer] intValue] == 0 && frame.size.width >= 80 && frame.size.height >= 60) [windowOwners addObject:owner];
+    }
     for (NSRunningApplication *app in NSWorkspace.sharedWorkspace.runningApplications) {
-        if (!app.bundleURL || app.activationPolicy != NSApplicationActivationPolicyRegular) continue;
+        if (!app.bundleURL || (app.activationPolicy != NSApplicationActivationPolicyRegular && ![windowOwners containsObject:@(app.processIdentifier)])) continue;
         NSMutableDictionary *entry = [Identity(app, app.localizedName ?: app.bundleURL.path) mutableCopy]; entry[@"running"] = @YES; apps[app.bundleURL.path] = entry;
         if (apps.count >= 80) break;
     }

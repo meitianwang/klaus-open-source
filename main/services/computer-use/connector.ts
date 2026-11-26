@@ -524,7 +524,10 @@ export class ComputerUseConnector {
         const operation = previous.catch(() => {}).then(async () => {
           check();
           await this.deps.guardInteraction?.(context.sessionId, lease.signal); check();
-          const cached = owner.states.get(keyOf(resolved));
+          const exact = owner.states.get(keyOf(resolved));
+          const cached = exact?.turnId === turnId ? exact : [...owner.states.values()].find(
+            entry => entry.turnId === turnId && sameApp(entry.snapshot.app, resolved),
+          );
           if (action && (!cached || cached.turnId !== turnId)) throw new Error(`Call get_app_state for ${input} in this assistant turn before sending input`);
           const activateResult = await native('activate', { app: resolved, inputAction: !!action });
           if (object(activateResult).autoUnlocked === true) this.deps.onAutoUnlocked?.(context.sessionId, turnId);
@@ -557,6 +560,9 @@ export class ComputerUseConnector {
           // Retaining base64 captures here would multiply image memory by sessions.
           const path = this.deps.saveScreenshot(state.screenshot.data, state.screenshot.mimeType);
           check();
+          for (const [key, entry] of owner.states) {
+            if (sameApp(entry.snapshot.app, state.app)) owner.states.delete(key);
+          }
           owner.states.set(keyOf(state.app), { turnId, snapshot: { ...state, screenshot: { ...state.screenshot, data: '' } } });
           if (owner.states.size > 16) owner.states.delete(owner.states.keys().next().value!);
           while ([...this.owners.values()].reduce((total, owner) => total + owner.states.size, 0) > 128) {
@@ -581,7 +587,9 @@ export class ComputerUseConnector {
         // A user stop surfaces its own wording; it is never an uncertain action.
         if (owner.escStopped === turnId) throw new Error(owner.stopMessage ?? this.escapeStopMessage());
         if (enteredAction) {
-          owner.states.delete(keyOf(resolved));
+          for (const [key, entry] of owner.states) {
+            if (entry.turnId === turnId && (key === keyOf(resolved) || sameApp(entry.snapshot.app, resolved))) owner.states.delete(key);
+          }
           if (!actionCompleted && error instanceof Error && 'computerUseActionStarted' in error && error.computerUseActionStarted === false) {
             throw new Error(`No input was sent. Read get_app_state before trying again. ${error.message}`);
           }

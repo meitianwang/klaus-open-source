@@ -87,12 +87,16 @@ export async function safari(name: string, args: Row, execution: MacOsExecution,
         set windows_ to every window
         if (count of windows_) > 2000 then error "Too many Safari windows"
         repeat with wi_ from 1 to count of windows_
-          set tabs_ to tabs of item wi_ of windows_
-          if (output_'s |count|() as integer) + (count of tabs_) > 2000 then error "Too many Safari tabs"
-          repeat with ti_ from 1 to count of tabs_
-            set t to item ti_ of tabs_
-            output_'s addObject:(my jsonRow({"window", "tab", "url", "title"}, {wi_, ti_, my textOrEmpty(URL of t), my textOrEmpty(name of t)}))
-          end repeat
+          set window_ to item wi_ of windows_
+          set tabCount_ to count of tabs of window_
+          if (output_'s |count|() as integer) + tabCount_ > 2000 then error "Too many Safari tabs"
+          if tabCount_ > 0 then
+            set urls_ to URL of tabs of window_
+            set names_ to name of tabs of window_
+            repeat with ti_ from 1 to tabCount_
+              output_'s addObject:(my jsonRow({"window", "tab", "url", "title"}, {wi_, ti_, my textOrEmpty(item ti_ of urls_), my textOrEmpty(item ti_ of names_)}))
+            end repeat
+          end if
         end repeat
       end tell
       return my jsonText(output_)`);

@@ -27,8 +27,17 @@ int main(void) {
         Expect(SelectApplication(@[different], path, 44) == nil);
         Refuses(^{ SelectApplication(@[first, second], path, 999); }, @"ambiguous");
         Refuses(^{ SelectApplication(@[first, different], @"test.fixture", 11); }, @"ambiguous");
+        NSString *nestedPath = [path stringByAppendingString:@"/Contents/Helpers/Fixture.app"];
+        NSDictionary *nested = App(nestedPath, 55, 1, YES);
+        Expect([SelectApplication(@[first, nested], @"Fixture", 55) isEqual:first]);
+        Expect([SelectApplication(@[first, nested], nestedPath, 11) isEqual:nested]);
         CGRect bounds = CGRectMake(-100, 20, 500, 300), moved = CGRectOffset(bounds, 10, 0);
         NSDictionary *window = Info(11, 101, 0, bounds), *dialog = Info(11, 202, 3, bounds), *foreign = Info(22, 303, 0, bounds);
+        CGRect inset = CGRectInset(bounds, 12, 20);
+        Expect([ResolveAppWindow(@[dialog, window, foreign], 11, 101, inset, NO) isEqual:window]);
+        Expect(ResolveAppWindow(@[foreign], 11, 303, inset, NO) == nil);
+        Expect([ResolveAppWindow(@[window, dialog, foreign], 11, 0, CGRectZero, YES) isEqual:window]);
+        Expect([ResolveAppWindow(@[dialog, foreign], 11, 0, CGRectZero, YES) isEqual:dialog]);
         Expect([SelectWindow(@[window, dialog, foreign], 11, 202, bounds) isEqual:dialog]);
         Expect([SelectWindow(@[dialog, window, foreign], 11, 101, bounds) isEqual:window]);
         Expect([SelectWindow(@[dialog], 11, 0, bounds) isEqual:dialog]);

@@ -110,11 +110,32 @@ h.test('invalid capture inputs cause no activation and invalidate the previous s
   for (const region of ['1,2,0,5', '1,,10,5', '1,2,Infinity,5']) strict.equal((await call('app_ui_capture_screen', { appName: 'Own', region })).ok, false);
   strict.equal(requests.length, before);
 });
+h.test('activation falls back to System Events only when open cannot find the app', async () => {
+  let failure = "Unable to find application named 'Own Running'";
+  const appName = 'Own Running';
+  const { call, requests } = fixture(async request => {
+    if (request.executable === '/usr/bin/open') throw new Error(failure);
+    strict.equal(request.executable, '/usr/bin/osascript');
+    strict.match(request.args[1]!, /tell application "System Events"/);
+    strict.match(request.args[1]!, /Own Running/);
+    strict.ok(isActivation(request));
+    return 'ok';
+  });
+  strict.deepEqual(await call('app_ui_activate_app', { appName }), { ok: true, appName });
+  strict.deepEqual(requests.map(request => request.executable), ['/usr/bin/open', '/usr/bin/osascript']);
+  failure = 'Fixture launch denied';
+  const result = await call('app_ui_activate_app', { appName });
+  strict.equal(result.ok, false);
+  strict.match(JSON.stringify(result), /Fixture launch denied/);
+  strict.deepEqual(requests.slice(2).map(request => request.executable), ['/usr/bin/open']);
+});
+
 if (process.platform === 'darwin') h.test('every generated App UI script compiles against System Events without executing private UI actions', async () => {
   const { call, setReply, requests } = fixture();
   const cases: Array<[string, Row, unknown]> = [
     ['app_ui_check_permission', {}, { uiEventsEnabled: true }], ['app_ui_list_apps', {}, []], ['app_ui_get_front_app', {}, { name: 'Own' }],
     ['app_ui_list_windows', { appName: tree.appName }, { windows: [] }], ['app_ui_get_tree', { appName: tree.appName, allowProcessFallback: true }, tree],
+    ['app_ui_set_value', { elementPath: '1.1', value: 'Own "text"\nline' }, { ok: true, method: 'set-value' }],
     ['app_ui_find_element', { query: 'Own' }, { found: true }], ['app_ui_wait_for', {}, { found: true }],
     ['app_ui_click_element', { elementPath: '1.1', dryRun: true }, { ok: true, dryRun: true }], ['app_ui_click_element', { query: 'Own' }, { ok: true }],
     ['app_ui_set_value', { query: 'Own', value: 'Own "text"\nline' }, { ok: true, method: 'set-value' }], ['app_ui_type_text', { text: 'Own' }, { ok: true }],

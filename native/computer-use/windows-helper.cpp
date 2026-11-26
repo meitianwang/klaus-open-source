@@ -119,7 +119,13 @@ static std::vector<AppWindow> AppWindows() {
     if (!EnumWindows([](HWND hwnd, LPARAM parameter) -> BOOL {
         auto& rows = *reinterpret_cast<std::vector<AppWindow>*>(parameter);
         if ((!IsWindowVisible(hwnd) && !IsIconic(hwnd)) || GetWindow(hwnd, GW_OWNER)) return TRUE;
-        wchar_t title[4096]{}; if (!GetWindowTextW(hwnd, title, 4096)) return TRUE;
+        wchar_t title[4096]{};
+        if (!GetWindowTextW(hwnd, title, 4096)) {
+            RECT bounds{};
+            if (!IsWindowVisible(hwnd) || (GetWindowLongPtrW(hwnd, GWL_EXSTYLE) & WS_EX_TOOLWINDOW)
+                || FAILED(DwmGetWindowAttribute(hwnd, DWMWA_EXTENDED_FRAME_BOUNDS, &bounds, sizeof(bounds)))
+                || bounds.right - bounds.left < 60 || bounds.bottom - bounds.top < 40) return TRUE;
+        }
         DWORD pid = 0; GetWindowThreadProcessId(hwnd, &pid); auto path = ProcessPath(pid);
         if (!path.empty()) rows.push_back({hwnd, pid, std::move(path), title});
         return rows.size() < 1024;
@@ -135,7 +141,7 @@ static JsonObject Resolve(const std::wstring& input) {
     bool absolute = (input.size() > 2 && input[1] == L':') || input.starts_with(L"\\\\");
     std::wstring exact = absolute ? Canonical(input) : L"";
     for (const auto& window : AppWindows()) {
-        if ((!exact.empty() && Lower(window.path) == Lower(exact)) || (exact.empty() && (Lower(window.title) == token || Lower(BaseName(window.path)) == Lower(BaseName(input))))) matches.emplace(window.pid, window);
+        if ((!exact.empty() && Lower(window.path) == Lower(exact)) || (exact.empty() && ((!window.title.empty() && Lower(window.title) == token) || Lower(BaseName(window.path)) == Lower(BaseName(input))))) matches.emplace(window.pid, window);
     }
     if (matches.size() > 1) Fail("Application identity is ambiguous; use the exact application window title");
     if (matches.size() == 1) return Identity(matches.begin()->second.path, input, matches.begin()->first);
@@ -282,7 +288,7 @@ static void Walk(IUIAutomationTreeWalker* walker,IUIAutomationElement* element,c
     while(child&&rows.Size()<500&&text<=50000&&visited<2000){Walk(walker,child.get(),path+L"."+std::to_wstring(sibling++),depth+1,nativeDepth+1,rows,text,visited);com_ptr<IUIAutomationElement> next;
         if(FAILED(walker->GetNextSiblingElement(child.get(),next.put())))break;child=std::move(next);}
 }
-static com_ptr<IUIAutomationElement> Element(IUIAutomation* automation,HWND window,const JsonObject& expected) {
+static com_ptr<IUIAutomationElement> Element(IUIAutomation* automation,HWND window,const JsonObject& expected,bool checkValue) {
     auto path=Text(expected,L"path",256);if(!path.starts_with(L"w0"))Fail("Element belongs to another window");
     com_ptr<IUIAutomationElement> element;Require(automation->ElementFromHandle(window,element.put()),"Approved accessibility root is unavailable");
     com_ptr<IUIAutomationTreeWalker> walker;Require(automation->get_ControlViewWalker(walker.put()),"Accessibility walker is unavailable");
@@ -296,6 +302,7 @@ static com_ptr<IUIAutomationElement> Element(IUIAutomation* automation,HWND wind
     auto fresh=Describe(element.get(),path,0);
     if(RuntimeId(element.get()).empty())Fail("Element has no stable native identity; use a fresh screenshot coordinate instead");
     for(auto key:{L"role",L"subrole",L"title",L"identifier"})if(Text(fresh,key,4096,true)!=Text(expected,key,4096,true))Fail("Element identity changed; read fresh app state");
+    if(checkValue&&Text(fresh,L"value",4096,true)!=Text(expected,L"value",4096,true))Fail("Element value changed; read fresh app state");
     if(!fresh.GetNamedBoolean(L"enabled",false))Fail("The requested element is disabled");return element;
 }
 
@@ -603,21 +610,22 @@ static JsonObject Action(const JsonObject& args) {
     auto expected=static_cast<UINT_PTR>(Number(args,L"windowId",1,9007199254740991));
     if(reinterpret_cast<UINT_PTR>(window)!=expected||!SameBounds(bounds,ReadBounds(args.GetNamedObject(L"windowBounds"))))Fail("Approved window changed; read fresh app state before sending input");
     auto automation=create_instance<IUIAutomation>(CLSID_CUIAutomation);com_ptr<IUIAutomationElement> element;
-    if(args.HasKey(L"element"))element=Element(automation.get(),window,args.GetNamedObject(L"element"));auto name=Text(args,L"name");
+    auto name=Text(args,L"name");
+    if(args.HasKey(L"element"))element=Element(automation.get(),window,args.GetNamedObject(L"element"),name==L"set_value");
     if(name==L"click"){
         if(args.HasKey(L"key")||args.HasKey(L"duration"))Fail("Computer Use click key and duration are unavailable on Windows");
         auto button=Text(args,L"mouse_button");int count=static_cast<int>(Number(args,L"click_count",1,5));
         auto invoke=element?Pattern<IUIAutomationInvokePattern>(element.get(),UIA_InvokePatternId):com_ptr<IUIAutomationInvokePattern>{};
-        if(invoke&&count==1&&button==L"left"){Foreground(window,pid);Require(invoke->Invoke(),"Native Invoke failed; action was not retried");}
+        if(invoke&&count==1&&button==L"left"){Foreground(window,pid);Require(invoke->Invoke(),"Native Invoke failed; action was not retried");postedAt=Now();}
         else{POINT point{};if(element){RECT r{};Require(element->get_CurrentBoundingRectangle(&r),"Element bounds are unavailable");point={(r.left+r.right)/2,(r.top+r.bottom)/2};if(!PtInRect(&bounds,point))Fail("Element is outside the approved window");}
             else point=Point(args.GetNamedObject(L"point"),bounds);Mouse(window,pid,point,button,count);}
-    }else if(name==L"perform_secondary_action"){if(!element)Fail("An accessibility element is required");Foreground(window,pid);Secondary(element.get(),Text(args,L"action",512));
+    }else if(name==L"perform_secondary_action"){if(!element)Fail("An accessibility element is required");Foreground(window,pid);Secondary(element.get(),Text(args,L"action",512));postedAt=Now();
     }else if(name==L"set_value"){
         if(!element)Fail("An accessibility element is required");auto pattern=Pattern<IUIAutomationValuePattern>(element.get(),UIA_ValuePatternId);BOOL readonly=TRUE;
         if(!pattern||FAILED(pattern->get_CurrentIsReadOnly(&readonly))||readonly)Fail("Element value is not writable");auto value=Text(args,L"value",50000,true);Foreground(window,pid);
         BString text;text.value=SysAllocStringLen(value.data(),static_cast<UINT>(value.size()));if(!text.value)Fail("Value allocation failed");
-        Require(pattern->SetValue(text.value),"Native value write failed; action was not retried");
-    }else if(name==L"select_text"){if(!element)Fail("An accessibility element is required");Foreground(window,pid);SelectText(element.get(),args);
+        Require(pattern->SetValue(text.value),"Native value write failed; action was not retried");postedAt=Now();
+    }else if(name==L"select_text"){if(!element)Fail("An accessibility element is required");Foreground(window,pid);SelectText(element.get(),args);postedAt=Now();
     }else if(name==L"press_key")Press(window,pid,Text(args,L"key",128),args.HasKey(L"duration")?Number(args,L"duration",0,30):0);
     else if(name==L"type_text")Type(window,pid,Text(args,L"text",50000,true));
     else if(name==L"paste")Paste(window,pid,Text(args,L"text",50000,true),args.HasKey(L"format")?Text(args,L"format"):std::wstring(L"text"));
@@ -626,7 +634,7 @@ static JsonObject Action(const JsonObject& args) {
         if(direction!=L"up"&&direction!=L"down"&&direction!=L"left"&&direction!=L"right")Fail("Unsupported scroll direction");
         auto scroll=element?Pattern<IUIAutomationScrollPattern>(element.get(),UIA_ScrollPatternId):com_ptr<IUIAutomationScrollPattern>{};
         if(scroll&&std::floor(pages)==pages){for(int i=0;i<static_cast<int>(pages);i++){Foreground(window,pid);Require(scroll->Scroll(direction==L"left"?ScrollAmount_LargeDecrement:direction==L"right"?ScrollAmount_LargeIncrement:ScrollAmount_NoAmount,
-            direction==L"up"?ScrollAmount_LargeDecrement:direction==L"down"?ScrollAmount_LargeIncrement:ScrollAmount_NoAmount),"Native scroll failed; action was not retried");}}
+            direction==L"up"?ScrollAmount_LargeDecrement:direction==L"down"?ScrollAmount_LargeIncrement:ScrollAmount_NoAmount),"Native scroll failed; action was not retried");postedAt=Now();}}
         else{POINT point{};
             if(element){RECT r{};Require(element->get_CurrentBoundingRectangle(&r),"Scroll element bounds are unavailable");point={(r.left+r.right)/2,(r.top+r.bottom)/2};if(!PtInRect(&bounds,point))Fail("Scroll element is outside the approved window");}
             else point=Point(args.GetNamedObject(L"point"),bounds);

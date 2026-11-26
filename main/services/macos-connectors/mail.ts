@@ -5,7 +5,9 @@ const MAILBOX_TREE = `on mailboxTree(container_, depth_)
   if depth_ > 32 then error "The mailbox tree exceeds its depth limit"
   set result_ to {}
   tell application "Mail"
-    repeat with mb_ in mailboxes of container_
+    set subs_ to mailboxes of container_
+    if (count of subs_) is 0 then return {}
+    repeat with mb_ in subs_
       set end of result_ to contents of mb_
       set result_ to result_ & my mailboxTree(mb_, depth_ + 1)
       if (count of result_) > 2000 then error "Too many mailboxes"
@@ -28,11 +30,19 @@ function address(value: unknown, field: string, optional = false): string {
   return result;
 }
 export async function mail(name: string, args: Row, execution: MacOsExecution): Promise<string> {
-  const run = (script: string) => applicationScript('Mail', MAILBOX_TREE + script, execution);
+  const run = (script: string, timeoutMs?: number) => applicationScript('Mail', MAILBOX_TREE + script, execution, timeoutMs);
   if (name === 'list_mailboxes' || name === 'search_messages') {
     const search = name === 'search_messages', query = search ? string(args.query, 'query') : '', mailbox = search ? string(args.mailbox, 'mailbox', true) : '';
     const limit = search ? boundedLimit(args, 30, 100) : 2000;
+    const prioritize = search && !mailbox;
+    const scan = `set messages_ to messages of mb_ whose subject contains ${quote(query)}
+              repeat with m in messages_
+                if matched_ ≥ ${limit} then exit repeat
+                output_'s addObject:(my jsonRow({"id", "sender", "subject", "date", "account", "mailbox"}, {id of m as text, my textOrEmpty(sender of m), my textOrEmpty(subject of m), date received of m as text, accountName_, mailboxName_}))
+                set matched_ to matched_ + 1
+              end repeat`;
     const raw = await run(`set output_ to current application's NSMutableArray's array()
+      ${prioritize ? "set deferred_ to {}" : ""}
       set matched_ to 0
       set visited_ to 0
       tell application "Mail"
@@ -46,19 +56,23 @@ export async function mail(name: string, args: Row, execution: MacOsExecution): 
           repeat with mb_ in boxes_
             if matched_ ≥ ${limit} then exit repeat
             set mailboxName_ to name of mb_ as text
-            ${search ? `if ${mailbox ? 'mailboxName_ is ' + quote(mailbox) : 'true'} then
-              set messages_ to messages of mb_ whose subject contains ${quote(query)}
-              repeat with m in messages_
-                if matched_ ≥ ${limit} then exit repeat
-                output_'s addObject:(my jsonRow({"id", "sender", "subject", "date", "account", "mailbox"}, {id of m as text, my textOrEmpty(sender of m), my textOrEmpty(subject of m), date received of m as text, accountName_, mailboxName_}))
-                set matched_ to matched_ + 1
-              end repeat
+            ${search ? prioritize ? `if mailboxName_ is in {"All Mail", "所有邮件", "Trash", "废纸篓", "Deleted Messages", "Junk", "垃圾邮件", "Spam"} then
+              set end of deferred_ to {contents of mb_, accountName_, mailboxName_}
+            else
+              ${scan}
+            end if` : `if mailboxName_ is ${quote(mailbox)} then
+              ${scan}
             end if` : `output_'s addObject:(my jsonRow({"account", "mailbox"}, {accountName_, mailboxName_}))
               set matched_ to matched_ + 1`}
           end repeat
         end repeat
+        ${prioritize ? `repeat with entry_ in deferred_
+          if matched_ ≥ ${limit} then exit repeat
+          set {mb_, accountName_, mailboxName_} to contents of entry_
+          ${scan}
+        end repeat` : ''}
       end tell
-      return my jsonText(output_)`);
+      return my jsonText(output_)`, 45_000);
     const rows = records(raw, limit, search ? ['id', 'sender', 'subject', 'date', 'account', 'mailbox'] : ['account', 'mailbox']);
     return pretty(search ? { query, count: rows.length, messages: rows } : { count: rows.length, mailboxes: rows });
   }
@@ -99,6 +113,11 @@ export async function mail(name: string, args: Row, execution: MacOsExecution): 
   else throw new Error('Unknown macOS Mail tool: ' + name);
   const raw = await run(`set visited_ to 0
     tell application "Mail"
+      set hits_ to messages of inbox whose id is ${id}
+      if (count of hits_) > 0 then
+        set m to item 1 of hits_
+        ${mutation}
+      end if
       if (count of accounts) > 2000 then error "Too many Mail accounts"
       repeat with account_ in accounts
         set boxes_ to my mailboxTree(account_, 0)
@@ -113,7 +132,7 @@ export async function mail(name: string, args: Row, execution: MacOsExecution): 
         end repeat
       end repeat
     end tell
-    return "not_found"`);
+    return "not_found"`, 45_000);
   if (raw === 'not_found') throw new Error('Message not found: ' + id);
   if (name === 'read_message') { const values = arrayResult(raw, 1); if (values.length !== 1 || typeof values[0] !== 'string') throw new Error('Mail returned invalid message content'); return values[0]; }
   confirmed(raw); return response;

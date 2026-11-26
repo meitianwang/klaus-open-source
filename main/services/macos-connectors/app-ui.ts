@@ -87,7 +87,7 @@ export async function appUi(name: string, args: Row, execution: MacOsExecution, 
           end if
           my uiWalk(item i_ of children_, path_ & "." & i_, depth_ + 1)
         end repeat
-      end uiWalk\n`);
+      end uiWalk\n`, 30_000);
       const tree = nodes(result.nodes); if (typeof result.appName !== 'string' || typeof result.pid !== 'number' || !Number.isSafeInteger(result.pid) || result.pid < 1 || typeof result.truncated !== 'boolean') throw new Error('Invalid tree process identity');
       state.snapshot = { turnId: context.turnId, appName: result.appName, pid: result.pid, nodes: new Map(tree.map(node => [node.path, node])) };
       return pretty({ ...result, windowIndex: wi, maxDepth: depth, maxNodes: limit, count: tree.length, ...(result.noWindow ? { permissionEvidence: 'no_ax_window_not_permission_denied', fallback: 'Use a screenshot, or explicitly allow a bounded process-root query.' } : {}) });
