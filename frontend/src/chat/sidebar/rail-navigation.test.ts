@@ -270,3 +270,13 @@ describe('secondary module group expansion', () => {
     expect(state.expansion).toEqual({ 'task-a': true, '__removed_cron_tasks__': false })
   })
 })
+
+test('extracts multiple memory links with their shared note and rejects invalid entries', () => {
+  expect(parseMemoryIndexMarkdown([
+    '* [A](a.md#first)、[B](./b.md) — Shared note',
+    '- [Duplicate](a.md) [Index](MEMORY.md) [Remote](https://example.org/c.md)',
+  ].join('\n'), 'agent-memory')).toEqual([
+    { path: 'agent-memory/a.md', title: 'A', hook: 'Shared note' },
+    { path: 'agent-memory/b.md', title: 'B', hook: 'Shared note' },
+  ])
+})

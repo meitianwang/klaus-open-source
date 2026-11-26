@@ -1,7 +1,7 @@
 // Memory 页（React 岛）——迁自 js/memory-view.js（autoDream UI）。
 // 「当前梦」运行卡（1s elapsed 心跳 + 叫醒按钮）+ 往昔的梦时间线
 // （无限滚动 + 时间筛选 + 三档鲜明度 + synapse 覆盖层）+ 文件/技能预览路由。
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useT } from '../../i18n'
 import { PageHeader } from '../../components/PageHeader'
 import { rawIconHtml } from '../../components/Icon'
@@ -13,6 +13,8 @@ import {
 import type { DreamRun, DreamSkillDistilled, DreamSkillReview, MemoryFileInfo, Vividness } from './data'
 import { highlightSynapsesForRow, renderSynapses, stopSynapsePulses } from './synapse'
 import { MEMORY_SIDEBAR_FILTER_EVENT, MEMORY_SIDEBAR_SYNC_EVENT } from '../../chat/sidebar/secondary-module-panes'
+import { MemoryDocumentView } from './MemoryDocumentView'
+import { getSelectedMemoryFile, selectMemoryFile, subscribeMemorySelection } from './data'
 import styles from './memory.module.css'
 
 const w = () => window as any
@@ -66,6 +68,7 @@ interface HistoryPageState {
 }
 
 export function MemoryPage() {
+  const selectedFile = useSyncExternalStore(subscribeMemorySelection, getSelectedMemoryFile)
   const t = useT()
   const [currentDream, setCurrentDreamState] = useState<DreamRun | null>(() => getCurrentDream())
   const [history, setHistory] = useState<HistoryPageState>({ rows: [], hasMore: true, cursor: null, loadedOnce: false })
@@ -100,12 +103,21 @@ export function MemoryPage() {
 
   const scheduleSynapses = useCallback(() => {
     requestAnimationFrame(() => {
+      if (getSelectedMemoryFile() !== null) return
       const host = synapseHostRef.current
       const container = historyElRef.current
       if (!host || !container) return
       renderSynapses({ host, container, runsById: runsByIdRef.current, isVisible: () => visibleRef.current })
     })
   }, [])
+
+  useEffect(() => {
+    const view = document.getElementById('memory-view')
+    view?.classList.toggle('memory-view-doc', selectedFile !== null)
+    if (selectedFile !== null) stopSynapsePulses()
+    else scheduleSynapses()
+    return () => { view?.classList.remove('memory-view-doc') }
+  }, [selectedFile, scheduleSynapses])
 
   const loadNextHistoryPage = useCallback(async (over?: { reset?: boolean; range?: string }) => {
     const cur = stateRef.current.history
@@ -373,11 +385,7 @@ export function MemoryPage() {
     const memTarget = target.closest('[data-rel-path]')
     if (memTarget) {
       const path = memTarget.getAttribute('data-rel-path')
-      if (path) {
-        w().klaus.memory.openWindow(path).catch((err: unknown) => {
-          w().showToast?.(err instanceof Error ? err.message : t('settings_failed'))
-        })
-      }
+      if (path) selectMemoryFile(path)
     }
   }
 
@@ -646,7 +654,8 @@ export function MemoryPage() {
   }
 
   return (
-    <div className={styles['memory-inner']} onClick={onSectionClick} onKeyDownCapture={onSectionKeyDownCapture}>
+    <>
+    <div className={styles['memory-inner']} style={selectedFile ? { display: 'none' } : undefined} onClick={onSectionClick} onKeyDownCapture={onSectionKeyDownCapture}>
       <PageHeader
         titleKey="memory_title"
         subtitleKey="memory_subtitle"
@@ -682,5 +691,7 @@ export function MemoryPage() {
         <span className={styles['memory-history-end-mark']}>·</span>
       </div>
     </div>
+    {selectedFile ? <MemoryDocumentView key={selectedFile} filePath={selectedFile} /> : null}
+    </>
   )
 }

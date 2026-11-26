@@ -1,7 +1,7 @@
 import { constants } from 'node:fs';
-import { open, readdir, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { lstat, open, realpath, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { createHash, randomUUID } from 'node:crypto';
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path';
+import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { Json } from '../ipc/contract';
 import { IpcHandlerError } from '../ipc/registry';
 import { pathInside } from './workspaces';
@@ -28,27 +28,40 @@ export class DocumentService {
     const action = Promise.resolve().then(() => { this.active(); return work(); });
     this.pending.add(action); void action.finally(() => this.pending.delete(action)).catch(() => {}); return action;
   }
+  private async candidateMemoryRoot(target: string, base: string): Promise<string | undefined> {
+    if (!pathInside(target, base)) return undefined;
+    const parts = relative(base, target).split(/[/\\]/).filter(Boolean);
+    if (parts[0] === 'agent-memory') return join(base, 'agent-memory');
+    const projectName = parts[1];
+    if (parts[0] === 'projects' && projectName && parts[2] === 'memory') {
+      const project = join(base, 'projects', projectName);
+      try {
+        if ((await lstat(project)).isDirectory()) return join(project, 'memory');
+      } catch (error) {
+        if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error;
+      }
+    }
+    return undefined;
+  }
   private async memoryPath(input: string): Promise<string> {
     if (!input || input.includes('\0')) throw new Error('invalid-path');
-    const target = resolve(this.root, input), roots = [join(this.root, 'agent-memory')];
-    try {
-      for (const entry of await readdir(join(this.root, 'projects'), { withFileTypes: true })) {
-        if (entry.isDirectory()) roots.push(join(this.root, 'projects', entry.name, 'memory'));
+    const target = resolve(this.root, input);
+    let allowedRoot = await this.candidateMemoryRoot(target, this.root);
+    if (!allowedRoot) {
+      const canonicalConfig = await realpath(this.root).catch((error: NodeJS.ErrnoException) => {
+        if (!['ENOENT', 'ENOTDIR'].includes(error.code ?? '')) throw error;
+        return undefined;
+      });
+      if (canonicalConfig && canonicalConfig !== this.root) {
+        allowedRoot = await this.candidateMemoryRoot(target, canonicalConfig);
       }
-    } catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
-    const allowed = roots.filter(root => pathInside(target, root));
-    if (!allowed.length) for (const root of roots) {
-      try { if (pathInside(target, await realpath(root))) allowed.push(root); }
-      catch (error) { if (!['ENOENT', 'ENOTDIR'].includes((error as NodeJS.ErrnoException).code ?? '')) throw error; }
     }
-    if (!allowed.length) throw new Error('path-escape');
+    if (!allowedRoot) throw new Error('path-escape');
     // Keep stat's missing-file error shape while separately verifying symlink scope.
     const info = await stat(target); if (!info.isFile()) throw new Error('not-a-file');
     const actual = await realpath(target), config = await realpath(this.root);
-    for (const root of allowed) {
-      const actualRoot = await realpath(root);
-      if (pathInside(actualRoot, config) && pathInside(actual, actualRoot)) return actual;
-    }
+    const actualRoot = await realpath(allowedRoot);
+    if (pathInside(actualRoot, config) && pathInside(actual, actualRoot)) return actual;
     throw new Error('path-escape');
   }
   private async specPath(input: string): Promise<string> {
@@ -83,7 +96,7 @@ export class DocumentService {
       try {
         const path = await this.memoryPath(string(payload.relPath) || string(payload.filePath));
         const { bytes, size } = await this.bytes(path, MEMORY_LIMIT); this.active();
-        return { ok: true, content: bytes.toString('utf8'), truncated: size > MEMORY_LIMIT, size };
+        return { ok: true, content: bytes.toString('utf8'), truncated: size > MEMORY_LIMIT, size, ...(payload.includePath === true ? { filePath: path } : {}) };
       } catch (error) { return { ok: false, error: errorMessage(error) }; }
     }));
   }

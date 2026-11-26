@@ -10332,6 +10332,20 @@ body.artifacts-maximized .artifacts-panel > .artifacts-body {
   z-index: 100;
 }
 #memory-view.active { display: block; }
+#memory-view.active.memory-view-doc {
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  padding: var(--titlebar-height) 0 0;
+  scrollbar-gutter: auto;
+}
+#memory-view.active.memory-view-doc #memory-view-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+
 
 /* Decorative moon: a soft glow nested behind the page title (「记忆」 / "Memory").
    Tucked just to the left and above the title's first character so its bright

@@ -45,6 +45,10 @@ h.test('memory preview uses its canonical path and refuses a symlink out of its 
   try {
     await mkdir(join(f.root, 'projects/legacy/memory'),{recursive:true}); await writeFile(join(f.root,'projects/legacy/memory/m.md'),'legacy');
     assertEqual((await f.invoke('memory:open-window',{filePath:join(f.root,'projects/legacy/memory/m.md')})).ok,true,'real preview opened');
+    assertEqual((await f.invoke('memory:read-file', { relPath: 'projects/legacy/memory/m.md', includePath: true })).filePath,
+      await realpath(join(f.root, 'projects/legacy/memory/m.md')), 'canonical preview path returned');
+    assertEqual((await f.invoke('memory:read-file', { relPath: 'projects/uninitialized-project/memory/MEMORY.md' })).error,
+      'path-escape', 'uninitialized project refused');
     assertEqual((await f.invoke('memory:read-file',{filePath:f.previews[0]!})).content,'legacy','canonical path stays readable by preview role');
     await writeFile(join(f.root,'private.md'),'not memory');
     await symlink(join(f.root,'private.md'),join(f.root,'projects/legacy/memory/escape.md'));

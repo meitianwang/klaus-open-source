@@ -1,10 +1,10 @@
 import { createRoot } from 'react-dom/client'
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { Fragment, useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { useT } from '../../i18n'
 import { Icon } from '../../components/Icon'
 import { sortTasksFlat, type CronStatus, type CronTask } from '../../pages/cron/data'
 import { isChannelConfigured, type ChannelPresentationState } from '../../pages/channels/channel-state'
-import { MEMORY_DREAM_EVENT, friendlyMemoryName, getCurrentDream, type DreamRun } from '../../pages/memory/data'
+import { MEMORY_DREAM_EVENT, getSelectedMemoryFile, normalizeMemorySelectionKey, selectMemoryFile, subscribeMemorySelection, getCurrentDream, type DreamRun } from '../../pages/memory/data'
 import '../../pages/team-collaboration/i18n'
 import { COLLABORATION_REFRESH, allPages, request as collaborationRequest, useCollaborationRoute, type CollaborationProject } from '../../pages/team-collaboration/data'
 import { FriendAvatar } from '../../pages/friends/FriendsDialog'
@@ -157,17 +157,21 @@ export function parseMemoryIndexMarkdown(markdown: string, dirPrefix = ''): Memo
   const entries: MemorySidebarFileEntry[] = []
   const seen = new Set<string>()
   const normalizedPrefix = dirPrefix ? `${dirPrefix.replace(/\/+$/, '')}/` : ''
-  const lineRe = /^\s*-\s+\[([^\]]+)\]\(([^)\s]+\.md)\)(?:\s*[—–-]\s*(.+))?\s*$/gm
-  let match: RegExpExecArray | null
-  while ((match = lineRe.exec(markdown)) !== null) {
-    const title = match[1].trim()
-    const relPath = match[2].trim().replace(/^\.\//, '')
-    const hook = (match[3] || '').trim()
-    if (!relPath || relPath.includes('..')) continue
-    const fullPath = `${normalizedPrefix}${relPath}`
-    if (seen.has(fullPath)) continue
-    seen.add(fullPath)
-    entries.push({ path: fullPath, title, hook })
+  for (const line of markdown.split('\n')) {
+    const bullet = line.match(/^\s*[-*]\s+(.+)$/)?.[1]
+    if (!bullet) continue
+    const links = [...bullet.matchAll(/\[([^\]]+)\]\(([^)\s#]+\.md)(?:#[^)\s]*)?\)/g)]
+    const last = links.at(-1)
+    if (!last) continue
+    const hook = bullet.slice(last.index! + last[0].length).match(/^\s*[—–-]\s*(.+)$/)?.[1].trim() ?? ''
+    for (const [, label, rawPath] of links) {
+      const relPath = rawPath.replace(/^\.\//, '')
+      if (!relPath || relPath.includes('..') || /^(?:[\w+.-]+:|\/)|\\/.test(relPath) || /^MEMORY\.md$/i.test(relPath)) continue
+      const path = `${normalizedPrefix}${relPath}`
+      if (seen.has(path)) continue
+      seen.add(path)
+      entries.push({ path, title: label.trim(), hook })
+    }
   }
   return entries
 }
@@ -814,153 +818,130 @@ function ChannelsSecondaryPane() {
   )
 }
 
-function MemorySecondaryPane() {
-  const t = useT()
-  const [range, setRange] = useState<string>('all')
-  const [dream, setDream] = useState<DreamRun | null>(() => getCurrentDream())
-  const [files, setFiles] = useState<MemorySidebarFileEntry[]>([])
-  const [indexPaths, setIndexPaths] = useState<string[]>([])
+interface MemoryGroup {
+  dir: string
+  label: string
+  indexPath: string
+  entries: MemorySidebarFileEntry[]
+}
 
-  const loadMemoryFiles = useCallback(async () => {
-    const win = window as unknown as {
-      klaus?: {
-        memory?: { readFile?: (relPath: string) => Promise<{ ok?: boolean; content?: string }> }
-        projects?: { list?: () => Promise<{ roots?: Array<string | { path?: string }> } | null | undefined> }
-      }
-    }
-    const readFile = win.klaus?.memory?.readFile
-    if (typeof readFile !== 'function') return
+let cachedMemoryGroups: MemoryGroup[] | null = null
+let inFlightMemoryGroups: Promise<MemoryGroup[]> | null = null
 
-    const candidateDirs = ['agent-memory']
+export function resetMemorySidebarCacheForTests(): void {
+  cachedMemoryGroups = null
+  inFlightMemoryGroups = null
+}
+
+function loadMemoryGroups(refresh = false): Promise<MemoryGroup[]> {
+  if (!refresh && inFlightMemoryGroups) return inFlightMemoryGroups
+  if (!refresh && cachedMemoryGroups) return Promise.resolve(cachedMemoryGroups)
+  const api = window.klaus
+  const readFile = api?.memory?.readFile
+  if (!readFile) return Promise.resolve([])
+  const request = (async () => {
+    const candidates = [{ dir: 'agent-memory', label: '' }]
     try {
-      const proj = await win.klaus?.projects?.list?.()
-      const roots = Array.isArray(proj?.roots) ? proj.roots : []
-      for (const item of roots) {
+      const projects = await api.projects?.list()
+      for (const item of Array.isArray(projects?.roots) ? projects.roots : []) {
         const rootPath = typeof item === 'string' ? item : item?.path
         if (!rootPath) continue
-        const slug = rootPath.replace(/[^A-Za-z0-9]/g, '-')
-        const dir = `projects/${slug}/memory`
-        if (!candidateDirs.includes(dir)) candidateDirs.push(dir)
+        const dir = `projects/${rootPath.replace(/[^A-Za-z0-9]/g, '-')}/memory`
+        const label = rootPath.split(/[\\/]/).filter(Boolean).at(-1) ?? ''
+        if (!candidates.some(candidate => candidate.dir === dir)) candidates.push({ dir, label })
       }
     } catch {}
-
-    const discoveredIndexes: string[] = []
-    const collectedEntries: MemorySidebarFileEntry[] = []
-    const seenPaths = new Set<string>()
-
-    for (const dir of candidateDirs) {
+    const results = await Promise.all(candidates.map(async candidate => {
+      const indexPath = `${candidate.dir}/MEMORY.md`
       try {
-        const indexRel = `${dir}/MEMORY.md`
-        const res = await readFile(indexRel)
-        if (!res?.ok || typeof res.content !== 'string' || !res.content.trim()) continue
-        discoveredIndexes.push(indexRel)
-        for (const entry of parseMemoryIndexMarkdown(res.content, dir)) {
-          if (seenPaths.has(entry.path)) continue
-          seenPaths.add(entry.path)
-          collectedEntries.push(entry)
+        const result = await readFile(indexPath)
+        if (result?.ok && typeof result.content === 'string' && result.content.trim()) {
+          return { ...candidate, indexPath, entries: parseMemoryIndexMarkdown(result.content, candidate.dir) }
         }
       } catch {}
+      return null
+    }))
+    const seen = new Set<string>()
+    return results.flatMap(group => group ? [{ ...group, entries: group.entries.filter(entry => {
+      if (seen.has(entry.path)) return false
+      seen.add(entry.path)
+      return true
+    }) }] : [])
+  })().then(groups => {
+    if (inFlightMemoryGroups === request) {
+      cachedMemoryGroups = groups
+      inFlightMemoryGroups = null
     }
+    return groups
+  })
+  inFlightMemoryGroups = request
+  return request
+}
 
-    setIndexPaths(discoveredIndexes)
-    setFiles(collectedEntries)
-  }, [])
+if (typeof window !== 'undefined') {
+  setTimeout(() => {
+    if (window.klaus?.memory?.readFile) void loadMemoryGroups()
+  }, 100)
+}
 
+function MemorySecondaryPane() {
+  const t = useT()
+  const [dream, setDream] = useState<DreamRun | null>(() => getCurrentDream())
+  const [groups, setGroups] = useState(() => cachedMemoryGroups)
+  const selectedFile = useSyncExternalStore(subscribeMemorySelection, getSelectedMemoryFile)
+  const selectedKey = selectedFile ? normalizeMemorySelectionKey(selectedFile) : null
+  const scrollRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
-    void loadMemoryFiles()
-    const onDream = (event: Event) => {
-      const next = ((event as CustomEvent).detail as DreamRun | null) ?? null
-      setDream(next)
-      if (next && next.status !== 'running') void loadMemoryFiles()
+    if (!selectedKey) return
+    Array.from(scrollRef.current?.querySelectorAll<HTMLElement>('[data-memory-path]') ?? [])
+      .find(row => row.dataset.memoryPath === selectedKey)?.scrollIntoView?.({ block: 'nearest' })
+  }, [groups, selectedKey])
+  useEffect(() => {
+    let generation = 0
+    const load = (refresh = false) => {
+      const current = ++generation
+      void loadMemoryGroups(refresh).then(next => { if (generation === current) setGroups(next) })
     }
-    const onSync = (event: Event) => {
-      const next = (event as CustomEvent<{ timeRange?: string }>).detail?.timeRange
-      if (next) setRange(next)
+    load()
+    const onDream = (event: Event) => {
+      const next = (event as CustomEvent<DreamRun | null>).detail
+      setDream(next)
+      if (next && next.status !== 'running') load(true)
     }
     window.addEventListener(MEMORY_DREAM_EVENT, onDream)
-    window.addEventListener(MEMORY_SIDEBAR_SYNC_EVENT, onSync)
     return () => {
+      generation++
       window.removeEventListener(MEMORY_DREAM_EVENT, onDream)
-      window.removeEventListener(MEMORY_SIDEBAR_SYNC_EVENT, onSync)
     }
-  }, [loadMemoryFiles])
+  }, [])
 
-  const running = dream?.status === 'running'
-  const ranges: Array<{ value: string; key: string }> = [
-    { value: 'all', key: 'memory_filter_all' },
-    { value: 'today', key: 'memory_filter_today' },
-    { value: 'week', key: 'memory_filter_week' },
-    { value: 'month', key: 'memory_filter_month' },
-  ]
-
-  const openMemoryFile = (relPath: string) => {
-    const api = (window as unknown as { klaus?: { memory?: { openWindow?: (p: string) => Promise<unknown> } }; showToast?: (msg: string) => void })
-    void api.klaus?.memory?.openWindow?.(relPath)?.catch((err: unknown) => {
-      api.showToast?.(err instanceof Error ? err.message : t('settings_failed'))
-    })
-  }
-
+  const rowClass = (key: string | null) => `${styles.row}${selectedKey === key ? ` ${styles.rowActive}` : ''}`
   return (
     <div className={styles.pane}>
-      {running && (
-        <div className={styles.statusCard}>
-          <span className={`${styles.dot} ${styles.dotBusy}`} aria-hidden="true" />
-          <span>{t('memory_dream_title')}</span>
-        </div>
-      )}
-
-      <div className={styles.groupLabel}>{t('memory_history')}</div>
-      <div className={styles.pills}>
-        {ranges.map(item => (
-          <button
-            key={item.value}
-            type="button"
-            className={`${styles.pill}${range === item.value ? ` ${styles.pillActive}` : ''}`}
-            onClick={() => {
-              setRange(item.value)
-              window.dispatchEvent(new CustomEvent(MEMORY_SIDEBAR_FILTER_EVENT, { detail: { timeRange: item.value } }))
-            }}
-          >
-            {t(item.key)}
-          </button>
-        ))}
+      {dream?.status === 'running' && <div className={styles.statusCard}>
+        <span className={`${styles.dot} ${styles.dotBusy}`} aria-hidden="true" />
+        <span>{t('memory_dream_title')}</span>
+      </div>}
+      <div className={styles.navBlock}>
+        <button type="button" data-memory-overview="true" className={rowClass(null)} onClick={() => selectMemoryFile(null)}>
+          <Icon name="sb-nav-memory" /><span>{t('memory_history')}</span>
+        </button>
       </div>
-
-      <div className={styles.scroll}>
-        <div className={styles.groupLabel}>{t('context_cat_memory')}</div>
-        {indexPaths.length === 0 && files.length === 0 ? (
-          <div className={styles.empty}>{t('memory_sidebar_files_empty')}</div>
-        ) : (
-          <>
-            {indexPaths[0] && (
-              <button
-                type="button"
-                className={styles.row}
-                onClick={() => openMemoryFile(indexPaths[0]!)}
-              >
-                <Icon name="overview-ref-memory" />
-                <span className={styles.rowStack}>
-                  <span className={styles.rowLabel}>{friendlyMemoryName('MEMORY.md')}</span>
-                  <span className={styles.rowMeta}>MEMORY.md</span>
-                </span>
-              </button>
-            )}
-            {files.map(entry => (
-              <button
-                key={entry.path}
-                type="button"
-                className={styles.row}
-                onClick={() => openMemoryFile(entry.path)}
-              >
-                <Icon name="chat-file" />
-                <span className={styles.rowStack}>
-                  <span className={styles.rowLabel}>{entry.title}</span>
-                  {entry.hook ? <span className={styles.rowMeta}>{entry.hook}</span> : null}
-                </span>
-              </button>
-            ))}
-          </>
-        )}
+      <div className={styles.divider} />
+      <div className={styles.scroll} ref={scrollRef}>
+        {groups === null && <div className={styles.groupLabel}>{t('context_cat_memory')}</div>}
+        {groups?.length === 0 && <><div className={styles.groupLabel}>{t('context_cat_memory')}</div><div className={styles.empty}>{t('memory_sidebar_files_empty')}</div></>}
+        {groups?.map(group => <Fragment key={group.dir}>
+          <div className={styles.groupLabel}>{groups.length > 1 && group.label ? `${t('context_cat_memory')} · ${group.label}` : t('context_cat_memory')}</div>
+          <button type="button" data-memory-path={group.indexPath} className={rowClass(group.indexPath)} onClick={() => selectMemoryFile(group.indexPath)}>
+            <Icon name="overview-ref-memory" />
+            <span className={styles.rowStack}><span className={styles.rowLabel}>{t('memory_file_label_index')}</span><span className={styles.rowMeta}>MEMORY.md</span></span>
+          </button>
+          {group.entries.map(entry => <button type="button" key={entry.path} data-memory-path={entry.path} className={rowClass(entry.path)} onClick={() => selectMemoryFile(entry.path)}>
+            <Icon name="chat-file" />
+            <span className={styles.rowStack}><span className={styles.rowLabel}>{entry.title}</span>{entry.hook && <span className={styles.rowMeta}>{entry.hook}</span>}</span>
+          </button>)}
+        </Fragment>)}
       </div>
     </div>
   )

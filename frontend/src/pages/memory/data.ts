@@ -209,3 +209,63 @@ export function setCurrentDream(snap: DreamRun | null): void {
 export function updateSidebarDot(active: boolean): void {
   document.getElementById('btn-memory')?.classList.toggle('has-active', !!active)
 }
+
+export function normalizeMemorySelectionKey(rawPath: string): string {
+  const normalized = rawPath.trim().replace(/\\/g, '/').replace(/^\.\//, '')
+  return normalized.match(/(?:^|\/)(agent-memory\/.+|projects\/[^/]+\/memory\/.+)$/)?.[1] ?? normalized
+}
+
+export function resolveRelativeMemoryPath(basePath: string, relativeHref: string): { path: string; anchor: string } | null {
+  try {
+    const [rawTarget, rawAnchor = ''] = relativeHref.split('#')
+    const target = decodeURIComponent(rawTarget).replace(/\\/g, '/')
+    if (!target || /^(?:\/|[\w+.-]+:)|[\0?#]/.test(target)) return null
+    const base = normalizeMemorySelectionKey(basePath)
+    const root = base.match(/^(?:agent-memory|projects\/[^/]+\/memory)\//)?.[0]
+    if (!root) return null
+    const segments = base.slice(root.length).split('/').slice(0, -1)
+    for (const segment of target.split('/')) {
+      if (!segment || segment === '.') continue
+      if (segment === '..') {
+        if (!segments.length) return null
+        segments.pop()
+      } else segments.push(segment)
+    }
+    const path = root + segments.join('/')
+    return /\.(?:md|markdown)$/i.test(path) ? { path, anchor: decodeURIComponent(rawAnchor) } : null
+  } catch {
+    return null
+  }
+}
+
+let selectedMemoryFile: string | null = null
+let pendingMemoryAnchor = ''
+const memorySelectionListeners = new Set<() => void>()
+
+export function getSelectedMemoryFile(): string | null {
+  return selectedMemoryFile
+}
+
+export function selectMemoryFile(path: string | null, anchor = ''): void {
+  selectedMemoryFile = path
+  pendingMemoryAnchor = path === null ? '' : anchor
+  if (path !== null && typeof window !== 'undefined' && !window.document?.querySelector('#memory-view.active')) {
+    window.showMemoryView?.()
+  }
+  for (const listener of memorySelectionListeners) listener()
+}
+
+export function consumePendingMemoryAnchor(): string {
+  const anchor = pendingMemoryAnchor
+  pendingMemoryAnchor = ''
+  return anchor
+}
+
+export function subscribeMemorySelection(listener: () => void): () => void {
+  memorySelectionListeners.add(listener)
+  return () => { memorySelectionListeners.delete(listener) }
+}
+
+export function resetMemorySelectionForTests(): void {
+  selectMemoryFile(null)
+}

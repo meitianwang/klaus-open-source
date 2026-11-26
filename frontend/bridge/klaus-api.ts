@@ -1811,7 +1811,7 @@ expose('klaus', {
       call('dream:config-set', cfg),
   },
   memory: {
-    readFile: (relPath: string) => call('memory:read-file', { relPath }),
+    readFile: (relPath: string, options?: { includePath?: boolean }) => call('memory:read-file', options?.includePath ? { relPath, includePath: true } : { relPath }),
     reveal: () => call('memory:reveal'),
     /** Open a single memory file in the standalone preview window
      *  (same UI as artifacts.openWindow but for memory dir paths). */
