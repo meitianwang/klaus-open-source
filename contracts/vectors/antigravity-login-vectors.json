@@ -1,6 +1,6 @@
 {
-  "version": 6,
-  "reason": "Browser authorization and local credential reuse have independent entrypoints and append or refresh accounts in an Antigravity account queue. Completed authorization preserves credential ownership while cancellation fences stale replies. Connected accounts expose sign-out alongside login and local reuse for adding accounts, allow switching the active head account or removing individual accounts, route requests through the active head account while keeping conversations sticky with automatic failover on rate-limit/quota/auth refusals, query quota only for the active account, and badge saved credentials concisely without extra explanatory banner prose.",
+  "version": 7,
+  "reason": "Browser authorization and local credential reuse have independent entrypoints and append or refresh accounts in an Antigravity account queue. Completed authorization preserves credential ownership while cancellation fences stale replies. Connected accounts expose sign-out alongside login and local reuse for adding accounts, allow switching the active head account or removing individual accounts, route requests through the active head account while keeping conversations sticky with automatic failover on rate-limit/quota/auth refusals that isolates the rotated conversation onto a fresh session identity and strips prior-account signatures, query quota only for the active account, and show concise proxy-stability guidance on the account card.",
   "start": {
     "ok": true,
     "flowId": "fixture-flow-one",
@@ -33,6 +33,7 @@
   },
   "accountCard": {
     "savedStatusKey": "antigravity_credential_saved",
+    "usageGuidanceKey": "antigravity_usage_guidance",
     "signedOutActions": [
       "start",
       "importLocal"

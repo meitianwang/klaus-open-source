@@ -1415,6 +1415,9 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
           {actions}
         </div>
       ) : null}
+      {mode === 'antigravity' ? (
+        <p id={`${prefix}-usage-guidance`} className={styles['subscription-usage-guidance']}>{t('antigravity_usage_guidance')}</p>
+      ) : null}
       {logoutError ? <div role="alert" className={styles['settings-status-text']}>{logoutError}</div> : null}
       {mode === 'cursor' && loginBusy ? <div className="card-actions"><button className="btn-sm" id="cursor-auth-cancel-btn" onClick={() => { void cancelCursorLogin().then(() => setStatusMsg(t('cursor_auth_cancelled'))).catch(error => setStatusMsg(authErrorText(source, error?.message || String(error)))) }}>{t('cancel')}</button></div> : null}
       {(!['antigravity', 'trae', 'kiro'].includes(mode) || !signedIn) && status.error ? <div className={styles['settings-status-text']}>{authErrorText(source, status.error)}</div>

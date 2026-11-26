@@ -1495,3 +1495,9 @@
   font-size: var(--text-small);
   line-height: var(--leading-settings-description);
 }
+.subscription-usage-guidance {
+  margin: 8px 0 0;
+  color: var(--fg-tertiary);
+  font-size: var(--text-small);
+  line-height: var(--leading-settings-description);
+}

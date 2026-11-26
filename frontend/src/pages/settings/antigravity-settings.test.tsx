@@ -75,6 +75,9 @@ test('browser completion preserves its originating session and retires cancellat
     expect(requests).toEqual(['reload'])
     const html = renderToStaticMarkup(createElement(SubscriptionCardBody, { mode: 'antigravity', reloadSeq: 0, reload: () => {} }))
     expect(html).toContain(I18N.en[loginVectors.accountCard.savedStatusKey])
+    expect(html).toContain(`id="antigravity-auth-usage-guidance"`)
+    expect(html).toContain(I18N.en[loginVectors.accountCard.usageGuidanceKey])
+    expect(loginVectors.multiAccount.rotationTriggers).toEqual(['rate_limit', 'quota', 'auth'])
     expect(html).not.toContain('card-meta')
     expect(html).not.toContain(`>${I18N.en.auth_logged_in}<`)
     for (const action of loginVectors.accountCard.signedInActions) {
@@ -172,7 +175,7 @@ test('account-only login and reuse leave conversation preferences intact', async
 })
 
 test('account and search copy is available in both interface languages', () => {
-  for (const language of ['en', 'zh'] as const) for (const key of ['auth_antigravity', 'voice_source_antigravity', 'antigravity_login', 'antigravity_login_opening', 'antigravity_browser_login_expired', 'antigravity_import_confirm', 'antigravity_import_success', 'antigravity_import_failed_prefix', 'antigravity_reuse_login', 'antigravity_login_expired', 'antigravity_refresh_unavailable', 'antigravity_local_keychain_denied', 'klaus_websearch_source_antigravity']) expect(I18N[language][key]).toBeTruthy()
+  for (const language of ['en', 'zh'] as const) for (const key of ['auth_antigravity', 'voice_source_antigravity', 'antigravity_usage_guidance', 'antigravity_login', 'antigravity_login_opening', 'antigravity_browser_login_expired', 'antigravity_import_confirm', 'antigravity_import_success', 'antigravity_import_failed_prefix', 'antigravity_reuse_login', 'antigravity_login_expired', 'antigravity_refresh_unavailable', 'antigravity_local_keychain_denied', 'klaus_websearch_source_antigravity']) expect(I18N[language][key]).toBeTruthy()
 })
 
 for (const language of ['en', 'zh'] as const) {
