@@ -508,12 +508,10 @@
   text-align: right;
   word-break: break-word;
 }
-/* Default friend permission card: section heading, row card and the save row
-   share one vertical rhythm; the row card mixes profile rows and pref rows,
+/* The default friend permission card mixes profile rows and pref rows,
    so pref rows joining a profile row need the same separator. */
 .grant-settings { display: flex; flex-direction: column; gap: 12px; min-width: 0; }
 .grant-settings .profile-account-card :global(.pref-row) { border-top: 1px solid var(--border); }
-.grant-settings-actions { display: flex; align-items: center; gap: 10px; }
 /* Receiving-computer row value: device name plus presence dot sit beside the
    change button instead of stacking under it. */
 .profile-receiver-value {

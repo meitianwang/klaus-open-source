@@ -750,7 +750,7 @@ export class FriendsService {
       withSettingsTransaction(this.deps.configRoot, db => db.prepare('INSERT INTO settings(key,value) VALUES (?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value')
         .run(FriendsService.DEFAULT_GRANT_KEY, JSON.stringify(grant)));
     });
-    this.deps.changed?.(); return this.runtime();
+    this.deps.changed?.(); return this.localRuntime();
   }
   /** The model-facing envelope plus the owner-facing send payload. The bubble shows the
    *  friend's message exactly as it arrived; nothing is prefixed onto it. */
