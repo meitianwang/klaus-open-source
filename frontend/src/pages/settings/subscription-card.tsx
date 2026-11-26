@@ -40,6 +40,7 @@ export interface SubscriptionSource {
   importFailedPrefix?: string
   confirmLogout: string
   deviceExpired?: string
+  usageGuidance?: string
   multiAccount?: boolean
   login: (source: SubscriptionSource, setStatus: (text: string) => void, reload: () => void, options?: SubscriptionLoginOptions) => Promise<void>
   deviceHint?: (flow: any) => string
@@ -167,6 +168,7 @@ export const SUBSCRIPTION_SOURCES: Record<string, SubscriptionSource> = {
     importFailedPrefix: 'antigravity_import_failed_prefix',
     confirmLogout: 'antigravity_confirm_logout',
     deviceExpired: 'antigravity_browser_login_expired',
+    usageGuidance: 'antigravity_usage_guidance',
     multiAccount: true,
     login: loginThroughDeviceFlow,
   },
@@ -186,6 +188,7 @@ export const SUBSCRIPTION_SOURCES: Record<string, SubscriptionSource> = {
     importSuccess: 'sub_import_success',
     importFailedPrefix: 'sub_import_failed_prefix',
     confirmLogout: 'sub_confirm_logout',
+    usageGuidance: 'sub_usage_guidance',
     multiAccount: true,
     // 宿主自己跑完整个回环授权，一次调用就有结果。
     login: loginThroughHost,
@@ -1415,8 +1418,8 @@ export function SubscriptionCardBody({ mode, reloadSeq, reload, activateModelOnL
           {actions}
         </div>
       ) : null}
-      {mode === 'antigravity' ? (
-        <p id={`${prefix}-usage-guidance`} className={styles['subscription-usage-guidance']}>{t('antigravity_usage_guidance')}</p>
+      {source.usageGuidance ? (
+        <p id={`${prefix}-usage-guidance`} className={styles['subscription-usage-guidance']}>{t(source.usageGuidance)}</p>
       ) : null}
       {logoutError ? <div role="alert" className={styles['settings-status-text']}>{logoutError}</div> : null}
       {mode === 'cursor' && loginBusy ? <div className="card-actions"><button className="btn-sm" id="cursor-auth-cancel-btn" onClick={() => { void cancelCursorLogin().then(() => setStatusMsg(t('cursor_auth_cancelled'))).catch(error => setStatusMsg(authErrorText(source, error?.message || String(error)))) }}>{t('cancel')}</button></div> : null}

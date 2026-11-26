@@ -38,10 +38,13 @@
     ],
     "currentRule": "the head of the queue is isCurrent; exactly one row is current"
   },
+  "accountCard": {
+    "usageGuidanceKey": "sub_usage_guidance"
+  },
   "switch": {
     "channel": "auth:switch-account",
     "order": "moves the selected accountId to index 0 while preserving the relative order of the remaining stored accounts",
-    "sideEffects": "updates oauthAccount metadata, invalidates the Claude allowance cache and reconfigures live inference sessions",
+    "sideEffects": "updates oauthAccount metadata, invalidates the Claude allowance cache, reconfigures live inference sessions, and isolates the conversation segment while stripping prior-account cryptographic signatures",
     "missingAccount": "returns ok false with error 'claude_account_not_found'"
   },
   "usage": {
@@ -74,7 +77,7 @@
       "invalid_request"
     ],
     "authentication": "renew the current account once before rotating after an authentication failure; single-account and static credentials retain their terminal authentication behavior",
-    "advance": "the failed account moves to the tail and the new order is persisted to the credential file",
+    "advance": "the failed account moves to the tail, the new order is persisted to the credential file, and the retried request isolates conversation identity and strips prior-account cryptographic signatures",
     "concurrent": "a caller whose failed account is no longer the head retries the current head without advancing again",
     "cycleEnd": "the account that started the cycle failing again ends it; the remaining provider refusal is terminal and a later manual continue starts a fresh cycle"
   }

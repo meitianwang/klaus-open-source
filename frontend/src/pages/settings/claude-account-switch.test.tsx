@@ -382,4 +382,18 @@ describe('Claude subscription account pool active-account switch', () => {
 
     await act(async () => { root.unmount() })
   })
+
+  test('renders proxy stability and account-switching usage guidance on the Claude subscription card in both languages', async () => {
+    for (const lang of ['zh', 'en'] as const) {
+      for (const accounts of [[], [{ id: 'acct-a', email: 'alice@example.invalid', displayName: 'Alice' }]]) {
+        installAuth({ lang, accounts })
+        const { container, root } = await mountCard()
+        const guidance = container.querySelector('#auth-usage-guidance')
+        expect(guidance?.textContent).toBe(I18N[lang].sub_usage_guidance)
+        expect(I18N[lang].sub_usage_guidance.length).toBeGreaterThan(20)
+        await act(async () => { root.unmount() })
+        happyWindow.document.body.innerHTML = ''
+      }
+    }
+  })
 })
