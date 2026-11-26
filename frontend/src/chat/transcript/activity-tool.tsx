@@ -20,7 +20,7 @@ import { ImageActivityDetails, ScheduleActivityDetails, WebActivitySources } fro
 import { FriendActivityDetails } from './activity-friend'
 
 import { activityToolPresentation, activityToolDisplayName, activityShellResult, activityInputText, activityToolIconName, advisorActivityLabel, isAdvisorToolName, isDynamicActivityPresentation, type ActivityToolData, type ActivityToolProps, type ActivityToolPresentation, type ActivityToolState, type ActivityShellResult } from './activity-tool-model'
-import { DELEGATION_TAG_OPEN, findEmbeddedDelegationEnvelopes } from '../../../../contracts/thread-delegation'
+import { DELEGATION_TAG_OPEN, findEmbeddedDelegationEnvelopes, type DelegationEnvelope } from '../../../../contracts/thread-delegation'
 export * from './activity-tool-model'
 
 function copyText(locale: string, english: string, chinese: string): string {
@@ -345,11 +345,11 @@ export function delegatedToolOutput(
 }
 
 /** Keep a tool-result delegation visible until history owns its user-message row. */
-function DelegatedToolOutputCard({ delegation, locale }: { delegation: { sourceThreadId: string | null; sourceHostId?: string; input: string }; locale: string }) {
+function DelegatedToolOutputCard({ delegation, locale, sessionId }: { delegation: DelegationEnvelope; locale: string; sessionId?: string }) {
   void locale
   return <div className="msg-group user delegation">
     <RawHtml
-      html={renderDelegationLabelParsedHtml(delegation.sourceHostId, delegation.sourceThreadId) + renderDelegationBubbleHtml(delegation.input)}
+      html={renderDelegationLabelParsedHtml(delegation.sourceHostId, delegation.sourceThreadId) + renderDelegationBubbleHtml(delegation.input, delegation.attachments, path => (window as any).klaus?.media?.url?.(path, sessionId) || '')}
       />
   </div>
 }
@@ -470,7 +470,7 @@ export function ActivityToolContent(props: ActivityToolProps & { locale: string;
     <ToolCardBody {...props} tool={strippedTool} result={strippedResult} presentation={presentation} locale={locale} />
     {split && !props.suppressDelegations ? <div className={styles.toolDelegationGroup}>
       {split.delegations.map((delegation, index) =>
-        <DelegatedToolOutputCard key={index} delegation={delegation} locale={locale} />)}
+        <DelegatedToolOutputCard key={index} delegation={delegation} locale={locale} sessionId={tool.sessionId} />)}
     </div> : null}
   </>
 }

@@ -727,12 +727,16 @@ export function chatActivityTargetTitle(toolName: string, args: unknown): string
  * shows the message head for the same reason. Here the head is appended after
  * the title so one row answers "to whom, saying what" without expanding.
  */
+export function delegationAttachmentTag(value: unknown): string {
+  const names = Array.isArray(value) ? value.flatMap(path => typeof path === 'string' && path.trim() ? [path.trim().split(/[/\\]/).filter(Boolean).at(-1) || path.trim()] : []) : []
+  return names.length ? `[${names[0]}${names.length > 1 ? ` +${names.length - 1}` : ''}]` : ''
+}
+
 export function chatActivitySentHead(args: unknown, limit = 80): string {
-  const prompt = (args as Record<string, unknown> | null)?.prompt
-  if (typeof prompt !== 'string') return ''
-  const head = prompt.trim().replace(/\s+/g, ' ')
-  if (!head) return ''
-  return head.length > limit ? `${head.slice(0, limit)}…` : head
+  const record = args as Record<string, unknown> | null
+  const prompt = record?.prompt
+  const head = typeof prompt === 'string' ? prompt.trim().replace(/\s+/g, ' ') : ''
+  return [head.length > limit && head ? `${head.slice(0, limit)}…` : head, delegationAttachmentTag(record?.attachments)].filter(Boolean).join(' ')
 }
 
 export function ChatActivity({ tool, variant = 'row', leading = true, navigate }: {

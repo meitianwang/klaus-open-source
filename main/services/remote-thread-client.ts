@@ -1,11 +1,14 @@
 import { randomUUID } from 'node:crypto';
 import { TransformStream } from 'node:stream/web';
 import type { JsonObject } from './service-types';
-import { MobileError, type MobileAccount } from './mobile/protocol';
+import { decodeBinary } from '../ipc/binary';
+import { uploadLimit } from './attachments';
+import { MOBILE_ATTACHMENT_LIMIT, MOBILE_BODY_LIMIT, MobileError, type MobileAccount } from './mobile/protocol';
 import { mobileDeviceId, readMobileMachineIdentifier, relayURL } from './mobile/settings';
 import { responseText } from './mobile/transport';
 
 export type RemoteThreadOperation = 'list_threads' | 'list_archived_threads' | 'read_thread' | 'send_message_to_thread' | 'list_projects' | 'create_thread';
+export interface RemoteUploadedAttachment { path: string; name: string; mimeType: string; size: number }
 export interface RemoteThreadHost {
   id: string; name: string; status: string; features: JsonObject;
   /** Presentational facts a caller needs to tell two computers apart. Optional
@@ -94,12 +97,37 @@ export class RemoteThreadClient {
     });
   }
 
+  uploadAttachment(hostId: string, file: { name: string; mimeType: string; data: string }, signal: AbortSignal): Promise<RemoteUploadedAttachment> {
+    return this.run(signal, async context => {
+      const baseMime = file.mimeType.split(';', 1)[0]!.trim().toLowerCase() || 'application/octet-stream';
+      if (!identifier(hostId, 128) || !file.name.trim() || file.name.length > 1024 || file.name.includes('\0')
+        || !/^[A-Za-z0-9!#$&^_.+-]+\/[A-Za-z0-9!#$&^_.+-]+$/u.test(baseMime)) {
+        throw new MobileError(400, 'invalid_remote_request', 'Invalid remote attachment metadata.');
+      }
+      const limit = Math.min(MOBILE_ATTACHMENT_LIMIT, uploadLimit(file.name, file.mimeType));
+      if (file.data.length > Math.ceil(limit / 3) * 4) throw new MobileError(413, 'remote_request_too_large', 'The remote attachment is too large.');
+      if (!decodeBinary(file.data, limit)?.length) throw new MobileError(400, 'invalid_remote_request', 'Invalid remote attachment data.');
+      const body = JSON.stringify({ name: file.name, type: baseMime, buffer: file.data });
+      if (Buffer.byteLength(body) > MOBILE_BODY_LIMIT) throw new MobileError(413, 'remote_request_too_large', 'The remote attachment is too large.');
+      const { localHostId, hosts } = await this.devices(context);
+      if (hostId === localHostId) throw new MobileError(400, 'local_host', 'Use the local conversation tools for this computer.');
+      const host = hosts.find(row => row.id === hostId);
+      if (!host) throw new MobileError(404, 'remote_host_not_found', 'The computer is not available on this account.');
+      if (host.status !== 'online') throw new MobileError(503, 'remote_host_offline', 'The remote computer is offline or reconnecting.');
+      if (host.features.threadCommunication !== 1) throw new MobileError(409, 'remote_threads_unsupported', 'The remote computer needs an update to support conversation communication.');
+      if (!host.relayId) throw invalidResponse();
+      const res = await this.cloud(context, localHostId, '/api/mobile/relay/' + encodeURIComponent(host.relayId) + '/attachments', { method: 'POST', body }, RESPONSE_BYTES);
+      if (typeof res.path !== 'string' || !res.path.trim() || res.path.length > 4096 || res.path.includes('\0')) throw invalidResponse();
+      return { path: res.path, name: file.name, mimeType: file.mimeType || baseMime, size: typeof res.size === 'number' && Number.isFinite(res.size) ? res.size : 0 };
+    }, undefined, Math.max(this.deps.requestTimeoutMs ?? 30_000, 120_000));
+  }
+
   close(): Promise<void> {
     this.stopped.abort(new MobileError(503, 'remote_client_closed', 'Remote conversation communication is closed.'));
     return this.closing ??= (async () => { while (this.jobs.size) await Promise.allSettled([...this.jobs]); })();
   }
 
-  private run<T>(signal: AbortSignal, operation: (context: RequestContext) => Promise<T>, unavailable?: () => T): Promise<T> {
+  private run<T>(signal: AbortSignal, operation: (context: RequestContext) => Promise<T>, unavailable?: () => T, timeoutMs = this.deps.requestTimeoutMs ?? 30_000): Promise<T> {
     const pending = (async (): Promise<T> => {
       this.stopped.signal.throwIfAborted(); signal.throwIfAborted();
       const current = this.deps.account();
@@ -112,7 +140,7 @@ export class RemoteThreadClient {
         throw new MobileError(401, 'account_required', 'Sign in to communicate with another computer.');
       }
       const account = { token: current.token, userId: current.userId }, changed = new AbortController();
-      const combined = AbortSignal.any([signal, this.stopped.signal, changed.signal, AbortSignal.timeout(this.deps.requestTimeoutMs ?? 30_000)]);
+      const combined = AbortSignal.any([signal, this.stopped.signal, changed.signal, AbortSignal.timeout(timeoutMs)]);
       const check = (): void => {
         combined.throwIfAborted();
         const next = this.deps.account();

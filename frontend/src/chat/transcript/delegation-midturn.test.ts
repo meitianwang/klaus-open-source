@@ -205,3 +205,22 @@ describe('the device dimension of a cross-computer delegation', () => {
     }
   })
 })
+
+test('lifts mid-turn attachments into the clean user display snapshot', () => {
+  const attachments = [
+    { name: 'diagram.png', path: '/uploads/diagram.png', mimeType: 'image/png' },
+    { name: 'report.pdf', path: '/uploads/report.pdf', mimeType: 'application/pdf' },
+  ]
+  const prose = 'Review the diagram and report.'
+  const envelope = encodeDelegationEnvelope(prose, 'sender-thread', undefined, attachments)
+  const units = unitsFromMessages([replayMessage([
+    { type: 'tool_use', id: 'call-1', name: 'read', input: {}, __result: { content: [{ type: 'text', text: `Tool output\n${envelope}` }] } },
+  ])])
+  const lifted = units.filter(unit => unit.type === 'delegation')
+  expect(lifted).toHaveLength(1)
+  expect(lifted[0]?.msg.localRender).toMatchObject({ displayText: prose, attachments: [
+    { name: 'diagram.png', path: '/uploads/diagram.png', type: 'image' },
+    { name: 'report.pdf', path: '/uploads/report.pdf', type: 'file' },
+  ] })
+  expect(lifted[0]?.msg.contentBlocks).toBeUndefined()
+})

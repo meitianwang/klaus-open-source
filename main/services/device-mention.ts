@@ -47,7 +47,7 @@ export function deviceContextBlock(
     const reachable = host.status === 'online' || host.status === 'reconnecting'
     lines.push(`- @device-${host.id}: "${host.name}" (${host.platform ?? 'unknown'} platform, currently ${host.status}). `
       + (reachable
-        ? `Pass hostId "${host.id}" to send_message_to_thread to reach a conversation on this computer.`
+        ? `Pass hostId "${host.id}" to send_message_to_thread to reach a conversation on this computer, or create_thread with target { type: "projectless", hostId: "${host.id}" } when starting a new chat there; pass local file paths in attachments to transfer images, documents, audio, video, or files.`
         : 'This computer is not reachable right now; say so instead of sending.'))
   }
   if (lines.length === 0) return ''

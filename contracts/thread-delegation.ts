@@ -13,10 +13,6 @@
 // is model-visible plain text, so it survives engines that only store text
 // blocks, and the UI folds it instead of showing protocol markup to the user.
 //
-// Nested tags rather than attributes because the payload is arbitrary text:
-// escaping `& < >` is enough for element text, while an attribute would also
-// need quote escaping.
-
 /** Wrapper element around a delegated prompt. */
 export const DELEGATION_TAG = 'klaus-delegation'
 /** Element carrying the sending conversation's id, so the recipient can reply
@@ -27,9 +23,24 @@ export const DELEGATION_SOURCE_HOST_TAG = 'source-host-id'
 /** Element carrying the prompt verbatim. */
 export const DELEGATION_INPUT_TAG = 'input'
 
+export const DELEGATION_ATTACHMENTS_TAG = 'attachments'
+export const DELEGATION_ATTACHMENT_TAG = 'attachment'
+
+export interface DelegationAttachment { path: string; name: string; mimeType?: string }
+export interface DelegationDisplayAttachment extends DelegationAttachment { type: 'image' | 'file' }
+
+export function delegationDisplayAttachments(attachments?: readonly DelegationAttachment[] | null): DelegationDisplayAttachment[] {
+  return (attachments ?? []).map(item => {
+    const mime = item.mimeType?.split(';', 1)[0]?.trim().toLowerCase()
+    const image = /^image\/(?:jpe?g|(?:x-)?png|gif|webp)$/.test(mime ?? '')
+      || ((!mime || mime === 'application/octet-stream') && /\.(?:jpe?g|png|gif|webp)$/i.test(item.name))
+    return { ...item, type: image ? 'image' : 'file' }
+  })
+}
+
 /** Provider-invisible display metadata for a task submitted on the owner's behalf. */
-export function initialDelegationMetadata(displayText: string) {
-  return { delegationKind: 'initial-input' as const, displayText }
+export function initialDelegationMetadata(displayText: string, attachments?: readonly DelegationAttachment[] | null) {
+  return { delegationKind: 'initial-input' as const, displayText, ...(attachments?.length ? { attachments } : {}) }
 }
 
 /**
@@ -68,12 +79,21 @@ export function unescapeDelegationText(value: string): string {
  * empty tag: a recipient with nothing to reply to should not see a blank id it
  * might treat as a malformed-but-present value.
  */
-export function encodeDelegationEnvelope(input: string, sourceThreadId?: string | null, sourceHostId?: string | null): string {
+export function encodeDelegationEnvelope(input: string, sourceThreadId?: string | null, sourceHostId?: string | null, attachments?: readonly DelegationAttachment[] | null): string {
   const source = typeof sourceThreadId === 'string' ? sourceThreadId.trim() : ''
   const host = typeof sourceHostId === 'string' ? sourceHostId.trim() : ''
   const lines = [`<${DELEGATION_TAG}>`]
   if (source) lines.push(`  <${DELEGATION_SOURCE_TAG}>${escapeDelegationText(source)}</${DELEGATION_SOURCE_TAG}>`)
   if (host) lines.push(`  <${DELEGATION_SOURCE_HOST_TAG}>${escapeDelegationText(host)}</${DELEGATION_SOURCE_HOST_TAG}>`)
+  if (attachments?.length) {
+    const attribute = (value: string) => escapeDelegationText(value).replaceAll('"', '&quot;')
+    lines.push(`  <${DELEGATION_ATTACHMENTS_TAG}>`)
+    for (const item of attachments) {
+      const mime = item.mimeType === undefined ? '' : ` mime="${attribute(item.mimeType)}"`
+      lines.push(`    <${DELEGATION_ATTACHMENT_TAG} name="${attribute(item.name)}"${mime}>${escapeDelegationText(item.path)}</${DELEGATION_ATTACHMENT_TAG}>`)
+    }
+    lines.push(`  </${DELEGATION_ATTACHMENTS_TAG}>`)
+  }
   lines.push(`  <${DELEGATION_INPUT_TAG}>${escapeDelegationText(input)}</${DELEGATION_INPUT_TAG}>`)
   lines.push(`</${DELEGATION_TAG}>`)
   return lines.join('\n')
@@ -87,7 +107,7 @@ export function encodeDelegationEnvelope(input: string, sourceThreadId?: string 
  * an envelope embedded in a message that may carry other text.
  */
 export const DELEGATION_RE = new RegExp(
-  `<${DELEGATION_TAG}>\\s*(?:<${DELEGATION_SOURCE_TAG}>([\\s\\S]*?)</${DELEGATION_SOURCE_TAG}>\\s*)?(?:<${DELEGATION_SOURCE_HOST_TAG}>([^<>]*?)</${DELEGATION_SOURCE_HOST_TAG}>\\s*)?<${DELEGATION_INPUT_TAG}>([\\s\\S]*?)</${DELEGATION_INPUT_TAG}>\\s*</${DELEGATION_TAG}>`,
+  `<${DELEGATION_TAG}>\\s*(?:<${DELEGATION_SOURCE_TAG}>([\\s\\S]*?)</${DELEGATION_SOURCE_TAG}>\\s*)?(?:<${DELEGATION_SOURCE_HOST_TAG}>([^<>]*?)</${DELEGATION_SOURCE_HOST_TAG}>\\s*)?(?:<${DELEGATION_ATTACHMENTS_TAG}>((?:(?!</?${DELEGATION_TAG}>)[\\s\\S])*?)</${DELEGATION_ATTACHMENTS_TAG}>\\s*)?<${DELEGATION_INPUT_TAG}>([\\s\\S]*?)</${DELEGATION_INPUT_TAG}>\\s*</${DELEGATION_TAG}>`,
   'g',
 )
 
@@ -98,6 +118,7 @@ export interface DelegationEnvelope {
   sourceHostId?: string
   /** The prompt, unescaped. */
   input: string
+  attachments?: DelegationAttachment[]
 }
 
 /**
@@ -143,15 +164,9 @@ export function findEmbeddedDelegationEnvelopes(text: string): EmbeddedDelegatio
   // before returning: a shared instance leaking lastIndex across renders would skip
   // envelopes in the next call, exactly as in {@link parseDelegationEnvelope}.
   while ((match = DELEGATION_RE.exec(text)) !== null) {
-    const source = typeof match[1] === 'string' ? unescapeDelegationText(match[1]).trim() : ''
-    const host = typeof match[2] === 'string' ? unescapeDelegationText(match[2]).trim() : undefined
-    // A present but empty host is malformed, same rule as the exact-match parser.
-    if (host !== undefined && !host) continue
-    found.push({
-      before: text.slice(cursor, match.index),
-      raw: match[0],
-      parsed: { sourceThreadId: source || null, ...(host === undefined ? {} : { sourceHostId: host }), input: unescapeDelegationText(match[3] ?? '') },
-    })
+    const parsed = parseMatch(match)
+    if (!parsed) continue
+    found.push({ before: text.slice(cursor, match.index), raw: match[0], parsed })
     cursor = match.index + match[0].length
   }
   DELEGATION_RE.lastIndex = 0
@@ -169,9 +184,29 @@ export function parseDelegationEnvelope(text: string): DelegationEnvelope | null
   const before = text.slice(0, match.index).trim()
   const after = text.slice(match.index + match[0].length).trim()
   if (before || after) return null
-  const source = typeof match[1] === 'string' ? unescapeDelegationText(match[1]).trim() : ''
-  const host = typeof match[2] === 'string' ? unescapeDelegationText(match[2]).trim() : undefined
-  // A present but empty host must not become a link to a same-id local thread.
-  if (host !== undefined && !host) return null
-  return { sourceThreadId: source || null, ...(host === undefined ? {} : { sourceHostId: host }), input: unescapeDelegationText(match[3] ?? '') }
+  return parseMatch(match)
+}
+
+function parseMatch(match: RegExpExecArray): DelegationEnvelope | null {
+  const source = match[1] === undefined ? '' : unescapeDelegationText(match[1]).trim()
+  const host = match[2] === undefined ? undefined : unescapeDelegationText(match[2]).trim()
+  if (host === '') return null
+  const parsed: DelegationEnvelope = { sourceThreadId: source || null, ...(host === undefined ? {} : { sourceHostId: host }), input: unescapeDelegationText(match[4] ?? '') }
+  if (match[3] === undefined) return parsed
+  const items: DelegationAttachment[] = []
+  let rest = match[3].trim()
+  const element = /^<attachment\s+name="([^"<>]*)"(?:\s+mime="([^"<>]*)")?\s*>([^<>]*)<\/attachment>/u
+  const attr = (text: string) => unescapeDelegationText(text.replaceAll('&quot;', '"'))
+  while (rest) {
+    const item = element.exec(rest)
+    if (!item || items.length === 20 || /&(?!amp;|lt;|gt;|quot;)/u.test(item[1]!)
+      || (item[2] !== undefined && /&(?!amp;|lt;|gt;|quot;)/u.test(item[2]))
+      || /&(?!amp;|lt;|gt;)/u.test(item[3]!)) return null
+    const name = attr(item[1]!), path = unescapeDelegationText(item[3]!)
+    const mimeType = item[2] === undefined ? undefined : attr(item[2])
+    if (!name.trim() || !path.trim() || /[\0\r\n]/u.test(name + path) || (mimeType !== undefined && (!mimeType || /[\s\0]/u.test(mimeType)))) return null
+    items.push({ name, path, ...(mimeType === undefined ? {} : { mimeType }) })
+    rest = rest.slice(item[0].length).trimStart()
+  }
+  return items.length ? { ...parsed, attachments: items } : null
 }

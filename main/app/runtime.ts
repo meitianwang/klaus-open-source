@@ -1024,11 +1024,17 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
         if (!remoteThreads) throw new IpcHandlerError('APP_STARTING', 'Remote chat communication is starting');
         return remoteThreads.discover(signal);
       },
+      uploadAttachment: (hostId, file, signal) => {
+        if (!remoteThreads) throw new IpcHandlerError('APP_STARTING', 'Remote chat communication is starting');
+        return remoteThreads.uploadAttachment(hostId, file, signal);
+      },
       request: (hostId, name, args, callerId, signal, requestId) => {
         if (!remoteThreads) throw new IpcHandlerError('APP_STARTING', 'Remote chat communication is starting');
         return remoteThreads.request(hostId, name, args, callerId, signal, requestId);
       },
     },
+    stageAttachment: (rawPath, baseDir) => attachments.stageDelegatedFile(rawPath, baseDir),
+    verifyRemoteAttachment: (rawPath, name, mimeType) => attachments.verifyUploadedAttachment(rawPath, name, mimeType),
     projectRoots: () => {
       const roots = object(workspaces.projectsList())?.roots;
       if (!Array.isArray(roots)) return [];

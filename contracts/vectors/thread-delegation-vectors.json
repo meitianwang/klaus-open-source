@@ -162,5 +162,79 @@
     "",
     "no escaping needed",
     "中文 &lt;tag&gt; 🐛"
+  ],
+  "attachmentRoundTrip": [
+    {
+      "name": "Cross-host image and PDF",
+      "input": "Review these files",
+      "sourceThreadId": "thread-a",
+      "sourceHostId": "device-b",
+      "attachments": [
+        {
+          "name": "A & <B> \"cover\".png",
+          "path": "/uploads/a&b.png",
+          "mimeType": "image/png"
+        },
+        {
+          "name": "A & <B> \"report\".pdf",
+          "path": "/uploads/report.pdf",
+          "mimeType": "application/pdf"
+        }
+      ],
+      "expected": "<klaus-delegation>\n  <source-thread-id>thread-a</source-thread-id>\n  <source-host-id>device-b</source-host-id>\n  <attachments>\n    <attachment name=\"A &amp; &lt;B&gt; &quot;cover&quot;.png\" mime=\"image/png\">/uploads/a&amp;b.png</attachment>\n    <attachment name=\"A &amp; &lt;B&gt; &quot;report&quot;.pdf\" mime=\"application/pdf\">/uploads/report.pdf</attachment>\n  </attachments>\n  <input>Review these files</input>\n</klaus-delegation>",
+      "expectedParsed": {
+        "input": "Review these files",
+        "sourceThreadId": "thread-a",
+        "sourceHostId": "device-b",
+        "attachments": [
+          {
+            "name": "A & <B> \"cover\".png",
+            "path": "/uploads/a&b.png",
+            "mimeType": "image/png"
+          },
+          {
+            "name": "A & <B> \"report\".pdf",
+            "path": "/uploads/report.pdf",
+            "mimeType": "application/pdf"
+          }
+        ]
+      }
+    },
+    {
+      "name": "Attachment only",
+      "input": "",
+      "sourceThreadId": "thread-a",
+      "attachments": [
+        {
+          "name": "notes.txt",
+          "path": "/uploads/notes.txt"
+        }
+      ],
+      "expected": "<klaus-delegation>\n  <source-thread-id>thread-a</source-thread-id>\n  <attachments>\n    <attachment name=\"notes.txt\">/uploads/notes.txt</attachment>\n  </attachments>\n  <input></input>\n</klaus-delegation>",
+      "expectedParsed": {
+        "input": "",
+        "sourceThreadId": "thread-a",
+        "attachments": [
+          {
+            "name": "notes.txt",
+            "path": "/uploads/notes.txt"
+          }
+        ]
+      }
+    }
+  ],
+  "attachmentParseRejects": [
+    {
+      "name": "Empty group",
+      "text": "<klaus-delegation><attachments></attachments><input></input></klaus-delegation>"
+    },
+    {
+      "name": "Missing name",
+      "text": "<klaus-delegation><attachments><attachment>/file</attachment></attachments><input></input></klaus-delegation>"
+    },
+    {
+      "name": "Empty path",
+      "text": "<klaus-delegation><attachments><attachment name=\"file\"></attachment></attachments><input></input></klaus-delegation>"
+    }
   ]
 }

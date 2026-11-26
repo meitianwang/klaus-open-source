@@ -1,3 +1,4 @@
+import type { DelegationEnvelope } from '../../../contracts/thread-delegation'
 import type { ComposerDocumentSnapshot } from './composer/document-model'
 import type { ApprovalReview } from '../../../contracts/approval-review'
 import type { ThreadGoal } from '../../../contracts/planning-goals'
@@ -148,7 +149,7 @@ export interface FollowUpStatusEvent extends SessionScoped {
    * never sees that append (the tool's terminal event precedes the drain), so
    * the store inserts the delegation bubble from this payload instead.
    */
-  delegation?: { input: string; sourceThreadId: string | null; sourceHostId?: string }
+  delegation?: DelegationEnvelope
 }
 /** One row of the host-owned follow-up queue, as it comes back over the wire. */
 export interface ClientQueueWireRow {

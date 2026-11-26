@@ -1,3 +1,4 @@
+import { encodeDelegationEnvelope } from '../contracts/thread-delegation';
 import { acceptedTurnInput } from './turn-input-fixture';
 import { FakeEngineQueue } from './engine-queue-fixture';
 // Wire-contract tests for the session layer.
@@ -146,6 +147,10 @@ h.test('mobile sends and mid-turn steers push live desktop user frames with clie
       },
     }],
   });
+  const submitted = rowAt(client.sentSubmit('start-if-idle'), 0, 'mobile start');
+  const modelText = rowAt(submitted.input as Json[], 0, 'model text').text;
+  assert(typeof modelText === 'string' && modelText.includes('Attached media files:')
+    && modelText.includes(imagePath) && modelText.includes('capture.jpg'), 'the model sees the image path and display name');
   const turnFrame = pushed.find(event => (event as Record<string, Json>).type === 'user_message') as Record<string, any> | undefined;
   assert(turnFrame, 'mobile turn start pushes a live user frame for the desktop transcript');
   assertEqual(turnFrame.message.clientMessageId, 'mobile-client-msg-1', 'frame carries clientMessageId for live and saved deduplication');
@@ -5252,6 +5257,43 @@ h.test('friend delegation persists status and origin metadata on the engine turn
   assertDeepEqual(object(object(frame.message)?.message)?.localRender, { ...metadata, inputPresentation: { version: 1, kind: 'turn' } }, 'the live row retains the same fields');
   client.emit('event', { type: 'turnCompleted', params: { sessionId: 'live', turnId: start.submissionId, result: {} } });
   await service.shutdown();
+});
+
+h.test('delegated binary attachments remain visible through idle delivery and applied steer', async () => {
+  const root = byoRoot();
+  const client = new FakeClient().reply('engine/readSessionSummary', { session: { id: 'thread' } })
+    .replySubmit('start-if-idle').replySubmit('steer');
+  const { service, state, pushed } = serviceWith(client, root);
+  const attachments = [
+    { name: 'diagram.png', mimeType: 'image/png', bytes: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]) },
+    { name: 'report.pdf', mimeType: 'application/pdf', bytes: Buffer.from('%PDF-1.7\n%%EOF') },
+    { name: 'archive.zip', mimeType: 'application/zip', bytes: Buffer.from([80, 75, 5, 6, ...Array(18).fill(0)]) },
+  ].map(({ name, mimeType, bytes }) => {
+    const path = join(root, name);
+    writeFileSync(path, bytes);
+    return { name, path, mimeType };
+  });
+  const displayText = 'Review these files';
+  const request = { text: encodeDelegationEnvelope(displayText, 'sender', undefined, attachments), displayText, attachments };
+  await service.client();
+  state.rememberSession('thread', 'live', {}, { source: 'custom', selection: 'custom:fixture' });
+  try {
+    assertEqual((await service.deliverDelegation('thread', request)).ok, true, 'idle delegation is admitted');
+    const start = rowAt(client.sentSubmit('start-if-idle'), 0, 'idle delivery');
+    assertDeepEqual((start.input as Json[]).map(part => object(part)?.type), ['text', 'image', 'document'], 'ZIP is not submitted inline');
+    const frame = object(pushed.find(event => object(event)?.type === 'user_message'));
+    const local = object(object(object(frame?.message)?.message)?.localRender);
+    assertDeepEqual((local?.attachments as Json[]).map(item => [object(item)?.name, object(item)?.type]),
+      [['diagram.png', 'image'], ['report.pdf', 'file'], ['archive.zip', 'file']], 'the live frame displays all files');
+    state.markTurnRunning('thread', 'active-turn');
+    assertEqual((await service.deliverDelegation('thread', request)).ok, true, 'running delegation is admitted');
+    const steer = rowAt(client.sentSubmit('steer'), 0, 'running delivery');
+    assertDeepEqual((steer.input as Json[]).map(part => object(part)?.type), ['text', 'image', 'document'], 'steer retains inline image and document');
+    client.emit('event', { type: 'rawSessionEvent', params: { sessionId: 'live', event: { submissionId: steer.submissionId, steered: { applied: true } } } });
+    const applied = () => pushed.find(event => object(event)?.type === 'follow_up_status' && object(event)?.state === 'applied');
+    await waitFor(() => !!applied(), 1000, 'delegated steer applies');
+    assertDeepEqual(object(object(applied())?.delegation)?.attachments, attachments, 'applied event retains envelope attachments');
+  } finally { await service.shutdown(); }
 });
 
 h.test('hosted messaging pushes the display snapshot with the admitted user frame', async () => {

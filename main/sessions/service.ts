@@ -1,3 +1,4 @@
+import { delegatedInlineMediaDescriptor } from '../services/attachments';
 import { canonicalQuestionMap } from '../../contracts/user-questions'
 // Session lifecycle: resolve, start, list, turn, interrupt.
 //
@@ -25,7 +26,7 @@ import { canonicalQuestionMap } from '../../contracts/user-questions'
 
 import { recoveryWait } from './recovery-wait';
 import { queryPrediction } from './prediction-query';
-import { initialDelegationMetadata } from '../../contracts/thread-delegation';
+import { delegationDisplayAttachments, initialDelegationMetadata, type DelegationAttachment } from '../../contracts/thread-delegation';
 import type { PredictionContext } from '../services/composer-predictions';
 import { friendPolicySeed, friendConversationGrant, bindFriendSession, deactivateFriendSession, friendSessionScope, friendSessionScopes, friendsEnabled, type FriendSessionScope } from '../services/friend-session-scope';
 import { bindFriendConversationGroup, friendConversationGroups, type FriendConversationGroup } from '../services/friend-conversation-groups';
@@ -41,7 +42,7 @@ import { conversationReferencesIn } from '../services/conversation-mention';
 import { deviceAddressesIn } from '../services/device-mention';
 import { browserTabReferencesIn, type BrowserTabMention } from '../../shared/browser-tab-mention';
 import { isNativeMediaSource } from '../../shared/media-input';
-import { isAbsolute, join } from 'node:path';
+import { basename, isAbsolute, join } from 'node:path';
 
 import type { SpawnOptions } from '../engine/spawn';
 import { inheritedEnv } from '../engine/spawn';
@@ -207,7 +208,27 @@ interface NewSessionOptions {
   agentProfile?: SessionAgentProfile;
 }
 /** What a cross-conversation delivery carries, host-internal only. */
+function appendMediaFilePaths(text: string, media: Json[]): string {
+  if (!text.trim() || !media.length) return text;
+  const seen = new Set<string>(), lines: string[] = [];
+  for (const item of media) {
+    const descriptor = object(item), path = descriptor?.path, name = descriptor?.name;
+    if (typeof path !== 'string' || !path.trim() || seen.has(path) || text.includes(path)) continue;
+    seen.add(path);
+    lines.push(`- ${path}${typeof name === 'string' && name && basename(path) !== name ? ` (${name})` : ''}`);
+  }
+  return lines.length ? `${text}\n\nAttached media files:\n${lines.join('\n')}` : text;
+}
+
+function withAttachedMediaPaths(input: Json, media: Json[]): Json {
+  if (!Array.isArray(input)) return input;
+  const first = object(input[0]);
+  if (first?.type !== 'text' || typeof first.text !== 'string' || !first.text.trim()) return input;
+  return [{ ...first, text: appendMediaFilePaths(first.text, media) }, ...input.slice(1)];
+}
+
 export interface DelegationDeliveryRequest {
+  attachments?: Array<DelegationAttachment & { size?: number }>;
   /** The first task of a conversation created on the owner's behalf. */
   initialInput?: boolean;
   /** External friend content never supplies owner instructions or resource approval. */
@@ -4577,7 +4598,8 @@ export class SessionService {
     if (friendContext) text += '\n\n' + friendContext;
     if (payload.media != null && !Array.isArray(payload.media)) throw new IpcHandlerError('BAD_REQUEST', 'media must be an array');
     const media = Array.isArray(payload.media) ? payload.media : [];
-    return this.materializeMessageInput(rendererId, text, media);
+    const input = await this.materializeMessageInput(rendererId, text, media);
+    return friendAuthored ? input : withAttachedMediaPaths(input, media);
   }
 
   private async materializeMessageInput(rendererId: string, text: string, media: Json[]): Promise<Json> {
@@ -5151,22 +5173,31 @@ export class SessionService {
     // An externally delivered message carries its human-facing text as a display
     // snapshot, exactly like a composer send: the envelope stays model-facing while
     // the transcript, the live bubble and history replay render one owner-facing text.
-    const deliveryMetadata = request.external === true && typeof request.displayText === 'string'
-      ? { externalFriendMessage: true, displayText: request.displayText,
+    const displayAttachments = delegationDisplayAttachments(request.attachments);
+    const inlineMedia = (request.attachments ?? []).flatMap(item => {
+      const descriptor = delegatedInlineMediaDescriptor(item);
+      return descriptor ? [descriptor] : [];
+    });
+    const attachmentMetadata: Record<string, Json> = displayAttachments.length ? { attachments: displayAttachments.map(item => ({ ...item })) } : {};
+    const { attachments: initialAttachments, ...initialMetadata } = initialDelegationMetadata(request.displayText ?? text, request.attachments);
+    const deliveryMetadata: Record<string, Json> | undefined = request.external === true && typeof request.displayText === 'string'
+      ? { externalFriendMessage: true, displayText: request.displayText, ...attachmentMetadata,
           ...(request.sender ? { sender: request.sender } : {}),
           ...(request.replyToRequestId ? { replyToRequestId: request.replyToRequestId } : {}),
           ...(request.requestCreatedAt !== undefined ? { requestCreatedAt: request.requestCreatedAt } : {}),
           ...(request.friendStatus ? { friendStatus: request.friendStatus } : {}),
           ...(request.statusDetail !== undefined ? { statusDetail: request.statusDetail } : {}) }
-      : request.initialInput === true ? initialDelegationMetadata(request.displayText ?? text) : undefined;
+      : request.initialInput === true ? { ...initialMetadata,
+          ...(initialAttachments?.length ? { attachments: initialAttachments.map(item => ({ ...item })) } : {}) }
+        : request.displayText !== undefined || displayAttachments.length ? { displayText: request.displayText ?? '', ...attachmentMetadata } : undefined;
     if (this.deps.state.isWorking(targetId)) {
-      const steered = await this.steerDelegation(targetId, text, request.displayText ?? text, deliveryMetadata);
+      const steered = await this.steerDelegation(targetId, text, request.displayText ?? text, deliveryMetadata, undefined, undefined, undefined, inlineMedia);
       return delegatedSteerResult(steered, archived, this.delegationOverridesRequested(request));
     }
     try {
       const engineId = await this.resolveLiveSession(targetId);
       const client = await this.client();
-      const input = await (this.deps.messageInput ?? buildMessageInput)(text, []);
+      const input = await this.materializeMessageInput(targetId, text, inlineMedia);
       // The `delegation-` prefix tags this turn's identity, mirroring `channel-`
       // (IM turns) and `steer-` (follow-ups). A client-supplied submissionId
       // becomes the engine's turn id verbatim, so a delegated turn is then
@@ -5180,17 +5211,17 @@ export class SessionService {
       // shows the turn running with NO user row until history reloads at turn end.
       // Same contract as the IM channel path's admitted() push, including the display
       // snapshot the engine persists as its provider-invisible metadata row.
-      this.pushHostAuthoredTurnFrames(targetId, startedTurnId, text, withInputPresentation(deliveryMetadata, 'turn'));
+      this.pushHostAuthoredTurnFrames(targetId, startedTurnId, text, withInputPresentation(deliveryMetadata, 'turn'), inlineMedia);
       // Seed the title from the SENDER's prose: an envelope would otherwise make
       // `<klaus-delegation>` the conversation's first title.
-      this.rememberTitleInput(targetId, { text: request.displayText ?? text });
+      this.rememberTitleInput(targetId, { text: (request.displayText ?? '').trim() || (request.attachments?.length ? request.attachments.map(item => item.name).join(', ') : text) });
       return { ok: true, route: 'turn', archived, overridesApplied: this.delegationOverridesRequested(request) };
     } catch (error) {
       if (error instanceof IpcHandlerError && error.code === 'TURN_IN_PROGRESS') {
         // The recipient started its own turn between the check above and the
         // admission inside `startTurn`. Steer rather than fail: the message is
         // still delivered, which is what the sender asked for.
-        const steered = await this.steerDelegation(targetId, text, request.displayText ?? text, deliveryMetadata);
+        const steered = await this.steerDelegation(targetId, text, request.displayText ?? text, deliveryMetadata, undefined, undefined, undefined, inlineMedia);
         return delegatedSteerResult(steered, archived, this.delegationOverridesRequested(request), 'The conversation started a turn while this message was being delivered.');
       }
       return { ok: false, error: sessionFailureMessage(error) };
@@ -5202,7 +5233,7 @@ export class SessionService {
       || typeof request.effort === 'string' && !!request.effort.trim();
   }
 
-  private async steerDelegation(targetId: string, text: string, displayText: string, displayMetadata?: Record<string, Json>, stableMessageId?: string, assertStillAuthorized?:()=>void, validateContinuation?:()=>Promise<boolean>): Promise<FollowUpReply> {
+  private async steerDelegation(targetId: string, text: string, displayText: string, displayMetadata?: Record<string, Json>, stableMessageId?: string, assertStillAuthorized?:()=>void, validateContinuation?:()=>Promise<boolean>, inlineMedia: Json[] = []): Promise<FollowUpReply> {
     assertStillAuthorized?.();
     const targetTurnId = this.deps.state.runningSubmissionId(targetId);
     if (!targetTurnId || !this.deps.state.isWorking(targetId)) return { ok: false, error: 'The recipient turn ended before the message could be steered. Check queued messages before retrying.' };
@@ -5212,7 +5243,7 @@ export class SessionService {
     const { engineId, client } = binding;
     this.requireTurnAuthorization(targetId);
     let input: Json;
-    try { input = await (this.deps.messageInput ?? buildMessageInput)(text, []); }
+    try { input = await this.materializeMessageInput(targetId, text, inlineMedia); }
     catch (error) { return { ok: false, error: sessionFailureMessage(error) }; }
     const messageId = stableMessageId ?? randomMessageId();
     return this.directories.run(async () => this.resourceRoots(targetId), async () => {
@@ -5312,8 +5343,16 @@ export class SessionService {
       if (typeof payload.queueOwnerId === 'string') input = await this.clientQueue.preparedInput(rendererId, payload.queueOwnerId);
       else {
         const context = this.deps.friendContext ? await this.deps.friendContext(text, object(payload.displayMetadata) ?? {}, rendererId) : '';
-        const expanded = await this.expandBrowserTabReferences(rendererId, text);
+        const metadata = object(payload.displayMetadata);
+        const friendAuthored = metadata?.externalFriendMessage === true || typeof metadata?.friendRequestHandoff === 'string';
+        let expanded = text;
+        if (!friendAuthored) {
+          expanded = await this.expandDeviceAddresses(expanded);
+          expanded = await this.expandConversationReferences(rendererId, expanded);
+          expanded = await this.expandBrowserTabReferences(rendererId, expanded);
+        }
         input = await this.materializeMessageInput(rendererId, context ? expanded + '\n\n' + context : expanded, media);
+        if (!friendAuthored) input = withAttachedMediaPaths(input, media);
       }
     }
     catch (error) { return { ok: false, error: sessionFailureMessage(error) }; }

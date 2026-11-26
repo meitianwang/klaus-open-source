@@ -49,7 +49,7 @@ import { renderMarkdownHtml, stripMarkdownImagesForPaths, collectMarkdownImagePa
 import { parseCreatedThreadDirective } from '../../../../contracts/created-thread-directive'
 import { InlineVisualizationHtml, stripInlineVisLines } from './inline-visualization'
 import type { InlineVisFragment } from '../../../../contracts/inline-visualization'
-import { parseDelegationEnvelope, findEmbeddedDelegationEnvelopes, encodeDelegationEnvelope, initialDelegationMetadata, type DelegationEnvelope } from '../../../../contracts/thread-delegation'
+import { parseDelegationEnvelope, findEmbeddedDelegationEnvelopes, encodeDelegationEnvelope, delegationDisplayAttachments, initialDelegationMetadata, type DelegationEnvelope } from '../../../../contracts/thread-delegation'
 import { hasPendingTurnStart, useChatStream, forgetRewoundTurn, loadSessionHistory, loadOlderHistoryPage, loadTurnHistoryItems, retryHistoryLoad, retainSessionStream, selectSessionStream, selectSubagentParentId, chatStreamStore, setTurnCollapsed, type LiveUnit as StoreLiveUnit, type ToolCardState } from '../stream-store'
 import { transcriptScrollControllerFor, type TranscriptScrollController } from '../transcript-scroll-controller'
 import { VirtualTranscript, latestTurnPhase } from './virtual-transcript'
@@ -131,7 +131,7 @@ type LiveUnit = (StoreLiveUnit
  * microseconds between unit projection and HTML construction.
  */
 function reencodeDelegationEnvelope(delegation: DelegationEnvelope): string {
-  return encodeDelegationEnvelope(delegation.input, delegation.sourceThreadId, delegation.sourceHostId)
+  return encodeDelegationEnvelope(delegation.input, delegation.sourceThreadId, delegation.sourceHostId, delegation.attachments)
 }
 
 const w = () => window as any
@@ -1624,11 +1624,13 @@ export function unitsFromMessages(visible: any[], legacyCreator?: string): Unit[
         // second line of defence rather than the only one.
         const envelope = parseDelegationEnvelope(text)
         if (envelope) {
+          const envelopeAttachments = delegationDisplayAttachments(envelope.attachments)
+          const attachmentMetadata = !Array.isArray(msg.localRender?.attachments) && envelopeAttachments.length ? { attachments: envelopeAttachments } : {}
           const initialInput = msg.localRender?.delegationKind === 'initial-input'
             || firstInput && !!legacyCreator && envelope.sourceThreadId === legacyCreator
           units.push(initialInput
-            ? { type: 'user', key: base, msg: { ...msg, localRender: { ...msg.localRender, ...initialDelegationMetadata(envelope.input) } }, turnId: tid }
-            : { type: 'delegation', key: base, msg, turnId: tid })
+            ? { type: 'user', key: base, msg: { ...msg, localRender: { ...msg.localRender, ...initialDelegationMetadata(envelope.input, envelope.attachments), ...attachmentMetadata, ...(Array.isArray(msg.localRender?.attachments) ? { attachments: msg.localRender.attachments } : {}) } }, turnId: tid }
+            : { type: 'delegation', key: base, msg: envelopeAttachments.length ? { ...msg, localRender: { ...msg.localRender, ...attachmentMetadata } } : msg, turnId: tid })
           return
         }
       }
@@ -1668,10 +1670,11 @@ export function unitsFromMessages(visible: any[], legacyCreator?: string): Unit[
         // is what keeps copy/rewind acting on the stored message rather than a
         // re-wrapped copy; the key deduplicates across history reloads.
         for (const [di, delegation] of (segment.delegations || []).entries()) {
+          const attachments = delegationDisplayAttachments(delegation.attachments)
           units.push({
             type: 'delegation',
             key: `delegation:${base}:s${si}:d${di}`,
-            msg: { ...msg, uuid: msg.uuid, text: reencodeDelegationEnvelope(delegation) },
+            msg: { ...msg, uuid: msg.uuid, text: reencodeDelegationEnvelope(delegation), contentBlocks: undefined, localRender: { displayText: delegation.input, ...(attachments.length ? { attachments } : {}) } },
             turnId: tid,
             delegation,
           })
@@ -3082,15 +3085,17 @@ function UnitView({ unit, isThinkingExpanded, onToggleThinking, archived, runnin
     //
     // A malformed envelope yields null and falls through to the ordinary user
     // bubble, so nothing is ever swallowed.
-    const input = delegationEnvelopeInput(msg.text)
-    if (input !== null) {
-      const built = buildUserBubbleHtml({ ...msg, text: input }, false, sessionId)
+    const envelope = parseDelegationEnvelope(msg.text)
+    if (envelope) {
+      const attachments = delegationDisplayAttachments(envelope.attachments)
+      const localRender = { ...msg.localRender, displayText: envelope.input, ...(!Array.isArray(msg.localRender?.attachments) && attachments.length ? { attachments } : {}) }
+      const built = buildUserBubbleHtml({ ...msg, text: envelope.input, localRender }, false, sessionId)
       const label = renderDelegationLabelHtml(msg.text)
       if (built && label) {
         // Copy takes the sender's prose, not the protocol wrapper — the same rule
         // the bubble itself follows. The uuid stays on the row so the click
         // delegate and any rewind lookup can still find the message.
-        const actions = renderMsgActionsHtml({ ts: msg.timestamp, copyText: input, uuid: msg.uuid, kind: 'user', archived, running, readOnly })
+        const actions = renderMsgActionsHtml({ ts: msg.timestamp, copyText: envelope.input || (envelope.attachments?.map(item => item.name).join(', ') ?? ''), uuid: msg.uuid, kind: 'user', archived, running, readOnly })
         // The sender column carries the agent's own avatar; the provenance
         // line above the bubble keeps naming the sending chat or computer.
         return (
@@ -4330,13 +4335,13 @@ function OverloadRetryRow({ sessionId, retryAfterMs }: { sessionId: string; retr
   )
 }
 
-function LiveDelegationView({ delegation }: { delegation: DelegationEnvelope }) {
+function LiveDelegationView({ delegation, sessionId }: { delegation: DelegationEnvelope; sessionId?: string }) {
   useDeviceNamesVersion()
   return <RawHtml className={`msg-group user delegation ${styles['external-sender-row']}`} data-external-sender="true"
     html={renderAgentSenderAvatarHtml()
       + `<div class="${styles['user-row-main']}">`
       + renderDelegationLabelParsedHtml(delegation.sourceHostId, delegation.sourceThreadId)
-      + renderDelegationBubbleHtml(delegation.input) + '</div>'} />
+      + renderDelegationBubbleHtml(delegation.input, delegation.attachments, path => mediaUrl(path, sessionId)) + '</div>'} />
 }
 
 function LiveTextView({ unit, sessionId, unitProps, mediaPaths, mediaAliases, isLastText, endResourceTurn }: {
@@ -4400,7 +4405,7 @@ function LiveUnitView({ unit, tools, sessionId, unitProps, mediaPaths, mediaAlia
   if (unit.type === 'live-goal-completion') return null
   if (unit.type === 'live-planning-question') return <PlanningQuestionView request={unit.request} readOnly={unitProps.readOnly} />
   if (unit.type === 'live-proposed-plan') return <ProposedPlanView plan={unit.plan} sessionId={sessionId} />
-  if (unit.type === 'live-delegation') return <LiveDelegationView delegation={unit.delegation} />
+  if (unit.type === 'live-delegation') return <LiveDelegationView delegation={unit.delegation} sessionId={sessionId} />
   if (unit.type === 'live-agent-event') return <AgentLifecycleRow event={unit} events={unit.agentEvents} turnId={unit.turnId} laterAgentIds={unit.laterAgentIds} />
   if (unit.type === 'live-compaction') return <CompactionEvent loading={unit.state === 'running'} trigger={unit.trigger} />
   if (unit.type === 'live-permission') {

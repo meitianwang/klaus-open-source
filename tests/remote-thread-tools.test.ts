@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import type { Json } from '../main/ipc/contract';
@@ -9,6 +9,7 @@ import { parseDelegationEnvelope } from '../contracts/thread-delegation';
 import type { RemoteThreadOperation } from '../main/services/remote-thread-client';
 import { object, type JsonObject } from '../main/services/service-types';
 import { ThreadToolsService, type ThreadToolContext, type ThreadToolsDeps } from '../main/services/thread-tools';
+import { AttachmentService } from '../main/services/attachments';
 import { Harness, waitFor } from './harness';
 
 const h = new Harness(), root = mkdtempSync(join(tmpdir(), 'klaus-remote-thread-tools-'));
@@ -53,6 +54,9 @@ function page(device: string, id = 'same', completed = device === 'device-b'): J
       items: [{ type: 'agentMessage', id: 'message', text: device === 'device-a' ? 'Local working.' : 'Remote finished.' }] }] };
 }
 function fixture(hostId: string) {
+  const hostRoot = mkdtempSync(join(root, `${hostId}-`));
+  mkdirSync(join(hostRoot, 'uploads'));
+  const attachments = new AttachmentService({ configRoot: hostRoot, withDirectoryOperation: async (_paths: unknown, op: () => Promise<unknown>) => op() } as any);
   const reads: JsonObject[] = [], delivered: Array<{ targetId: string; request: DelegationDeliveryRequest }> = [];
   const created: JsonObject[] = [];
   const events = new EventEmitter(), privateIds = new Set<string>();
@@ -65,6 +69,8 @@ function fixture(hostId: string) {
   model.pages.set('same', page(hostId));
   const deps: ThreadToolsDeps = {
     enabled: () => model.enabled, isPrivateThread: id => privateIds.has(id),
+    stageAttachment: (path, baseDir) => attachments.stageDelegatedFile(path, baseDir),
+    verifyRemoteAttachment: (path, name, mime) => attachments.verifyUploadedAttachment(path, name, mime),
     sessions: {
       async request(_method, params) {
         reads.push(clone(params));
@@ -84,7 +90,7 @@ function fixture(hostId: string) {
       async rename() { throw new Error('Unexpected rename'); },
       async setPinned() { throw new Error('Unexpected pin'); },
       async setArchived() { throw new Error('Unexpected archive'); },
-      async directory() { throw new Error('Unexpected directory read'); },
+      async directory() { return hostRoot; },
     },
     wait: {
       onChange: listener => { events.on('change', listener); return () => { events.off('change', listener); }; },
@@ -94,7 +100,7 @@ function fixture(hostId: string) {
     projectRoots: () => [...model.projectRoots],
   };
   const service = new ThreadToolsService(deps); services.push(service);
-  return { hostId, deps, service, model, reads, delivered, created, privateIds, events };
+  return { hostId, hostRoot, attachments, deps, service, model, reads, delivered, created, privateIds, events };
 }
 type Fixture = ReturnType<typeof fixture>;
 const remoteContext = (target: Fixture, signal = new AbortController().signal) => ({
@@ -103,7 +109,8 @@ const remoteContext = (target: Fixture, signal = new AbortController().signal) =
 function incoming(requestId = 'request-1', prompt = 'Inspect the result.', threadId = 'same'): JsonObject {
   return { caller: { hostId: 'device-a', threadId: 'coordinator' }, requestId, arguments: { threadId, prompt } };
 }
-function pair() {
+function pair(features: Record<string, JsonObject> = {}) {
+  const uploads: Array<{ target: string; name: string }> = [];
   const a = fixture('device-a'), b = fixture('device-b'), peers = new Map([[a.hostId, a], [b.hostId, b]]);
   const statuses = new Map([[a.hostId, 'online'], [b.hostId, 'online']]);
   const requests: Array<{ source: string; target: string; operation: RemoteThreadOperation; args: JsonObject; signal: AbortSignal }> = [];
@@ -111,7 +118,13 @@ function pair() {
   for (const source of [a, b]) source.deps.remote = {
     async discover(signal) {
       signal.throwIfAborted();
-      return { localHostId: source.hostId, hosts: [...statuses].filter(([id]) => id !== source.hostId).map(([id, status]) => ({ id, name: id, status, features: { threadCommunication: 1 } })) };
+      return { localHostId: source.hostId, hosts: [...statuses].filter(([id]) => id !== source.hostId).map(([id, status]) => ({ id, name: id, status, features: features[id] ?? { threadCommunication: 1, threadAttachments: 1 } })) };
+    },
+    async uploadAttachment(hostId, file, signal) {
+      signal.throwIfAborted();
+      uploads.push({ target: hostId, name: file.name });
+      const uploaded = object(await peers.get(hostId)!.attachments.upload({ name: file.name, type: file.mimeType, buffer: file.data }));
+      return { path: String(uploaded.path), name: file.name, mimeType: file.mimeType, size: Number(uploaded.size) };
     },
     async request(hostId, operation, args, callerThreadId, signal) {
       requests.push({ source: source.hostId, target: hostId, operation, args: clone(args), signal });
@@ -125,7 +138,7 @@ function pair() {
       return abortable(received, signal);
     },
   };
-  return { a, b, peers, statuses, requests };
+  return { a, b, peers, statuses, requests, uploads };
 }
 const cases = (key: string): JsonObject[] => (vectors[key] as Json[]).map(object);
 const row = (id: string, title: string, updatedAt: number, extra: JsonObject = {}): JsonObject => ({ id, title, updatedAt, ...extra });
@@ -425,6 +438,79 @@ h.test('a remote creation into an unregistered destination folder is refused', a
     arguments: { prompt: 'Create here.', target: { type: 'project', projectId: JSON.stringify(['device-b', '/not/registered']), environment: { type: 'local' } } },
   }, remoteContext(f.b)), /Unknown projectId/);
   assert.equal(f.b.created.length, 0);
+});
+
+function binaryFiles(host: Fixture) {
+  return [
+    { name: 'diagram.png', bytes: Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]) },
+    { name: 'report.pdf', bytes: Buffer.from('%PDF-1.7\n%%EOF') },
+    { name: 'archive.zip', bytes: Buffer.from([80, 75, 5, 6, ...Array(18).fill(0)]) },
+  ].map(file => {
+    const path = join(host.hostRoot, file.name);
+    writeFileSync(path, file.bytes);
+    return { ...file, path };
+  });
+}
+
+function assertBinaryDelivery(f: ReturnType<typeof pair>, files: ReturnType<typeof binaryFiles>, index = 0) {
+  const request = f.b.delivered[index]!.request;
+  assert.deepEqual(request.attachments?.map(item => item.name), files.map(file => file.name));
+  const envelope = parseDelegationEnvelope(request.text);
+  assert.equal(envelope?.sourceHostId, 'device-a');
+  assert.deepEqual(envelope?.attachments?.map(item => item.name), files.map(file => file.name));
+  request.attachments!.forEach((item, i) => {
+    assert.equal(join(join(realpathSync(f.b.hostRoot), 'uploads'), item.path.split('/').at(-1)!), item.path);
+    assert.deepEqual(readFileSync(item.path), files[i]!.bytes);
+  });
+}
+
+h.test('remote thread delivery transfers binary attachments unchanged', async () => {
+  const f = pair(), files = binaryFiles(f.a);
+  body(await f.a.service.execute('send_message_to_thread', { threadId: 'same', hostId: 'device-b', prompt: 'Review files', attachments: files.map(file => file.path) }, context()));
+  assert.deepEqual(f.uploads.map(item => item.name), files.map(file => file.name));
+  assertBinaryDelivery(f, files);
+});
+
+h.test('attachment-only deliveries work locally and remotely but empty deliveries fail', async () => {
+  const f = pair(), files = binaryFiles(f.a).slice(0, 1);
+  body(await f.a.service.execute('send_message_to_thread', { threadId: 'same', attachments: [files[0]!.path] }, context()));
+  assert.equal(parseDelegationEnvelope(f.a.delivered[0]!.request.text)?.input, '');
+  assert.equal(f.a.delivered[0]!.request.attachments?.[0]?.name, files[0]!.name);
+  body(await f.a.service.execute('send_message_to_thread', { threadId: 'same', hostId: 'device-b', prompt: '', attachments: [files[0]!.path] }, context()));
+  assertBinaryDelivery(f, files);
+  assert.equal(parseDelegationEnvelope(f.b.delivered[0]!.request.text)?.input, '');
+  assert.match(responseText(await f.a.service.execute('send_message_to_thread', { threadId: 'same' }, context()), false), /requires prompt/i);
+});
+
+h.test('legacy peers receive uploaded file references in the prompt', async () => {
+  const f = pair({ 'device-b': { threadCommunication: 1 } }), files = binaryFiles(f.a);
+  body(await f.a.service.execute('send_message_to_thread', { threadId: 'same', hostId: 'device-b', prompt: 'Review files', attachments: files.map(file => file.path) }, context()));
+  const args = f.requests.find(item => item.operation === 'send_message_to_thread')!.args;
+  assert.equal(Object.hasOwn(args, 'uploadedAttachments'), false);
+  const [prose, references] = String(args.prompt).split('\n\nAttached:\n');
+  assert.equal(prose, 'Review files');
+  const paths = references!.split('\n').map(line => line.replace(/^- /, ''));
+  assert.equal(paths.length, files.length);
+  paths.forEach((path, i) => {
+    assert.ok(realpathSync(path).startsWith(join(realpathSync(f.b.hostRoot), 'uploads') + '/'));
+    assert.deepEqual(readFileSync(path), files[i]!.bytes);
+  });
+});
+
+h.test('remote projectless creation delivers its initial binary attachments', async () => {
+  const f = pair(), files = binaryFiles(f.a).slice(0, 2);
+  body(await f.a.service.execute('create_thread', { target: { type: 'projectless', hostId: 'device-b' }, prompt: 'Review files', attachments: files.map(file => file.path) }, context()));
+  assert.equal(f.b.created.length, 1);
+  assert.equal(f.b.delivered[0]?.targetId, 'created-1');
+  assertBinaryDelivery(f, files);
+});
+
+h.test('incoming attachment descriptors cannot reference files outside the upload directory', async () => {
+  const f = pair(), [file] = binaryFiles(f.b);
+  const request = incoming();
+  object(request.arguments).uploadedAttachments = [{ path: file!.path, name: file!.name, mimeType: 'image/png' }];
+  await assert.rejects(f.b.service.receiveRemote('send_message_to_thread', request, remoteContext(f.b)), /uploads directory/i);
+  assert.equal(f.b.delivered.length, 0);
 });
 
 void h.finish(join(root, 'result.json'), 'remote-thread-tools').then(async code => {

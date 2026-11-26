@@ -10,11 +10,11 @@ import { questionResolution, resolvedQuestionPresentation } from './question-sta
 import styles from './transcript.module.css'
 import { rawIconHtml } from '../../components/Icon'
 import { t as tGlobal } from '../../i18n'
-import { chatActivityKind } from './chat-activity'
+import { delegationAttachmentTag, chatActivityKind } from './chat-activity'
 import { deviceNameForHost, localDeviceId } from '../device-names'
 import { activityToolIconName } from './activity-tool-model'
 import { renderMarkdownHtml } from '../markdown'
-import { parseDelegationEnvelope } from '../../../../contracts/thread-delegation'
+import { delegationDisplayAttachments, parseDelegationEnvelope, type DelegationAttachment } from '../../../../contracts/thread-delegation'
 import { parseSelectedTextEnvelope } from '../selected-text-envelope'
 import { stripGoalImageReferences } from '../goals/goal-image-references'
 import { formatWorkflowDuration, type GoalCompletionSummary } from './goal-completion'
@@ -208,7 +208,7 @@ export function primaryToolTarget(toolName: string, args: any): string {
   if (String(toolName) === 'send_message_to_thread' && typeof args.threadId === 'string' && args.threadId) {
     const prompt = typeof args.prompt === 'string' ? args.prompt.trim() : ''
     const host = typeof args.hostId === 'string' && args.hostId && args.hostId !== 'local' ? `${args.hostId} · ` : ''
-    const head = prompt.length > 120 ? `${prompt.slice(0, 120)}…` : prompt
+    const head = [prompt.length > 120 ? `${prompt.slice(0, 120)}…` : prompt, delegationAttachmentTag(args.attachments)].filter(Boolean).join(' ')
     return head ? `${host}${args.threadId} — ${head}` : `${host}${args.threadId}`
   }
   for (const key of ['file_path', 'path', 'url', 'pattern']) {
@@ -990,9 +990,11 @@ export function delegationEnvelopeInput(text: string): string | null {
  * Returns '' when the input is not exactly one well-formed envelope, so the
  * caller renders the raw text instead of swallowing it.
  */
-export function renderDelegationBubbleHtml(input: string): string {
+export function renderDelegationBubbleHtml(input: string, attachments?: readonly DelegationAttachment[] | null, resolveMediaSrc?: (path: string) => string): string {
   const prose = typeof input === 'string' ? input : ''
-  if (!prose.trim()) return ''
-  const bubble = `<div class="msg user">${escapeHtml(prose)}</div>`
-  return `<div class="sent-user-stack">${bubble}</div>`
+  const display = delegationDisplayAttachments(attachments)
+  if (!display.length && !prose.trim()) return ''
+  const bubble = prose.trim() ? `<div class="msg user">${escapeHtml(prose)}</div>` : ''
+  const cards = display.length ? `<div class="kls-attach-row ${styles['sent-attachments']}">${renderUserAttachmentsHtml(display.map(item => ({ ...item, ...(item.type === 'image' && resolveMediaSrc ? { src: resolveMediaSrc(item.path) } : {}) })))}</div>` : ''
+  return `<div class="sent-user-stack">${cards}${bubble}</div>`
 }

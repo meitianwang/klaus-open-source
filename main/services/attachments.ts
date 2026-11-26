@@ -41,9 +41,9 @@ function countLines(bytes: Uint8Array, previous: number): number {
   for (const byte of bytes) if (byte === 10) previous++;
   return previous;
 }
-function localPath(value: unknown): string {
+function localPath(value: unknown, baseDir?: string): string {
   if (typeof value !== 'string' || !value.trim() || value.includes('\0') || /^[a-z][a-z0-9+.-]*:\/\//i.test(value)) throw new IpcHandlerError('BAD_REQUEST', 'A local file path is required');
-  return resolve(expandHomePrefix(value.trim(), homedir())!);
+  return resolve(baseDir ?? process.cwd(), expandHomePrefix(value.trim(), homedir())!);
 }
 async function regularFile(path: string): Promise<FileHandle> {
   const file = await open(await realpath(path), constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
@@ -106,16 +106,71 @@ export async function buildMessageInput(text: string, media: Json[], mediaInputM
   return parts.length === (text ? 1 : 0) ? text : parts;
 }
 
+export interface StagedDelegationAttachment { path: string; name: string; mimeType: string; size: number }
+
+export function delegatedInlineMediaDescriptor(file: { path: string; name: string; mimeType?: string; size?: number }): JsonObject | null {
+  const mime = uploadMime(file.name, file.mimeType), size = file.size ?? 0;
+  const image = imageMime(mime), fields = { path: file.path, name: file.name };
+  if (image) return size <= IMAGE_UPLOAD_LIMIT ? { type: 'image', ...fields, mimeType: image } : null;
+  if (mime === 'application/pdf' || extension(file.name) === 'pdf') return size <= 20 * 1024 * 1024 ? { type: 'document', ...fields, mimeType: 'application/pdf' } : null;
+  const nativeMedia = mediaInputMime(file.name, file.mimeType ?? '');
+  return nativeMedia && size <= MEDIA_INPUT_FILE_LIMIT ? { type: 'media', ...fields, mimeType: nativeMedia } : null;
+}
+
 /** Upload caches are host-owned, bounded and only published after a complete write. */
 export class AttachmentService {
   private closed = false;
   private readonly pending = new Set<Promise<unknown>>();
+  private readonly uploadedMetadata = new Map<string, { name: string; mimeType: string }>();
   constructor(private readonly workspaces: WorkspaceStore) {}
   private run<T>(paths: string[], operation: () => Promise<T>): Promise<T> {
     if (this.closed) return Promise.reject(new IpcHandlerError('SERVICE_CLOSED', 'Attachment service is closed'));
     if (this.pending.size >= 4) return Promise.reject(new IpcHandlerError('BUSY', 'Too many attachment operations are in progress'));
     const pending = this.workspaces.withDirectoryOperation(async () => [...paths, join(this.workspaces.configRoot, 'uploads')], operation);
     this.pending.add(pending); return pending.finally(() => { this.pending.delete(pending); });
+  }
+  private async rememberUpload(path: string, name: string, mimeType: string): Promise<void> {
+    const canonical = await realpath(path).catch(() => undefined);
+    for (const key of new Set([resolve(path), canonical])) {
+      if (!key) continue;
+      this.uploadedMetadata.set(key, { name, mimeType });
+      if (this.uploadedMetadata.size > 1024) this.uploadedMetadata.delete(this.uploadedMetadata.keys().next().value!);
+    }
+  }
+  stageDelegatedFile(rawPath: string, baseDir?: string): Promise<StagedDelegationAttachment> {
+    const resolved = localPath(rawPath, baseDir);
+    return this.run([resolved], async () => {
+      const canonical = await realpath(resolved);
+      const root = await realpath(join(this.workspaces.configRoot, 'uploads')).catch(() => '');
+      const reuse = !!root && resolve(root, basename(canonical)) === canonical;
+      const metadata = reuse ? this.uploadedMetadata.get(canonical) ?? this.uploadedMetadata.get(resolved) : undefined;
+      const name = metadata?.name ?? basename(resolved), mimeType = metadata?.mimeType ?? uploadMime(name);
+      const source = await regularFile(canonical);
+      try {
+        const { size } = await source.stat(), limit = uploadLimit(name, mimeType);
+        if (size < 1 || size > limit) throw new Error(`Attachment must contain 1 to ${limit} bytes`);
+        if (reuse) return { path: canonical, name, mimeType, size };
+        const stored = await this.store(name, mimeType, source);
+        return { path: string(stored.path), name, mimeType, size: Number(stored.size) };
+      } finally { await source.close(); }
+    });
+  }
+  verifyUploadedAttachment(rawPath: string, rawName: string, declaredMime = ''): Promise<StagedDelegationAttachment> {
+    const resolved = localPath(rawPath);
+    return this.run([resolved], async () => {
+      const dir = await managedPath(this.workspaces.configRoot, 'uploads', true);
+      await mkdir(dir, { recursive: true, mode: 0o700 });
+      const root = await realpath(dir), canonical = await realpath(resolved);
+      if (resolve(root, basename(canonical)) !== canonical) throw new Error('Attachment is not in the uploads directory');
+      const name = basename(rawName.trim()) || basename(canonical), mimeType = uploadMime(name, declaredMime);
+      const source = await regularFile(canonical);
+      try {
+        const { size } = await source.stat(), limit = uploadLimit(name, mimeType);
+        if (size < 1 || size > limit) throw new Error(`Attachment must contain 1 to ${limit} bytes`);
+        await this.rememberUpload(canonical, name, mimeType);
+        return { path: canonical, name, mimeType, size };
+      } finally { await source.close(); }
+    });
   }
   input(text: string, media: Json[], mediaInputMimeTypes: readonly string[] = []): Promise<Json> {
     return this.run(media.map(value => localPath(object(value).path)), () => buildMessageInput(text, media, mediaInputMimeTypes));
@@ -179,6 +234,7 @@ export class AttachmentService {
         if (size !== before.size || before.size !== after.size || before.mtimeMs !== after.mtimeMs) throw new IpcHandlerError('UPLOAD_CHANGED', 'The source file changed while uploading');
       }
       await output.sync(); await output.close(); await rename(temporary, path);
+      await this.rememberUpload(path, name, mime);
       return { path, id, name, type: mime, size, lineCount: textual ? size ? lines + (last === 10 ? 0 : 1) : 0 : null };
     } finally { await output.close(); await rm(temporary, { force: true }); }
   }

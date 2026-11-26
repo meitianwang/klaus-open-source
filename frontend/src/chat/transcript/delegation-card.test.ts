@@ -17,9 +17,10 @@ import { readFileSync } from 'node:fs'
 
 ;(globalThis as any).window = { addEventListener: () => {}, currentLang: 'en', klaus: { media: { url: (p: string) => p } } }
 
-const { renderDelegationLabelHtml, delegationEnvelopeInput } = await import('./factories')
+const { renderDelegationLabelHtml, delegationEnvelopeInput, renderDelegationBubbleHtml, primaryToolTarget } = await import('./factories')
 const { makeTranscriptClickHandler } = await import('./TranscriptView')
-const { encodeDelegationEnvelope, DELEGATION_TAG_OPEN, parseDelegationEnvelope } = await import('../../../../contracts/thread-delegation')
+const { encodeDelegationEnvelope, DELEGATION_TAG_OPEN, parseDelegationEnvelope, findEmbeddedDelegationEnvelopes } = await import('../../../../contracts/thread-delegation')
+const { chatActivitySentHead } = await import('./chat-activity')
 const { setDeviceNamesForTest } = await import('../device-names')
 
 // CSS modules are not loaded under bun, so class names render as `undefined`
@@ -31,6 +32,12 @@ const envelopeVectors = JSON.parse(readFileSync(new URL('../../../../contracts/v
     name: string; input: string; sourceThreadId: string | null; sourceHostId: string; expected: string
     expectedParsed: { sourceThreadId: string | null; sourceHostId?: string; input: string }
   }>
+  attachmentRoundTrip: Array<{
+    name: string; input: string; sourceThreadId: string | null; sourceHostId?: string; expected: string
+    attachments: NonNullable<Parameters<typeof encodeDelegationEnvelope>[3]>
+    expectedParsed: NonNullable<ReturnType<typeof parseDelegationEnvelope>>
+  }>
+  attachmentParseRejects: Array<{ name: string; text: string }>
   remoteParseRejects: Array<{ name: string; text: string }>
 }
 
@@ -249,5 +256,44 @@ describe('the delegation tag the renderer looks for is the tag the host writes',
     expect(label).not.toContain('klaus-delegation')
     expect(label).toContain('data-delegation-source-id="thread-caller"')
     expect(label.match(/<span>[^<]*<\/span>/)?.[0]).not.toContain('thread-caller')
+  })
+})
+
+describe('delegation attachments', () => {
+  for (const item of envelopeVectors.attachmentRoundTrip) test(item.name, () => {
+    const encoded = encodeDelegationEnvelope(item.input, item.sourceThreadId, item.sourceHostId, item.attachments)
+    expect(encoded).toBe(item.expected)
+    expect(parseDelegationEnvelope(encoded)).toEqual(item.expectedParsed)
+    expect(findEmbeddedDelegationEnvelopes(`Tool output\n${encoded}`).map(item => item.parsed)).toEqual([item.expectedParsed])
+  })
+  for (const item of envelopeVectors.attachmentParseRejects) test(item.name, () => {
+    expect(parseDelegationEnvelope(item.text)).toBeNull()
+  })
+  test('renders attachment cards with or without prose', () => {
+    const attachments = [
+      { name: 'diagram.png', path: '/uploads/diagram.png', mimeType: 'image/png' },
+      { name: 'report.pdf', path: '/uploads/report.pdf', mimeType: 'application/pdf' },
+      { name: 'archive.zip', path: '/uploads/archive.zip', mimeType: 'application/zip' },
+    ]
+    for (const input of ['Review these files.', '']) {
+      const html = renderDelegationBubbleHtml(input, attachments, path => `https://example.test${path}`)
+      expect(html).toContain('kls-attach-thumb')
+      expect(html).toContain('https://example.test/uploads/diagram.png')
+      expect(html.match(/class="kls-attach-chip"/g)).toHaveLength(2)
+      expect(html).toContain('report.pdf')
+      expect(html).toContain('archive.zip')
+      expect(html.includes('class="msg user"')).toBe(Boolean(input))
+    }
+  })
+  test('summarizes leaf filenames alongside optional prose', () => {
+    for (const prompt of ['Review this', '', undefined]) {
+      const args = { threadId: 'thread-b', ...(prompt === undefined ? {} : { prompt }) }
+      const withAttachments = { ...args, attachments: ['/tmp/diagram.png', '/tmp/report.pdf'] }
+      const head = prompt ? `${prompt} [diagram.png +1]` : '[diagram.png +1]'
+      expect(primaryToolTarget('send_message_to_thread', withAttachments)).toBe(`thread-b — ${head}`)
+      expect(chatActivitySentHead(withAttachments)).toBe(head)
+      expect(primaryToolTarget('send_message_to_thread', args)).toBe(prompt ? `thread-b — ${prompt}` : 'thread-b')
+      expect(chatActivitySentHead(args)).toBe(prompt || '')
+    }
   })
 })

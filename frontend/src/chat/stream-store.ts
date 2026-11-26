@@ -1,4 +1,5 @@
 import { canonicalQuestionMap } from '../../../contracts/user-questions'
+import type { DelegationEnvelope } from '../../../contracts/thread-delegation'
 import { forgetApprovalReviewSession, replaceApprovalReviewHistory, type DeniedApprovalReview } from './approval-review-state'
 import type { SessionRuntimeSnapshot } from '../../../contracts/session-runtime'
 import { clientMessageId, sameUserMessage } from '../../../contracts/message-identity'
@@ -108,7 +109,7 @@ type LiveUnitValue =
   // verdict (follow_up_status.delegation) is the only frame that knows the
   // message landed. Appended at the stream tail, i.e. at its arrival position,
   // so a message steered in mid-turn shows where it arrived.
-  | { type: 'live-delegation'; key: string; messageId: string; delegation: { input: string; sourceThreadId: string | null; sourceHostId?: string } }
+  | { type: 'live-delegation'; key: string; messageId: string; delegation: DelegationEnvelope }
 
 export type LiveUnit = LiveUnitValue & { turnId?: string; inference?: InferenceSnapshot; pendingUserTurn?: string; optimisticUser?: boolean; goalCompletion?: import('./transcript/goal-completion').GoalCompletionSummary }
 

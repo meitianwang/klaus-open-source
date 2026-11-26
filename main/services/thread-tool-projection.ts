@@ -78,7 +78,15 @@ const ITEM_FIELDS: Record<string, readonly string[]> = {
 };
 
 function inputPart(value: Json): JsonObject {
-  const type = string(object(value).type);
+  const source = object(value), type = string(source.type);
+  if (type === 'document' || type === 'media') {
+    const metadata = pick(value, ['mimeType', 'filename', 'path']);
+    return { type, ...metadata, ...(!Object.keys(metadata).length ? { notice: 'Additional input content was omitted.' } : {}) };
+  }
+  if ((type === 'image' || type === 'audio') && typeof source.url === 'string' && source.url.startsWith('data:')) {
+    const mimeType = /^data:([a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+)(?:[;,])/iu.exec(source.url)?.[1];
+    return { type, ...(mimeType ? { mimeType } : {}) };
+  }
   const fields = type === 'text' ? ['text', 'klausDelegation'] : ['image', 'audio'].includes(type) ? ['url']
     : ['localImage', 'localAudio'].includes(type) ? ['path'] : ['skill', 'mention'].includes(type) ? ['name', 'path'] : [];
   return { ...pick(value, ['type', ...fields]), ...(!fields.length ? { notice: 'Additional input content was omitted.' } : {}) };

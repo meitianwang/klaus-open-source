@@ -72,7 +72,7 @@ export function followUpDelegationPayload(request: Pick<FollowUpRequest, 'delive
   if (request.delivery !== 'delegation') return undefined;
   const envelope = parseDelegationEnvelope(request.text);
   if (!envelope) return undefined;
-  return { input: envelope.input, sourceThreadId: envelope.sourceThreadId, ...(envelope.sourceHostId ? { sourceHostId: envelope.sourceHostId } : {}) };
+  return { input: envelope.input, sourceThreadId: envelope.sourceThreadId, ...(envelope.sourceHostId ? { sourceHostId: envelope.sourceHostId } : {}), ...(envelope.attachments?.length ? { attachments: envelope.attachments.map(item => ({ ...item })) } : {}) };
 }
 
 /** One bounded observer per engine connection; uncertainty never discards a late receipt. */
