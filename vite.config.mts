@@ -267,6 +267,7 @@ export default defineConfig({
             // matters: the first matching group wins.
             { name: 'model3d-3d', test: /frontend\/src\/chat\/model3d\/(?:viewport|pathtrace)|node_modules\/(?:three|three-gpu-pathtracer|three-mesh-bvh|xatlas-web)\//, maxSize: 10_000 },
             { name: 'vendor', test: /node_modules/, maxSize: 400_000 },
+            { name: 'office-viewer', test: /frontend[\\/]src[\\/]chat[\\/]workspace-office-viewer\.(?:ts|module\.css)(?:$|\?)/, includeDependenciesRecursively: false, maxSize: 400_000 },
             { name: 'desktop', test: /frontend\/src\//, maxSize: 400_000 },
           ],
         },

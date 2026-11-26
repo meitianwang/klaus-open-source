@@ -1,4 +1,5 @@
 import { useEffect, useId, useMemo, useState } from 'react'
+import { fileIconName } from './file-icon-name'
 import { fileIconSvg } from './file-icon'
 import { cachedMarkdownHtml, forgetMarkdownSession, primeMarkdownHtml, renderMarkdownHtml, renderMarkdownPreview } from './markdown'
 
@@ -63,11 +64,7 @@ function ensureWorker(): Worker | null {
   try {
     const generation = workerGeneration
     worker = factory?.() ?? new Worker(new URL('./markdown.worker.ts', import.meta.url), { type: 'module' })
-    const icons = Object.fromEntries(['note.md', 'config.json', 'run.sh', 'app.ts', 'file.bin'].map(path => {
-      const name = path.endsWith('.md') ? 'chat-file' : path.endsWith('.json') ? 'chat-file-2'
-        : path.endsWith('.sh') ? 'chat-file-3' : path.endsWith('.ts') ? 'chat-file-code' : 'chat-file-plain'
-      return [name, fileIconSvg(path)]
-    }))
+    const icons = Object.fromEntries(['note.md', 'config.json', 'run.sh', 'app.ts', 'doc.pdf', 'sheet.xlsx', 'report.docx', 'deck.pptx', 'file.bin'].map(path => [fileIconName(path), fileIconSvg(path)]))
     worker.postMessage({ type: 'initialize', icons })
     worker.onmessage = ({ data }) => {
       if (generation !== workerGeneration) return

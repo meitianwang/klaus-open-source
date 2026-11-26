@@ -39,6 +39,7 @@ const DYNAMIC_SOURCES = [
   'src/chat/panels/side-tasks.ts',
   'src/chat/terminal.ts',
   'src/chat/workspace-panel.ts',
+  'src/chat/workspace-office-viewer.ts',
   'src/chat/markdown-toc.ts',
   'src/chat/spec-document-panel.ts',
 ]

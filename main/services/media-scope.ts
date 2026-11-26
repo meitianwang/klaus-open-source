@@ -1,3 +1,4 @@
+import { remotePreviewSessionDir } from './files';
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { goalOwnedRoot } from '../sessions/goal-objectives';
@@ -24,6 +25,7 @@ export function createConversationMediaScope(deps: ConversationMediaScopeDeps) {
         deps.resolveSessionDirectory(sessionId),
         ...deps.extraRoots(sessionId),
         join(deps.configRoot, 'uploads'),
+        remotePreviewSessionDir(deps.configRoot, sessionId),
         join(deps.configRoot, 'widgets', sessionId),
         // Markdown images and inline pages share this conversation-owned output
         // directory. Excluding it here rejects the image bytes even when the

@@ -5352,11 +5352,14 @@ body.sidebar-collapsed #settings-view {
   background: var(--bg);
 }
 
+.workspace-file-media.workspace-file-media-pdf { padding: 0; }
+
 .workspace-file-media audio {
   width: min(520px, 100%);
 }
 
 .workspace-file-body.is-html { position: relative; padding: 0; overflow: hidden; }
+.workspace-file-body.is-office { position: relative; padding: 0; overflow: hidden; display: flex; flex-direction: column; }
 
 /* ===== Scheduled Tasks view (independent overlay, own layout) ===== */
 #cron-view {

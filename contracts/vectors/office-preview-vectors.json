@@ -1,0 +1,19 @@
+{
+  "reason": "Standard Office spreadsheets, documents and presentations open as structured read-only previews while text-write endpoints refuse overwriting them.",
+  "pdfEncoding": "pdf",
+  "encoding": "office",
+  "readonly": true,
+  "binary": false,
+  "writeRefusalError": "file is preview-only",
+  "localMaxBytes": 52428800,
+  "remoteMaxBytes": 16777216,
+  "remoteChunkBytes": 1048576,
+  "limits": { "maxSheetRows": 1000, "maxSheetCols": 80, "maxDocumentBlocks": 2500, "maxPresentationSlides": 200, "maxPdfPages": 200 },
+  "extensions": {
+    "pdf": ["pdf"],
+    "spreadsheet": ["xlsx", "xlsm", "xltx", "xltm", "xls", "ods"],
+    "document": ["docx", "docm", "dotx", "dotm", "doc", "odt", "rtf"],
+    "presentation": ["pptx", "pptm", "ppsx", "potx", "potm", "ppt", "pps", "odp"]
+  },
+  "errorCodes": ["encrypted", "too_large", "corrupted", "empty", "unsupported"]
+}

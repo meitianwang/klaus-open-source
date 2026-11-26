@@ -21,8 +21,13 @@ const PREVIEW_TYPES: Record<string, string> = {
   json: 'application/json', txt: 'text/plain', csv: 'text/csv',
   woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf',
 };
-interface Grant { path: string; sessionId: string; preview?: { root: string; originalRoot: string; widget?: boolean } }
+interface Grant { path: string; sessionId: string; displayName?: string; preview?: { root: string; originalRoot: string; widget?: boolean } }
 interface MediaAttempt { sessionId: string; cancelled: boolean }
+function pdfUrlSuffix(grant: Pick<Grant, 'path' | 'displayName'>): string {
+  if (extname(grant.path).toLowerCase() !== '.pdf') return '';
+  const name = (grant.displayName || basename(grant.path)).replace(/[/\\\r\n\0]/g, '_');
+  return '/' + encodeURIComponent(Buffer.from(name).toString());
+}
 interface PreviewRequest { token: string; grant: Grant; path: string; type: string }
 
 function previewPolicy(token: string): string {
@@ -44,7 +49,7 @@ export class MediaFiles {
   private closed = false;
   constructor(private readonly allowed: (path: string, sessionId: string) => Promise<boolean>) {}
 
-  async grant(path: string, sessionId: string): Promise<string> {
+  async grant(path: string, sessionId: string, displayName?: string): Promise<string> {
     if (this.closed) throw new Error('The media service is closed');
     const attempt: MediaAttempt = { sessionId, cancelled: false };
     this.attempts.add(attempt);
@@ -54,14 +59,16 @@ export class MediaFiles {
     if (this.closed || attempt.cancelled) throw new Error('The media grant was revoked');
     for (const [token, grant] of this.grants) {
       if (!grant.preview && grant.path === canonical && grant.sessionId === sessionId) {
+        grant.displayName = displayName;
         this.grants.delete(token); this.grants.set(token, grant);
-        return `${MEDIA_SCHEME}://file/${token}`;
+        return `${MEDIA_SCHEME}://file/${token}${pdfUrlSuffix(grant)}`;
       }
     }
     this.limitGrants();
     const token = randomBytes(24).toString('hex');
-    this.grants.set(token, { path: canonical, sessionId });
-    return `${MEDIA_SCHEME}://file/${token}`;
+    const entry = { path: canonical, sessionId, displayName };
+    this.grants.set(token, entry);
+    return `${MEDIA_SCHEME}://file/${token}${pdfUrlSuffix(entry)}`;
     } finally { this.attempts.delete(attempt); }
   }
 
@@ -152,12 +159,16 @@ export class MediaFiles {
     // only these resources; ordinary media continues to refuse opaque origins.
     if (origin && origin !== 'klaus-app://app' && !(preview && origin === 'null')) return new Response(null, { status: 403 });
     if (!['GET', 'HEAD'].includes(request.method)) return new Response(null, { status: 405 });
-    const grant = preview?.grant ?? (url.protocol === `${MEDIA_SCHEME}:` && url.hostname === 'file' && !url.search && !url.hash && !url.port && !url.username && !url.password
-      ? this.grants.get(url.pathname.slice(1)) : this.legacy(url));
+    const parts = url.pathname.slice(1).split('/');
+    const fileUrl = url.protocol === `${MEDIA_SCHEME}:` && url.hostname === 'file' && !url.search && !url.hash && !url.port && !url.username && !url.password;
+    const candidate = fileUrl && parts.length <= 2 ? this.grants.get(parts[0] ?? '') : undefined;
+    const grant = preview?.grant ?? (fileUrl
+      ? candidate && (parts.length === 1 || '/' + parts[1] === pdfUrlSuffix(candidate)) ? candidate : undefined
+      : this.legacy(url));
     if (!grant || (grant.preview && !preview)) return new Response(null, { status: 404 });
     const attempt: MediaAttempt = { sessionId: grant.sessionId, cancelled: false };
     this.attempts.add(attempt);
-    const token = preview?.token ?? (url.hostname === 'file' ? url.pathname.slice(1) : undefined);
+    const token = preview?.token ?? (fileUrl ? parts[0] : undefined);
     const revoked = (): boolean => this.closed || attempt.cancelled || (token !== undefined && this.grants.get(token) !== grant);
     try {
       const path = preview?.path ?? grant.path;
@@ -194,6 +205,12 @@ export class MediaFiles {
           'Content-Security-Policy': preview && HTML_TYPES[extname(path).slice(1).toLowerCase()] ? preview.grant.preview?.widget ? widgetPolicy() : previewPolicy(preview.token) : "default-src 'none'; sandbox",
           'X-Content-Type-Options': 'nosniff', ...(preview ? { 'Referrer-Policy': 'no-referrer' } : {}),
         });
+        if (!preview && contentType === 'application/pdf') {
+          const name = (grant.displayName || basename(canonical)).replace(/[\r\n\0]/g, '') || 'document.pdf';
+          const ascii = name.replace(/[^\x20-\x7e]|["\\]/g, '_');
+          const utf8 = encodeURIComponent(Buffer.from(name).toString()).replace(/['()*]/g, char => `%${char.charCodeAt(0).toString(16).toUpperCase()}`);
+          headers.set('Content-Disposition', `inline; filename="${ascii}"; filename*=UTF-8''${utf8}`);
+        }
         if (preview?.grant.preview?.widget) {
           if (info.size > 256 * 1024) return new Response(null, { status: 403 });
           const bytes = await file.readFile();

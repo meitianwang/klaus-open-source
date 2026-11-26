@@ -1824,7 +1824,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     openPath: async path => { const error = await shell.openPath(path); if (error) throw new Error(error); },
     revealPath: path => shell.showItemInFolder(path), trashPath: path => shell.trashItem(path),
     requestSession: id => sessions.fileChanges(id),
-    toFileUrl: (path, id) => media.grant(path, id),
+    toFileUrl: (path, id, displayName) => media.grant(path, id, displayName),
     toHtmlPreviewUrl: (path, id, scopeRoot) => media.grantHtmlPreview(path, id, scopeRoot),
     toWidgetUrl: (path, id, scopeRoot) => media.grantWidgetSnapshot(path, id, scopeRoot),
     widgetSnapshot: (id, widgetId, revision, path) => widgets.snapshotPath(id, widgetId, revision, path),

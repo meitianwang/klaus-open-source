@@ -1,3 +1,5 @@
+import type { OfficePreviewPayload } from '../../../contracts/office-preview'
+import type { WorkspaceOfficeViewState, mountOfficeViewer } from './workspace-office-viewer'
 import { normalizeWorkspacePath, shouldReloadWorkspaceFileOnChange, shouldReloadWorkspaceMediaOnChange, workspaceEventTouchesAnyPath, type WorkspaceChangeNotification } from './workspace-reload-policy'
 // Workspace 面板域（自 chat.ts 拆出，逻辑原样，strict 类型化）。
 //
@@ -86,6 +88,7 @@ export interface WorkspaceTab {
   savedContent: string
   draftContent: string
   truncated: boolean
+  office: OfficePreviewPayload | null
   binary: boolean
   readonly: boolean
   encoding: string
@@ -115,8 +118,8 @@ interface KlausWorkspaceApi {
   }
   artifacts: {
     authorizePreview: (sessionId: string, path: string) => Promise<{ ok?: boolean; filePath?: string; error?: string } | null>
-    read: (sessionId: string | null, path: string) => Promise<{ ok?: boolean; error?: string; content?: string; binary?: boolean; readonly?: boolean; encoding?: string; truncated?: boolean; mtimeMs?: number | null } | null>
-    fileUrl: (sessionId: string | null, path: string) => Promise<{ ok?: boolean; url?: string; error?: string } | null>
+    read: (sessionId: string | null, path: string) => Promise<{ ok?: boolean; error?: string; content?: string; office?: OfficePreviewPayload | null; binary?: boolean; readonly?: boolean; encoding?: string; truncated?: boolean; mtimeMs?: number | null } | null>
+    fileUrl: (sessionId: string | null, path: string) => Promise<{ ok?: boolean; url?: string; error?: string; officeError?: OfficePreviewPayload } | null>
   }
 }
 const klausApi = () => (window as unknown as { klaus: KlausWorkspaceApi }).klaus
@@ -194,7 +197,15 @@ let workspaceMountedEditor: { tab: WorkspaceTab; mode: 'source' | 'preview'; han
 let workspaceEditorSequence = 0
 let workspaceDocumentNotice: HTMLElement | undefined
 
+const workspaceOfficeStates = new WeakMap<WorkspaceTab, WorkspaceOfficeViewState>()
+let workspaceMountedOffice: { tab: WorkspaceTab; handle: ReturnType<typeof mountOfficeViewer> } | undefined
+let workspaceOfficeRenderSeq = 0
+
 function releaseWorkspaceEditor(flush = true): void {
+  ++workspaceOfficeRenderSeq
+  workspaceMountedOffice?.handle.destroy()
+  workspaceMountedOffice = undefined
+  workspaceFileBody?.classList.remove('is-office')
   ++workspaceEditorSequence
   const mounted = workspaceMountedEditor
   workspaceMountedEditor = undefined
@@ -398,6 +409,7 @@ function createWorkspaceTab(filePath: string) {
     savedContent: '',
     draftContent: '',
     truncated: false,
+    office: null,
     binary: false,
     readonly: false,
     encoding: '',
@@ -463,7 +475,7 @@ function setWorkspaceFileBodyMode(mode: string) {
   if (workspaceDocumentNotice) workspaceDocumentNotice.hidden = true
   if (!workspaceFileBody) return
   workspaceFileBody.classList.remove(styles['workspace-editor-body'])
-  workspaceFileBody.classList.remove('is-source', 'is-markdown', 'is-svg', 'is-html', 'is-media', 'is-message')
+  workspaceFileBody.classList.remove('is-source', 'is-markdown', 'is-svg', 'is-html', 'is-media', 'is-message', 'is-office')
   if (mode) workspaceFileBody.classList.add('is-' + mode)
 }
 
@@ -705,7 +717,7 @@ function syncWorkspaceActiveTabGlobals(tab: WorkspaceTab | null) {
   workspaceFilePreviewPath = tab?.imageSource ? tab.imageSource.path || '' : tab?.path || ''
   workspaceFileContent = tab ? (tab.draftContent || '') : ''
   workspaceFileContentPath = tab && !tab.imageSource && !tab.directKind && tab.loaded && !tab.error ? tab.path : ''
-  workspaceFileCanPreview = !!tab?.canPreview
+  workspaceFileCanPreview = !!tab?.canPreview && !tab.office
   workspaceFileViewMode = tab?.viewMode || 'source'
   syncWorkspaceFileViewToggle()
 }
@@ -713,6 +725,10 @@ function syncWorkspaceActiveTabGlobals(tab: WorkspaceTab | null) {
 function updateWorkspaceFileChromeForTab(tab: WorkspaceTab | null) {
   if (!tab) return
   showWorkspaceFileShell(tab.path)
+  if (tab.office) {
+    if (workspaceFileViewToggle) workspaceFileViewToggle.hidden = true
+    if (workspaceFileZoomControls) workspaceFileZoomControls.hidden = true
+  }
   workspaceFileCopyBtn?.setAttribute('aria-label', tt(tab.imageSource ? 'image_copy' : 'artifacts_copy_path'))
   workspaceFileCopyBtn?.setAttribute('data-i18n-aria-label', tab.imageSource ? 'image_copy' : 'artifacts_copy_path')
   if (tab.imageSource) {
@@ -724,7 +740,8 @@ function updateWorkspaceFileChromeForTab(tab: WorkspaceTab | null) {
   if (workspaceFileStatus) {
     let statusText = ''
     const document = workspaceDocuments.get(tab)?.snapshot
-    if (document?.saving) statusText = tt('workspace_file_saving')
+    if (tab.office) statusText = ''
+    else if (document?.saving) statusText = tt('workspace_file_saving')
     else if (document?.error) statusText = tt('workspace_file_save_failed')
     else if (tab.dirty) statusText = tt('workspace_file_unsaved')
     else if (tab.binary) statusText = tt('workspace_file_binary_status')
@@ -944,6 +961,7 @@ function workspaceTabIsEditable(tab: WorkspaceTab | null | undefined) {
     && tab.loaded
     && !tab.error
     && !tab.directKind
+    && !tab.office
     && !tab.binary
     && !tab.truncated
     && !tab.readonly
@@ -1162,6 +1180,32 @@ function renderWorkspaceFileContent() {
     return
   }
   const activeTab = getActiveWorkspaceTab()
+  if (activeTab?.office && workspaceFileBody) {
+    const payload = activeTab.office
+    if (workspaceMountedOffice?.tab === activeTab) {
+      workspaceMountedOffice.handle.update(payload)
+      return
+    }
+    revokeWorkspacePreviewObjectUrl()
+    clearWorkspaceImageZoom()
+    setWorkspaceFileBodyMode('office')
+    const host = workspaceFileBody
+    host.replaceChildren()
+    const seq = workspaceOfficeRenderSeq
+    const isCurrent = () => seq === workspaceOfficeRenderSeq && getActiveWorkspaceTab() === activeTab && activeTab.office === payload
+    void import('./workspace-office-viewer').then(({ mountOfficeViewer }) => {
+      if (!isCurrent()) return
+      const state = workspaceOfficeStates.get(activeTab) ?? {}
+      workspaceOfficeStates.set(activeTab, state)
+      const handle = mountOfficeViewer(host, payload, {
+        state, translate: tt,
+        openExternal: url => { void (window as any).klaus?.app?.openExternal(url) },
+        copyText: value => { void writeClipboardText(value).catch(() => {}) },
+      })
+      workspaceMountedOffice = { tab: activeTab, handle }
+    }).catch(() => { if (isCurrent()) renderWorkspaceFileMessage(tt('artifacts_load_failed')) })
+    return
+  }
   if (activeTab?.binary) {
     renderWorkspaceFileMessage(tt('workspace_file_binary_message'))
     return
@@ -1306,10 +1350,18 @@ export async function loadWorkspaceFile(filePath: string, { force = false, reloa
       tab.loading = false
       const errMsg = (data && data.ok === false ? data.error : data?.error)
       if (errMsg || !data?.url) {
+        if (data?.officeError && typeof data.officeError === 'object') {
+          Object.assign(tab, { directKind: '', mediaUrl: '', office: data.officeError, binary: false, readonly: true, encoding: 'pdf', loaded: true })
+          syncWorkspaceActiveTabGlobals(tab)
+          updateWorkspaceFileChromeForTab(tab)
+          renderWorkspaceFileContent()
+          return
+        }
         tab.error = errMsg || tt('artifacts_load_failed')
         renderWorkspaceFileMessage(tab.error)
         return
       }
+      tab.office = null
       tab.directKind = directKind
       tab.mediaUrl = data.url
       tab.binary = false
@@ -1337,7 +1389,8 @@ export async function loadWorkspaceFile(filePath: string, { force = false, reloa
       return
     }
     tab.binary = !!data?.binary
-    tab.readonly = !!data?.readonly
+    tab.office = data?.office && typeof data.office === 'object' ? data.office as OfficePreviewPayload : null
+    tab.readonly = Boolean(data?.readonly) || Boolean(tab.office)
     tab.encoding = data?.encoding || ''
     const savedContent = tab.binary ? '' : (data?.content || '')
     tab.truncated = !!data?.truncated

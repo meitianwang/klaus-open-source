@@ -39,6 +39,10 @@ const FILE_TYPE_LABELS: Record<string, string> = {
   cs: 'C#', php: 'PHP', sh: 'Shell', bash: 'Shell', zsh: 'Shell',
   html: 'HTML', htm: 'HTML', css: 'CSS', scss: 'SCSS', less: 'Less',
   xml: 'XML', svg: 'SVG', sql: 'SQL', csv: 'CSV',
+  xls: 'Excel', xlsx: 'Excel', doc: 'Word', docx: 'Word', ppt: 'PowerPoint', pptx: 'PowerPoint',
+  pdf: 'PDF', xlsm: 'Excel', xltx: 'Excel', xltm: 'Excel', docm: 'Word', dotx: 'Word', dotm: 'Word', rtf: 'RTF',
+  pptm: 'PowerPoint', ppsx: 'PowerPoint', potx: 'PowerPoint', potm: 'PowerPoint', pps: 'PowerPoint',
+  ods: 'Spreadsheet', odt: 'Document', odp: 'Presentation',
   txt: 'Text', log: 'Log', conf: 'Config', ini: 'Config', env: 'Config',
 }
 const DIRECT_PREVIEW_EXTS: Record<string, string> = {
@@ -48,7 +52,7 @@ const DIRECT_PREVIEW_EXTS: Record<string, string> = {
   mp4: 'video', webm: 'video', mov: 'video', m4v: 'video', ogv: 'video',
 }
 const UNSUPPORTED_PREVIEW_EXTS = new Set([
-  'doc', 'docx', 'xls', 'xlsx', 'ppt', 'pptx', 'pages', 'numbers', 'key',
+  'pages', 'numbers', 'key',
   'zip', 'gz', 'tgz', 'rar', '7z', 'tar', 'dmg', 'pkg',
 ])
 function fileExt(p: string) {
@@ -250,17 +254,6 @@ function renderSvgPreview() {
   bodyEl.appendChild(wrap)
 }
 
-async function resolveDirectPreviewUrl() {
-  if (kind !== 'artifact') {
-    throw new Error('Preview is only available for workspace artifacts')
-  }
-  const data = await klausApi?.artifacts?.fileUrl?.(sessionId, filePath)
-  const errMsg = (data && data.ok === false ? data.error : data?.error)
-  if (errMsg) throw new Error(errMsg)
-  if (!data?.url) throw new Error('missing preview URL')
-  return data.url
-}
-
 function renderDirectPreview(url: string, previewKind: string) {
   markdownToc?.setEnabled(false)
   revokePreviewObjectUrl()
@@ -435,8 +428,19 @@ syncToggle()
         truncEl.style.display = 'none'
         return
       }
-      const url = await resolveDirectPreviewUrl()
-      renderDirectPreview(url, directKind)
+      const data = await klausApi?.artifacts?.fileUrl?.(sessionId, filePath)
+      if (data?.officeError && typeof data.officeError === 'object') {
+        viewToggle?.classList.add('is-hidden')
+        truncEl.style.display = 'none'
+        markdownToc?.setEnabled(false)
+        const { mountOfficeViewer } = await import('../chat/workspace-office-viewer')
+        Object.assign(bodyEl.style, { padding: '0', overflow: 'hidden', display: 'flex', flexDirection: 'column' })
+        bodyEl.replaceChildren()
+        mountOfficeViewer(bodyEl, data.officeError, { translate: key => text(key, key) })
+        return
+      }
+      if (data?.error || !data?.url) throw new Error(data?.error || 'missing preview URL')
+      renderDirectPreview(data.url, directKind)
       truncEl.style.display = 'none'
       return
     }
@@ -462,7 +466,18 @@ syncToggle()
       return
     }
     content = data?.content || ''
-    if (view === 'preview') renderPreview()
+    if (data?.office && typeof data.office === 'object') {
+      viewToggle?.classList.add('is-hidden')
+      markdownToc?.setEnabled(false)
+      const { mountOfficeViewer } = await import('../chat/workspace-office-viewer')
+      Object.assign(bodyEl.style, { padding: '0', overflow: 'hidden', display: 'flex', flexDirection: 'column' })
+      bodyEl.replaceChildren()
+      mountOfficeViewer(bodyEl, data.office, {
+        translate: key => text(key, key),
+        openExternal: url => { void klausApi?.app?.openExternal(url) },
+        copyText: value => { void writeClipboardText(value).catch(() => {}) },
+      })
+    } else if (view === 'preview') renderPreview()
     else renderSource()
     truncEl.style.display = data?.truncated ? 'block' : 'none'
   } catch (err) {

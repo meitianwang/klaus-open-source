@@ -1,3 +1,4 @@
+import { officePreviewEn, officePreviewZh } from './office-preview-messages'
 import { approvalReviewEn, approvalReviewZh } from './approval-review-messages'
 // Klaus 桌面端 UI 文案字典（中/英）。Batch 3 起为唯一来源：
 // js/i18n.js 与 React 侧 useT() 都从这里取。平台差异项在 i18n.js 里就地改写。
@@ -20,6 +21,7 @@ import { contextUsageEn, contextUsageZh } from './context-usage-messages'
 
 export const I18N: { en: Record<string, string>; zh: Record<string, string> } = {
   en: {
+    ...officePreviewEn,
     ...voiceChatEn,
     ...featureOnboardingEn,
     ...planningEn,
@@ -4419,6 +4421,7 @@ browser_ext_connected: 'Extension connected',
     friends_disable_receiving_confirm: 'Saving will cancel {count} pending or running tasks from this friend.',
   },
   zh: {
+    ...officePreviewZh,
     ...voiceChatZh,
     ...featureOnboardingZh,
     ...planningZh,

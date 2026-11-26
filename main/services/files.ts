@@ -1,3 +1,5 @@
+import { isPdfPreviewExtension, isOfficePreviewExtension, officePreviewFamily, OFFICE_PREVIEW_MAX_BYTES, REMOTE_OFFICE_PREVIEW_MAX_BYTES } from '../../contracts/office-preview';
+import { inspectPdfHeader, parsePdfBuffer, parseOfficeBuffer } from './office';
 import { createHash } from 'node:crypto';
 import { constants, watch } from 'node:fs';
 import { copyFile, lstat, mkdir, open, opendir, realpath, rename, stat, writeFile } from 'node:fs/promises';
@@ -11,6 +13,15 @@ import { pathInside, WorkspaceStore } from './workspaces';
 import { sessionVisualizationsDir } from './visualizations';
 import { readInlineVisPage } from './inline-vis-read';
 import { containRemote, type SshFileService, type SshWorkdir } from './ssh-files';
+
+export function remotePreviewSessionDir(configRoot: string, sessionId: string): string {
+  const slug = sessionId.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 48);
+  const digest = createHash('sha256').update(sessionId).digest('hex').slice(0, 16);
+  return join(configRoot, 'remote-previews', `${slug}-${digest}`);
+}
+function pdfUrlError(officeError: NonNullable<ReturnType<typeof inspectPdfHeader>>): Json {
+  return { error: officeError.code === 'empty' ? 'empty PDF file' : officeError.code === 'too_large' ? 'file too large to preview remotely' : 'corrupted PDF file', officeError: officeError as unknown as JsonObject };
+}
 
 export const BASE_WORKSPACE_EXCLUDES = [
   '**/.git/**', '**/.git/objects/**', '**/.git/subtree-cache/**', '**/.hg/**', '**/.hg/store/**',
@@ -34,7 +45,7 @@ export interface FileDeps {
   /** Native save dialog for `artifacts:save-copy`; resolves undefined when cancelled. */
   saveCopyDialog?: (senderId: number, defaultName: string) => Promise<string | undefined>;
   requestSession: (sessionId: string, method: 'session/fileChanges', params: JsonObject) => Promise<unknown>;
-  toFileUrl?: (path: string, sessionId: string) => string | Promise<string>;
+  toFileUrl?: (path: string, sessionId: string, displayName?: string) => string | Promise<string>;
   toHtmlPreviewUrl?: (path: string, sessionId: string, scopeRoot: string) => string | Promise<string>;
   toWidgetUrl?: (path: string, sessionId: string, scopeRoot: string) => string | Promise<string>;
   widgetSnapshot?: (sessionId: string, widgetId: string, revision: number, path: string) => Promise<{ path: string; root: string; currentRevision: number }>;
@@ -259,6 +270,25 @@ export class FileService {
     const checked = await this.remoteChecked(remote, payload, true);
     const info = await this.deps.sshFiles!.stat(remote.senderId, remote.workdir, checked);
     if (!info?.isFile) return { error: 'not a file' };
+    const family = isPdfPreviewExtension(checked) ? 'pdf' : officePreviewFamily(checked);
+    if (family) {
+      const base = { filePath: checked, fileName: basename(checked), mtimeMs: info.mtimeMs, readonly: true, remote: true, binary: false, encoding: family === 'pdf' ? 'pdf' : 'office' };
+      const tooLarge = (size: number): Json => ({ ...base, size, truncated: false, content: '', office: { kind: 'error', family, code: 'too_large', maxBytes: REMOTE_OFFICE_PREVIEW_MAX_BYTES } });
+      if (info.size > REMOTE_OFFICE_PREVIEW_MAX_BYTES) return tooLarge(info.size);
+      const chunks: Buffer[] = [];
+      let offset = 0, size = info.size;
+      for (;;) {
+        const chunk = await this.deps.sshFiles!.read(remote.senderId, remote.workdir, checked, offset, REMOTE_PREVIEW_LIMIT);
+        size = chunk.size;
+        offset += chunk.content.length;
+        if (Math.max(size, offset) > REMOTE_OFFICE_PREVIEW_MAX_BYTES) return tooLarge(Math.max(size, offset));
+        chunks.push(chunk.content);
+        if (chunk.complete || !chunk.content.length) break;
+      }
+      const bytes = Buffer.concat(chunks, offset);
+      const parsed = family === 'pdf' ? await parsePdfBuffer(bytes) : await parseOfficeBuffer(checked, bytes);
+      return { ...base, size, truncated: parsed.truncated, content: parsed.plainText, office: parsed.office as unknown as JsonObject };
+    }
     const { content, size, complete } = await this.deps.sshFiles!.read(remote.senderId, remote.workdir, checked, 0, REMOTE_PREVIEW_LIMIT);
     const preview = decodeWorkspacePreview(content);
     return { filePath: checked, fileName: basename(checked), size, mtimeMs: info.mtimeMs, truncated: !complete, readonly: false, remote: true, ...preview };
@@ -278,7 +308,7 @@ export class FileService {
     if (typeof payload.content !== 'string') return { error: 'invalid content' };
     const buffer = Buffer.from(payload.content, 'utf8');
     if (buffer.length > WRITE_LIMIT) return { error: 'file too large' };
-    if (READONLY_EXTENSIONS.has(extname(checked).slice(1).toLowerCase())) return { error: 'file is preview-only' };
+    if (READONLY_EXTENSIONS.has(extname(checked).slice(1).toLowerCase()) || isOfficePreviewExtension(checked)) return { error: 'file is preview-only' };
     if (!this.validWriteOptions(payload)) return { error: 'invalid write options' };
     const key = `remote:${JSON.stringify(remote.workdir.target)}:${checked}`;
     return this.serializeWrite(key, async (): Promise<Json> => {
@@ -540,7 +570,7 @@ export class FileService {
       if (typeof payload.content !== 'string') return { error: 'invalid content' };
       if (Buffer.byteLength(payload.content) > WRITE_LIMIT) return { error: 'file too large' };
       if (!(await stat(checked.realPath)).isFile()) return { error: 'not a file' };
-      if (READONLY_EXTENSIONS.has(extname(checked.path).slice(1).toLowerCase())) return { error: 'file is preview-only' };
+      if (READONLY_EXTENSIONS.has(extname(checked.path).slice(1).toLowerCase()) || isOfficePreviewExtension(checked.path)) return { error: 'file is preview-only' };
       if (!this.validWriteOptions(payload)) return { error: 'invalid write options' };
       // Capture bytes before queueing; the caller cannot change a pending save.
       const buffer = Buffer.from(payload.content, 'utf8');
@@ -593,6 +623,15 @@ export class FileService {
       if (remote) return this.remoteRead(remote, payload);
       const checked = await this.checked(payload, true), info = await stat(checked.realPath);
       if (!info.isFile()) return { error: 'not a file' };
+      const family = isPdfPreviewExtension(checked.path) ? 'pdf' : officePreviewFamily(checked.path);
+      if (family) {
+        this.watchPreviewFile(checked.sessionId, checked.realPath, checked.path);
+        const base = { filePath: checked.path, fileName: basename(checked.path), size: info.size, mtimeMs: info.mtimeMs, readonly: true, binary: false, encoding: family === 'pdf' ? 'pdf' : 'office' };
+        if (info.size > OFFICE_PREVIEW_MAX_BYTES) return { ...base, truncated: false, content: '', office: { kind: 'error', family, code: 'too_large', maxBytes: OFFICE_PREVIEW_MAX_BYTES } };
+        const bytes = await readHead(checked.realPath, info.size);
+        const parsed = family === 'pdf' ? await parsePdfBuffer(bytes) : await parseOfficeBuffer(checked.path, bytes);
+        return { ...base, truncated: parsed.truncated, content: parsed.plainText, office: parsed.office as unknown as JsonObject };
+      }
       const preview = decodeWorkspacePreview(await readHead(checked.realPath, Math.min(info.size, PREVIEW_LIMIT)));
       this.watchPreviewFile(checked.sessionId, checked.realPath, checked.path);
       return { filePath: checked.path, fileName: basename(checked.path), size: info.size, mtimeMs: info.mtimeMs, truncated: info.size > PREVIEW_LIMIT,
@@ -679,15 +718,32 @@ export class FileService {
     const checked = await this.remoteChecked(remote, payload, true);
     const info = await this.deps.sshFiles!.stat(remote.senderId, remote.workdir, checked);
     if (!info?.isFile) return { error: 'not a file' };
-    if (info.size > REMOTE_PREVIEW_LIMIT) return { error: 'file too large to preview remotely' };
-    const { content } = await this.deps.sshFiles!.read(remote.senderId, remote.workdir, checked, 0, PREVIEW_LIMIT);
-    const cacheRoot = join(this.deps.workspaces.configRoot, 'remote-previews', string(payload.sessionId).replace(/[^a-zA-Z0-9_-]/g, '_'));
+    const pdf = isPdfPreviewExtension(checked), limit = pdf ? REMOTE_OFFICE_PREVIEW_MAX_BYTES : REMOTE_PREVIEW_LIMIT;
+    const tooLarge = () => pdf ? pdfUrlError({ kind: 'error', family: 'pdf', code: 'too_large', maxBytes: limit }) : { error: 'file too large to preview remotely' };
+    if (info.size > limit) return tooLarge();
+    const chunks: Buffer[] = [];
+    let offset = 0;
+    while (offset < info.size) {
+      const chunk = await this.deps.sshFiles!.read(remote.senderId, remote.workdir, checked, offset, REMOTE_PREVIEW_LIMIT);
+      offset += chunk.content.length;
+      if (Math.max(offset, chunk.size) > limit) return tooLarge();
+      chunks.push(chunk.content);
+      if (chunk.complete || !chunk.content.length) break;
+    }
+    const content = Buffer.concat(chunks, offset);
+    if (pdf) {
+      const error = inspectPdfHeader(content);
+      if (error) return pdfUrlError(error);
+    }
+    const sessionId = string(payload.sessionId);
+    const cacheRoot = remotePreviewSessionDir(this.deps.workspaces.configRoot, sessionId);
     await mkdir(cacheRoot, { recursive: true, mode: 0o700 });
     const key = createHash('sha256').update(checked).digest('hex').slice(0, 16);
     const localPath = join(cacheRoot, `${key}-${basename(checked).replace(/[^a-zA-Z0-9._-]/g, '_')}`);
     await writeFile(localPath, content, { mode: 0o600 });
+    this.deps.authorizePreviewPath?.(await realpath(localPath), sessionId);
     const url = /\.(?:html?|xhtml)$/iu.test(checked) ? await this.deps.toHtmlPreviewUrl?.(localPath, string(payload.sessionId), cacheRoot)
-      : await this.deps.toFileUrl?.(localPath, string(payload.sessionId));
+      : await this.deps.toFileUrl?.(localPath, sessionId, basename(checked));
     return { ok: true, url: url ?? pathToFileURL(localPath).href, remote: true };
   }
   artifactFileUrl(payload: JsonObject): Promise<Json> {
@@ -695,7 +751,13 @@ export class FileService {
       const remote = this.remoteOf(payload);
       if (remote) return this.remoteArtifactUrl(remote, payload);
       const checked = await this.checked(payload, true);
-      if (!(await stat(checked.realPath)).isFile()) return { error: 'not a file' };
+      const info = await stat(checked.realPath);
+      if (!info.isFile()) return { error: 'not a file' };
+      if (isPdfPreviewExtension(checked.path)) {
+        const error = inspectPdfHeader(info.size ? await readHead(checked.realPath, Math.min(info.size, 1024)) : Buffer.alloc(0));
+        if (error) return pdfUrlError(error);
+      }
+      this.watchPreviewFile(checked.sessionId, checked.realPath, checked.path);
       const preview = /\.(?:html?|xhtml)$/iu.test(checked.path) ? this.deps.toHtmlPreviewUrl : undefined;
       const url = await (preview?.(checked.path, checked.sessionId, checked.scopeRoot)
         ?? this.deps.toFileUrl?.(checked.path, checked.sessionId)) ?? pathToFileURL(checked.path).href;
@@ -813,6 +875,7 @@ export class FileService {
         catch (error) { if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error; }
         await copyFile(checked.realPath, path);
       }
+      try { this.deps.authorizePreviewPath?.(await realpath(path), checked.sessionId); } catch { /* The viewer rechecks access. */ }
       await this.deps.openPreviewWindow({ kind: 'artifact', filePath: path, sessionId: checked.sessionId, displayName });
       return inUploads && !inWorkspace ? { ok: true, path } : { ok: true };
     });

@@ -1,6 +1,10 @@
 /** File categories share the same icon in main and worker renderers. */
 export function fileIconName(name: string): string {
   const lower = (name || '').toLowerCase()
+  if (/\.pdf$/.test(lower)) return 'resource-file-pdf'
+  if (/\.(xlsx?|xlsm|xltx|xltm|ods)$/.test(lower)) return 'resource-file-excel'
+  if (/\.(docx?|docm|dotx|dotm|odt|rtf)$/.test(lower)) return 'resource-file-word'
+  if (/\.(pptx?|pptm|ppsx?|potx|potm|odp)$/.test(lower)) return 'resource-file-powerpoint'
   if (/\.(md|markdown)$/.test(lower)) {
     return 'chat-file'
   }
