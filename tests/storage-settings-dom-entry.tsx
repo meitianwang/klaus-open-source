@@ -18,6 +18,7 @@ const snapshot = { status: 'ready', measuredAt: now, completedCategories: ['thre
   home: '/fixture/.klaus', totalBytes: 10000, categories: [{ category: 'threads', bytes: 3000 }, { category: 'subagents', bytes: 1000 },
     { category: 'archived', bytes: 2000 }, { category: 'worktrees', bytes: 3000 }, { category: 'other', bytes: 1000 }], sessionBytes: {}, sessionSubagentBytes: {}, subagentCounts: {},
 } }
+let currentSnapshot = snapshot
 const records = [
   { path: '/fixture/worktrees/one', repoRoot: '/fixture/repo-a', createdAt: now - 10 * day },
   { path: '/fixture/worktrees/two', repoRoot: '/fixture/repo-b', createdAt: now - 11 * day },
@@ -28,7 +29,8 @@ const conversations = [
   { id: 'unrelated', title: 'Different worktree', workdir: '/fixture/worktrees/two-extra' },
   { id: 'child', title: 'Hidden child', workdir: '/fixture/worktrees/two', parentSessionId: 'normal' },
 ]
-let failConfigure = false, failDelete = false
+let failConfigure = false, failDelete = false, failCleanup = false
+let releaseCleanup: (() => void) | null = null
 const wait = (ms = 20) => new Promise(resolve => setTimeout(resolve, ms))
 async function until(predicate: () => any) {
   const deadline = Date.now() + 4000
@@ -48,10 +50,31 @@ const modal = () => document.querySelector<HTMLDialogElement>('dialog:modal')
 w.klaus = {
   settings: { kv: { get: async () => null } },
   storage: {
-    usage: async () => snapshot,
-    refresh: async () => { calls.push({ method: 'refresh' }); return snapshot },
+    usage: async () => currentSnapshot,
+    refresh: async () => { calls.push({ method: 'refresh' }); return currentSnapshot },
     review: async () => ({ reviewId: 'review-token', inventory }),
-    cleanup: async (selection: any, options: any) => { calls.push({ method: 'cleanup', value: { selection, options } }); await wait(60); return { deleted: selection.length, skipped: 0, failed: 0 } },
+    cleanup: async (selection: any, options: any) => {
+      calls.push({ method: 'cleanup', value: { selection, options } })
+      await wait(40)
+      if (failCleanup) { failCleanup = false; throw Error('Fixture recheck failed') }
+      await new Promise<void>(resolve => { releaseCleanup = resolve })
+      currentSnapshot = {
+        ...snapshot,
+        measuredAt: now + 1000,
+        usage: {
+          ...snapshot.usage,
+          totalBytes: 4200,
+          categories: [
+            { category: 'threads', bytes: 200 },
+            { category: 'subagents', bytes: 0 },
+            { category: 'archived', bytes: 0 },
+            { category: 'worktrees', bytes: 3000 },
+            { category: 'other', bytes: 1000 },
+          ],
+        },
+      }
+      return { deleted: selection.length, skipped: 0, failed: 0 }
+    },
   },
   session: {
     list: async () => conversations,
@@ -67,7 +90,7 @@ w.klaus = {
     deleteManaged: async (path: string) => { calls.push({ method: 'deleteWorktree', value: path }); if (failDelete) { failDelete = false; throw Error('worktree-pinned') } return { ok: true } },
   },
 }
-w.showToast = (text: string) => { calls.push({ method: 'toast', value: text }); return () => {} }
+w.showToast = (text: string, opts?: any) => { calls.push({ method: 'toast', value: text, opts }); return () => {} }
 w.sessionDisplayTitle = (row: any) => row?.title || ''
 w.updateSessionInList = async () => { calls.push({ method: 'updateList' }) }
 w.closeSettings = () => { calls.push({ method: 'closeSettings' }) }
@@ -103,6 +126,7 @@ w.storageSettingsReady = (async () => {
     await until(() => !modal())
     check('Escape returns focus to Review', document.activeElement?.id === 'storage-review-button')
   }
+  let preDeleteTotal = ''
   w.storageSettingsRun = async () => {
     hit('#storage-review-button'); await until(modal)
     hit('#storage-review-days'); await wait()
@@ -121,12 +145,50 @@ w.storageSettingsReady = (async () => {
     check('checkbox updates the live selection summary', modal()!.textContent!.includes('已选聊天：55'))
     hit('#storage-review-delete'); await wait()
     check('final confirmation states permanence and reviewed count', !!modal()?.textContent?.includes('55 个聊天') && !!modal()?.textContent?.includes('无法撤销'))
-    hit('#storage-confirm-delete'); await until(() => calls.some(call => call.method === 'cleanup')); await until(() => !modal())
+    preDeleteTotal = find('#storage-total-label').textContent!
+    failCleanup = true
+    hit('#storage-confirm-delete')
+    await until(() => !!modal()?.querySelector('[role="alert"]'))
+    check('failed cleanup keeps the confirmation modal open with an inline alert and retry label',
+      modal()?.querySelector('[role="alert"]')?.textContent === I18N.zh.storage_cleanup_recheck_error
+      && find('#storage-confirm-delete').textContent === I18N.zh.storage_cleanup_retry)
+    hit('#storage-confirm-cancel'); await wait()
+    check('canceling after a failed cleanup returns to the review list with the selection intact',
+      !!modal()?.textContent?.includes('已选聊天：55') && !find<HTMLInputElement>('[data-cleanup-id="old-0"] input').checked)
+    hit('#storage-review-delete'); await wait()
+    hit('#storage-confirm-delete')
+    await until(() => typeof releaseCleanup === 'function')
+    const confirmDeleteBtn = find<HTMLButtonElement>('#storage-confirm-delete')
+    const confirmCancelBtn = find<HTMLButtonElement>('#storage-confirm-cancel')
+    check('confirmation modal stays open during deletion with busy Deleting button and disabled Cancel',
+      !!modal() && modal()?.getAttribute('aria-busy') === 'true'
+      && confirmDeleteBtn.disabled && confirmDeleteBtn.getAttribute('aria-busy') === 'true'
+      && confirmDeleteBtn.textContent === I18N.zh.storage_cleanup_confirm_deleting
+      && confirmCancelBtn.disabled)
+    check('background review button does not spin and no premature deleting toast is emitted',
+      find('#storage-review-button').getAttribute('aria-busy') !== 'true'
+      && !calls.some(call => call.method === 'toast' && call.value === I18N.zh.storage_cleanup_deleting))
+    return true
+  }
+  w.storageSettingsFinishCleanup = async () => {
+    check('Escape while deleting cannot dismiss the confirmation modal', !!modal() && find<HTMLButtonElement>('#storage-confirm-delete').disabled)
+    releaseCleanup?.()
+    releaseCleanup = null
+    await until(() => !modal())
     await until(() => calls.some(call => call.method === 'refresh'))
-    const cleanup = calls.find(call => call.method === 'cleanup')!
+    check('post-deletion storage total updates immediately when the modal closes',
+      find('#storage-total-label').textContent !== preDeleteTotal && find('#storage-total-label').textContent!.includes('4.1 kB'))
+    check('focus returns to the Review button after deletion completes', document.activeElement?.id === 'storage-review-button')
+    check('completion toast reports deleted count cleanly without zero clauses',
+      calls.some(call => call.method === 'toast' && call.value === '已删除 55 个聊天' && call.opts?.tone === 'success'))
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    return true
+  }
+  w.storageSettingsContinueSuite = async () => {
+    const cleanup = calls.filter(call => call.method === 'cleanup').at(-1)!
     check('cleanup sends the review token and All chats filter', cleanup.value.options.reviewId === 'review-token' && cleanup.value.options.archivedOnly === false)
     check('cleanup submits only checked chats', cleanup.value.selection.length === 55 && !cleanup.value.selection.some((row: any) => row.id === 'old-0'))
-    check('cleanup is submitted once', calls.filter(call => call.method === 'cleanup').length === 1)
+    check('cleanup was invoked once for the failed attempt and once for the confirmed retry', calls.filter(call => call.method === 'cleanup').length === 2)
     hit('#storage-manage-archived'); await wait()
     check('archive management navigates to the existing settings destination without a modal', host().textContent!.includes('Existing archived settings destination') && !modal())
     loadSettingsTab('storage'); await until(() => !!document.querySelector('#storage-review-button:not(:disabled)'))

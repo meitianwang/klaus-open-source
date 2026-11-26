@@ -215,6 +215,7 @@ export class DeviceStorageService {
       return result
     }
     const deletedAt: Array<string | undefined> = new Array(work.length)
+    const deletedSessions: MeasuredSession[] = []
     let next = 0
     const worker = async (): Promise<void> => {
       for (;;) {
@@ -246,6 +247,7 @@ export class DeviceStorageService {
           for (const entry of this.reviews.values()) entry.sessions.delete(item.id)
           result.deleted++
           deletedAt[slot] = item.id
+          deletedSessions.push(current)
         } catch {
           result.failed++
         } finally { release?.() }
@@ -254,13 +256,59 @@ export class DeviceStorageService {
     await Promise.all(Array.from({ length: Math.min(CLEANUP_CONCURRENCY, work.length) }, () => worker()))
     const deletedIds = deletedAt.filter((id): id is string => typeof id === 'string')
     if (result.deleted) {
-      this.measured = new Map()
+      this.applyDeletedSessions(deletedSessions)
       this.refreshAfter = 0
-      if (this.scan) this.rescanRequested = true
-      else this.start()
+      this.abortScan()
+      this.start()
       this.notifyDeleted(deletedIds)
     }
     return result
+  }
+
+  private applyDeletedSessions(deletedSessions: MeasuredSession[]): void {
+    const removedIds = new Set<string>()
+    const deductions = emptyBytes()
+    for (const session of deletedSessions) {
+      removedIds.add(session.id)
+      this.measured.delete(session.id)
+      if (session.archived) deductions.archived += session.own + session.sub
+      else {
+        deductions.threads += session.own
+        deductions.subagents += session.sub
+      }
+    }
+    const usage = this.value.usage
+    if (!usage) return
+    const copyWithoutDeleted = (source: Record<string, number>): Record<string, number> => {
+      const target = emptyMap()
+      for (const [id, value] of Object.entries(source)) {
+        if (!removedIds.has(id)) target[id] = value
+      }
+      return target
+    }
+    const categories = usage.categories.map(entry => ({
+      category: entry.category,
+      bytes: Math.max(0, entry.bytes - (deductions[entry.category as StorageCategory] ?? 0)),
+    }))
+    this.value = {
+      ...this.value,
+      usage: {
+        ...usage,
+        totalBytes: categories.reduce((sum, entry) => sum + entry.bytes, 0),
+        categories,
+        sessionBytes: copyWithoutDeleted(usage.sessionBytes),
+        sessionSubagentBytes: copyWithoutDeleted(usage.sessionSubagentBytes),
+        subagentCounts: copyWithoutDeleted(usage.subagentCounts),
+      },
+    }
+  }
+
+  private abortScan(): void {
+    const controller = this.controller
+    this.controller = null
+    this.scan = null
+    this.rescanRequested = false
+    controller?.abort()
   }
 
   private notifyDeleted(sessionIds: string[]): void {
@@ -363,13 +411,18 @@ export class DeviceStorageService {
     signal.throwIfAborted()
     if (this.controller?.signal !== signal || this.rescanRequested) return
     const previous = this.value.usage
-    const categories = STORAGE_CATEGORIES.map(category => ({ category, bytes: bytes[category] }))
+    const completedSet = new Set([...this.value.completedCategories, ...completed])
+    const previousBytes = new Map(previous?.categories.map(entry => [entry.category, entry.bytes]))
+    const categories = STORAGE_CATEGORIES.map(category => ({
+      category,
+      bytes: completedSet.has(category) || !previousBytes.has(category) ? bytes[category] : previousBytes.get(category)!,
+    }))
     this.value = { ...this.value, usage: {
       home: this.root, totalBytes: categories.reduce((sum, entry) => sum + entry.bytes, 0), categories,
       sessionBytes: extra?.sessionBytes ?? previous?.sessionBytes ?? emptyMap(),
       sessionSubagentBytes: extra?.sessionSubagentBytes ?? previous?.sessionSubagentBytes ?? emptyMap(),
       subagentCounts: extra?.subagentCounts ?? previous?.subagentCounts ?? emptyMap(),
-    }, completedCategories: [...new Set([...this.value.completedCategories, ...completed])] }
+    }, completedCategories: [...completedSet] }
   }
 
   private async measure(signal: AbortSignal): Promise<void> {
@@ -385,7 +438,9 @@ export class DeviceStorageService {
       subagentCounts[item.id] = (subagentCounts[item.id] ?? 0) + item.count
       grouped.set(item.id, [...(grouped.get(item.id) ?? []), item])
     }
-    if (!this.rescanRequested) this.measured = new Map([...grouped].filter(([, rows]) => rows.length === 1).map(([id, rows]) => [id, rows[0]!]))
+    if (this.controller?.signal === signal && !this.rescanRequested) {
+      this.measured = new Map([...grouped].filter(([, rows]) => rows.length === 1).map(([id, rows]) => [id, rows[0]!]))
+    }
     this.publish(bytes, ['threads', 'subagents', 'archived'], signal, { sessionBytes, sessionSubagentBytes, subagentCounts })
     const worktrees = top.filter(entry => !entry.isSymbolicLink() && entry.name === 'worktrees')
     const other = top.filter(entry => !entry.isSymbolicLink() && entry.name !== 'sessions' && entry.name !== 'worktrees')

@@ -105,3 +105,63 @@ export function cleanupReady(snapshot: StorageSnapshotWire | null): boolean {
   if (!snapshot || snapshot.status === 'error' || !snapshot.usage) return false
   return ['threads', 'subagents', 'archived'].every(category => snapshot.completedCategories.includes(category))
 }
+
+export interface StorageCleanupResultWire {
+  deleted: number
+  skipped: number
+  failed: number
+}
+
+export interface CleanupOutcomeToast {
+  message: string
+  tone: 'success' | 'warning' | 'danger'
+  duration: number
+}
+
+/** Build a concise outcome toast without reporting zero-valued clauses. */
+export function formatCleanupOutcome(
+  result: StorageCleanupResultWire,
+  t: (key: string) => string,
+): CleanupOutcomeToast {
+  const deleted = Math.max(0, Math.trunc(result.deleted || 0))
+  const skipped = Math.max(0, Math.trunc(result.skipped || 0))
+  const failed = Math.max(0, Math.trunc(result.failed || 0))
+  if (deleted > 0 && skipped === 0 && failed === 0) {
+    const message = deleted === 1
+      ? t('storage_cleanup_done_one')
+      : t('storage_cleanup_done_other').replace('{count}', String(deleted))
+    return { message, tone: 'success', duration: 4000 }
+  }
+  if (deleted > 0) {
+    const parts = [
+      deleted === 1
+        ? t('storage_cleanup_partial_deleted_one')
+        : t('storage_cleanup_partial_deleted_other').replace('{count}', String(deleted)),
+    ]
+    if (skipped > 0) {
+      parts.push(
+        skipped === 1
+          ? t('storage_cleanup_partial_skipped_one')
+          : t('storage_cleanup_partial_skipped_other').replace('{count}', String(skipped)),
+      )
+    }
+    if (failed > 0) {
+      parts.push(
+        failed === 1
+          ? t('storage_cleanup_partial_failed_one')
+          : t('storage_cleanup_partial_failed_other').replace('{count}', String(failed)),
+      )
+    }
+    return { message: parts.join(t('storage_cleanup_partial_sep')), tone: 'warning', duration: 8000 }
+  }
+  if (skipped > 0 && failed === 0) {
+    return { message: t('storage_cleanup_none_skipped'), tone: 'warning', duration: 6000 }
+  }
+  return { message: t('storage_cleanup_none_failed'), tone: 'danger', duration: 6000 }
+}
+
+export function classifyCleanupFailure(error: unknown): 'expired' | 'retry' {
+  const detail = String((error as { message?: unknown })?.message ?? error ?? '')
+  return detail.includes('Storage review is unavailable') ? 'expired' : 'retry'
+}
+

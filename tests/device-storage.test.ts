@@ -589,6 +589,63 @@ h.test('an unchanged open review is not invalidated by elapsed wall-clock time',
   });
 });
 
+h.test('cleanup immediately deducts deleted chat bytes while keeping non-chat categories steady during rescan', async () => {
+  await fixture(async ({ root, rows, file, create, deleted }) => {
+    rows.push(meta('active'), meta('kept'), meta('archive', { archived: true }));
+    const activeRollout = await file('sessions/100-active.jsonl', 'aaaaaa');
+    const activeAgent = await file('sessions/100-active/subagents/agent-1.jsonl', 'bbbb');
+    await file('sessions/200-kept.jsonl', 'ccc');
+    const archivedRollout = await file('sessions/archived/300-archive.jsonl', 'ddddd');
+    await file('worktrees/tree/file', 'wwwwwww');
+    await file('packages/blob.bin', 'ooooooooo');
+    const service = create({
+      deleteSession: async id => {
+        deleted.push(id);
+        if (id === 'active') {
+          await rm(activeRollout, { force: true });
+          await rm(join(root, 'sessions/100-active'), { recursive: true, force: true });
+        }
+        if (id === 'archive') {
+          await rm(archivedRollout, { force: true });
+        }
+      },
+    });
+    const inventory = await review(service);
+    const before = (await service.read()).usage!;
+    assertEqual(before.totalBytes, 34, 'initial total includes active, subagent, archived, worktree and other bytes');
+    assert(Boolean(activeAgent), 'subagent fixture created');
+
+    const result = await service.cleanup(
+      [{ id: 'active' }, { id: 'archive' }],
+      options(inventory.reviewId, false),
+    );
+    assertDeepEqual(result, { deleted: 2, skipped: 0, failed: 0 }, 'selected active and archived chats are deleted');
+
+    const immediate = (await service.read()).usage!;
+    assertDeepEqual(immediate.categories, [
+      { category: 'threads', bytes: 3 },
+      { category: 'subagents', bytes: 0 },
+      { category: 'archived', bytes: 0 },
+      { category: 'worktrees', bytes: 7 },
+      { category: 'other', bytes: 9 },
+    ], 'confirmed deletions are reflected before the background rescan finishes, without zeroing worktrees or other');
+    assertEqual(immediate.totalBytes, 19, 'post-cleanup total immediately drops by the deleted chat and subagent sizes');
+    assertEqual(immediate.sessionBytes.active, undefined, 'deleted active chat leaves sessionBytes');
+    assertEqual(immediate.sessionBytes.archive, undefined, 'deleted archived chat leaves sessionBytes');
+    assertEqual(immediate.sessionBytes.kept, 3, 'retained chat keeps its measured size');
+
+    await settled(service);
+    const reconciled = (await service.read()).usage!;
+    assertDeepEqual(reconciled.categories.slice(0, 4), [
+      { category: 'threads', bytes: 3 },
+      { category: 'subagents', bytes: 0 },
+      { category: 'archived', bytes: 0 },
+      { category: 'worktrees', bytes: 7 },
+    ], 'background reconciliation converges on the same post-deletion chat and worktree sizes');
+    assertDeepEqual({ ...reconciled.sessionBytes }, { kept: 3 }, 'reconciled session map retains only the kept chat');
+  });
+});
+
 void (async () => {
   const failed = await h.finish(join(__dirname, 'device-storage-result.json'), 'device-storage');
   process.exit(failed);

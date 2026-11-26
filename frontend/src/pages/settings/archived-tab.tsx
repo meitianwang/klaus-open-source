@@ -40,6 +40,11 @@ export function ArchivedSessionsTab() {
   const bump = () => setTick(n => n + 1)
 
   useEffect(() => {
+    const off = w().klaus?.storage?.onChanged?.(() => setReloadSequence(value => value + 1))
+    return () => { off?.() }
+  }, [])
+
+  useEffect(() => {
     ensureSettingsAccountListener()
     let cancelled = false
     const publish = beginRead()

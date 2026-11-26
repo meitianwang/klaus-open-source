@@ -1,10 +1,13 @@
 import { describe, expect, test } from 'bun:test'
+import { deviceStorageEn, deviceStorageZh } from '../../i18n/device-storage-messages'
 import {
   REVIEW_PAGE_SIZE,
   categoryCompleted,
+  classifyCleanupFailure,
   cleanupReady,
   displayCategories,
   eligibleReviewRows,
+  formatCleanupOutcome,
   formatStorageBytes,
   reviewCutoffMs,
   selectionSubagentTotal,
@@ -143,3 +146,55 @@ describe('storage snapshot readiness', () => {
     expect(REVIEW_PAGE_SIZE).toBe(50)
   })
 })
+
+describe('cleanup outcome formatting and failure classification', () => {
+  const en = (key: string) => deviceStorageEn[key] ?? key
+  const zh = (key: string) => deviceStorageZh[key] ?? key
+
+  test('reports clean deletions with singular/plural grammar and without zero clauses', () => {
+    expect(formatCleanupOutcome({ deleted: 1, skipped: 0, failed: 0 }, en)).toEqual({
+      message: 'Deleted 1 chat',
+      tone: 'success',
+      duration: 4000,
+    })
+    expect(formatCleanupOutcome({ deleted: 12, skipped: 0, failed: 0 }, en)).toEqual({
+      message: 'Deleted 12 chats',
+      tone: 'success',
+      duration: 4000,
+    })
+    expect(formatCleanupOutcome({ deleted: 12, skipped: 0, failed: 0 }, zh)).toEqual({
+      message: '已删除 12 个聊天',
+      tone: 'success',
+      duration: 4000,
+    })
+  })
+
+  test('includes only non-zero skipped or failed clauses on partial completion', () => {
+    expect(formatCleanupOutcome({ deleted: 3, skipped: 2, failed: 0 }, zh)).toEqual({
+      message: '已删除 3 个聊天；2 个在查看后有更新，已保留',
+      tone: 'warning',
+      duration: 8000,
+    })
+    expect(formatCleanupOutcome({ deleted: 1, skipped: 1, failed: 1 }, en)).toEqual({
+      message: "Deleted 1 chat. Kept 1 chat that changed after review. 1 chat couldn't be deleted.",
+      tone: 'warning',
+      duration: 8000,
+    })
+  })
+
+  test('distinguishes all-skipped from failed zero-delete outcomes and expired review tokens', () => {
+    expect(formatCleanupOutcome({ deleted: 0, skipped: 4, failed: 0 }, zh)).toEqual({
+      message: '所选聊天在查看后有更新，已全部保留，未删除任何内容',
+      tone: 'warning',
+      duration: 6000,
+    })
+    expect(formatCleanupOutcome({ deleted: 0, skipped: 0, failed: 2 }, en)).toEqual({
+      message: "Couldn't delete the selected chats. Try again.",
+      tone: 'danger',
+      duration: 6000,
+    })
+    expect(classifyCleanupFailure(new Error('Storage review is unavailable; review the chats again'))).toBe('expired')
+    expect(classifyCleanupFailure(new Error('Catalog temporarily unavailable'))).toBe('retry')
+  })
+})
+

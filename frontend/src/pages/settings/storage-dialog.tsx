@@ -5,15 +5,16 @@ import { useT } from '../../i18n'
 import styles from './storage.module.css'
 
 /** Native modal ownership keeps settings overlays, focus and Escape in one layer. */
-export function StorageDialog({ title, description, children, footer, onClose, dismissible = true, wide = false, returnFocusId }: {
+export function StorageDialog({ title, description, children, footer, onClose, dismissible = true, busy = false, wide = false, returnFocusId }: {
   title: string; description?: string; children?: ReactNode; footer?: ReactNode
-  onClose(): void; dismissible?: boolean; wide?: boolean; returnFocusId?: string
+  onClose(): void; dismissible?: boolean; busy?: boolean; wide?: boolean; returnFocusId?: string
 }) {
   const t = useT()
   const titleId = useId(), descriptionId = useId()
   const ref = useRef<HTMLDialogElement>(null)
-  const close = useRef(onClose)
+  const close = useRef(onClose), locked = useRef(busy)
   close.current = onClose
+  locked.current = busy
   useEffect(() => {
     const dialog = ref.current!
     const previous = document.activeElement as HTMLElement | null
@@ -25,20 +26,31 @@ export function StorageDialog({ title, description, children, footer, onClose, d
       if (target?.isConnected && target.getClientRects().length && !(target as HTMLButtonElement).disabled) target.focus()
     }
   }, [])
+  useEffect(() => {
+    if (!busy) return
+    const dialog = ref.current
+    const active = document.activeElement as HTMLButtonElement | null
+    if (dialog && (!active || active === document.body || active.disabled)) dialog.focus()
+  }, [busy])
   return <ModalPortal>
-    <dialog ref={ref} className={`${styles.dialog}${wide ? ` ${styles.wide}` : ''}`}
-      role="dialog" aria-modal="true" aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined}
-      onKeyDown={event => { if (event.key === 'Escape') event.stopPropagation() }}
-      onCancel={event => { event.preventDefault(); close.current() }}
+    <dialog ref={ref} tabIndex={-1} className={`${styles.dialog}${wide ? ` ${styles.wide}` : ''}`}
+      role="dialog" aria-modal="true" aria-busy={busy || undefined} aria-labelledby={titleId} aria-describedby={description ? descriptionId : undefined}
+      onKeyDown={event => {
+        if (event.key !== 'Escape') return
+        event.preventDefault()
+        event.stopPropagation()
+        if (!locked.current) close.current()
+      }}
+      onCancel={event => { event.preventDefault(); if (!locked.current) close.current() }}
       onClick={event => {
-        if (event.target !== event.currentTarget) return
+        if (locked.current || event.target !== event.currentTarget) return
         const rect = event.currentTarget.getBoundingClientRect()
         if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) close.current()
       }}>
       <header className={styles.dialogHeader}>
         <h2 id={titleId}>{title}</h2>
         {description && <p id={descriptionId}>{description}</p>}
-        {dismissible && <button type="button" className={styles.close} aria-label={t('storage_close')} onClick={onClose}><Icon name="close" size={16} /></button>}
+        {dismissible && <button type="button" className={styles.close} disabled={busy} aria-label={t('storage_close')} onClick={() => { if (!locked.current) onClose() }}><Icon name="close" size={16} /></button>}
       </header>
       <div className={styles.dialogBody}>{children}</div>
       {footer && <footer className={styles.footer}>{footer}</footer>}
