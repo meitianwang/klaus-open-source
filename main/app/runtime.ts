@@ -1111,6 +1111,8 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       const model = string(automation.model), thinking = string(automation.thinking);
       return sessions.newSession({
         ...options,
+        orchestrationModeOverride: options.orchestrationModeOverride,
+        ultraModeOverride: options.ultraModeOverride,
         ...(typeof options.workdir === 'string' && options.workdir ? { workdir: options.workdir } : {}),
         ...(model ? { modelOverride: model } : {}),
         ...(thinking ? { thinkingOverride: thinking } : {}),

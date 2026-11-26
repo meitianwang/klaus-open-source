@@ -108,6 +108,41 @@ h.test('scheduled runs initialize each saved permission preset through the ordin
   assertDeepEqual(object(sessions[2]).runtimePolicyOverride, { approvalPolicy: 'never', sandboxMode: 'danger-full-access', approvalsReviewer: 'user', sandboxNetworkAllowed: true }, 'bypass removes ordinary approval prompts');
   await f.runtime.close();
 });
+h.test('scheduled sessions receive the saved execution mode and both overrides', async () => {
+  const sessions: Parameters<CronRuntimeDeps['newSession']>[0][] = [];
+  const f = fixture({ newSession: async options => { sessions.push(options); return { id: `mode-${sessions.length}` }; } });
+  const modes = ['default', 'orchestrate', 'parallel'];
+  for (const executionMode of modes) {
+    f.add(executionMode, { enabled: false, executionMode });
+    assertEqual(f.store.getTask(executionMode)?.executionMode, executionMode, 'mode persists');
+    await f.runtime.runNow(executionMode);
+  }
+  assertDeepEqual(sessions.map(options => [options.orchestrationModeOverride, options.ultraModeOverride,
+    object(options.hostMetadata.automation).executionMode]),
+  [[false, false, 'default'], [true, false, 'orchestrate'], [false, true, 'parallel']], 'exact startup overrides and metadata');
+  await assertRejects(() => Promise.resolve(f.add('invalid', { executionMode: 'invalid' })), 'invalid input mode is rejected');
+  withSettingsTransaction(f.store.configRoot, db => db.exec("UPDATE cron_tasks SET execution_mode='invalid' WHERE id='default'"));
+  await assertRejects(() => Promise.resolve(f.store.getTask('default')), 'invalid stored mode is rejected');
+  await f.runtime.close();
+});
+h.test('scheduled tasks can add, switch, retain and clear their delivery binding', async () => {
+  const f = fixture();
+  f.add('binding');
+  assertEqual(f.store.getTask('binding')?.channelBinding, null, 'starts unbound');
+  for (const channelId of ['first', 'second']) {
+    const channelBinding = { channelId, targetId: 'chat' };
+    f.add('binding', { channelBinding });
+    assertDeepEqual(f.store.getTask('binding')?.channelBinding, channelBinding, 'binding updates');
+  }
+  f.add('binding');
+  assertDeepEqual(f.store.getTask('binding')?.channelBinding, { channelId: 'second', targetId: 'chat' }, 'omission retains binding');
+  for (const channelBinding of [[], {}, { channelId: 'second', targetId: ' ' }] as Json[]) {
+    await assertRejects(() => Promise.resolve(f.add('binding', { channelBinding })), 'invalid binding is rejected');
+  }
+  f.add('binding', { channelBinding: null });
+  assertEqual(f.store.getTask('binding')?.channelBinding, null, 'null clears binding');
+  await f.runtime.close();
+});
 h.test('task location and permission fields are persisted and validated', async () => {
   const f = fixture();
   f.add('project', { workdir: '/tmp/project', permissionPreset: 'auto' });
@@ -116,7 +151,7 @@ h.test('task location and permission fields are persisted and validated', async 
     id: 'project', name: 'project', description: null, schedule: '* * * * *', prompt: 'Task', enabled: true,
     thinking: null, deleteAfterRun: false, timezone: null, channelBinding: null,
     createdBy: 'manual', notificationPolicy: 'failed_runs_only', model: null, workdir: '/tmp/project',
-    workspaceId: null, permissionPreset: 'auto', createdAt: f.store.getTask('project')!.createdAt,
+    workspaceId: null, permissionPreset: 'auto', executionMode: 'default', createdAt: f.store.getTask('project')!.createdAt,
     updatedAt: f.store.getTask('project')!.updatedAt,
   }, 'project location and permission persist');
   assertEqual(f.store.getTask('workspace')?.workspaceId, 'workspace-1', 'workspace identity persists');
@@ -134,8 +169,10 @@ h.test('legacy task rows gain unrestricted permission during migration', async (
   withSettingsTransaction(f.store.configRoot, db => {
     db.exec('ALTER TABLE cron_tasks DROP COLUMN permission_preset');
     db.exec('ALTER TABLE cron_tasks DROP COLUMN workspace_id');
+    db.exec('ALTER TABLE cron_tasks DROP COLUMN execution_mode');
   });
   const migrated = f.store.getTask('legacy')!;
+  assertEqual(migrated.executionMode, 'default', 'pre-mode task defaults to ordinary execution');
   assertEqual(migrated.permissionPreset, 'bypassPermissions', 'pre-policy task keeps its previous unrestricted behavior');
   assertEqual(migrated.workdir, '/tmp/legacy', 'legacy project binding is retained');
   assertEqual(migrated.workspaceId, null, 'legacy task is not silently bound to a workspace');
@@ -292,6 +329,7 @@ h.test('Cron tools preserve the boundary between manual rows and tool-owned task
   assertEqual(created.success, true, 'created');
   const task = f.store.toolTasks()[0]!;
   assert(new RegExp(String(vector.idPattern)).test(String(task.id)), 'created id follows the public format');
+  assertEqual(task.executionMode, 'default', 'omitted execution mode defaults');
   assertEqual(task.deleteAfterRun, true, 'one-shot persisted');
   assertEqual(task.permissionPreset, 'bypassPermissions', 'omitted permission keeps the unrestricted scheduled-task default');
   assert(cronToolResultText(executeCronTool(f.store, 'CronList', {})).includes('Weekdays at 9:00 AM（一次性）：Reminder'), 'list is human readable');
@@ -307,14 +345,20 @@ h.test('CronCreate carries project, workspace and permission choices without los
   const f = fixture();
   const vector = JSON.parse(readFileSync(vectorPath('cron-tools-vectors.json'), 'utf8')) as Record<string, string>;
   const project = executeCronTool(f.store, 'CronCreate', {
-    cron: '0 9 * * *', prompt: 'Project task', workdir: '/tmp/project', permissionPreset: 'auto',
+    cron: '0 9 * * *', prompt: 'Project task', executionMode: 'orchestrate', workdir: '/tmp/project', permissionPreset: 'auto',
   });
   const workspace = executeCronTool(f.store, 'CronCreate', {
-    cron: '0 10 * * *', prompt: 'Workspace task', workspaceId: 'workspace-1', permissionPreset: 'default',
+    cron: '0 10 * * *', prompt: 'Workspace task', executionMode: 'parallel', workspaceId: 'workspace-1', permissionPreset: 'default',
   });
   assertEqual(project.success, true, 'project task created');
   assertEqual(workspace.success, true, 'workspace task created');
   const tasks = f.store.toolTasks();
+  assertDeepEqual(tasks.map(task => task.executionMode), ['orchestrate', 'parallel'], 'tool modes persist');
+  for (const executionMode of ['', 'invalid']) {
+    assertEqual(cronToolResultText(executeCronTool(f.store, 'CronCreate', {
+      cron: '0 12 * * *', prompt: 'Invalid', executionMode,
+    })), vector.invalidExecutionMode, 'invalid execution mode rejected');
+  }
   assertEqual(tasks[0]?.workdir, '/tmp/project', 'project directory retained');
   assertEqual(tasks[0]?.workspaceId, null, 'project task has no workspace');
   assertEqual(tasks[0]?.permissionPreset, 'auto', 'project task permission retained');

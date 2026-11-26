@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 import {
+  buildCronChannelSelectState, cronExecutionMode, resolveCronChannelBindingSelection, selectedCronChannelId,
   compileSchedule, cronDeleteSucceeded, cronExecutionTarget, cronExecutionValue, cronPermissionPreset, cronRunErrorText,
   effectiveCronRunStatus, navigateToCronRunSession, parseCronExecutionValue, parseSchedule,
   resolvedCronTaskTimezone, retainedCronTaskFields,
@@ -47,15 +48,15 @@ describe('scheduled-task page host contracts', () => {
     })).toEqual({
       enabled: false, description: 'context', thinking: 'high',
       model: 'codex:fixture', workdir: '/tmp/proj', workspaceId: null,
-      permissionPreset: 'bypassPermissions', notificationPolicy: 'failed_runs_only',
+      executionMode: 'default', permissionPreset: 'bypassPermissions', notificationPolicy: 'failed_runs_only',
     })
     expect(retainedCronTaskFields({ id: 'task-1', enabled: false, description: 'context', thinking: 'high' })).toEqual({
       enabled: false, description: 'context', thinking: 'high',
-      model: null, workdir: null, workspaceId: null, permissionPreset: 'bypassPermissions',
+      model: null, workdir: null, workspaceId: null, executionMode: 'default', permissionPreset: 'bypassPermissions',
       notificationPolicy: 'failed_runs_only',
     })
     expect(retainedCronTaskFields(null)).toEqual({
-      enabled: true, permissionPreset: 'bypassPermissions', notificationPolicy: 'failed_runs_only',
+      enabled: true, executionMode: 'default', permissionPreset: 'bypassPermissions', notificationPolicy: 'failed_runs_only',
     })
     expect(retainedCronTaskFields({
       id: 'task-2', workspaceId: 'workspace-1', permissionPreset: 'auto',
@@ -117,5 +118,61 @@ describe('scheduled-task page host contracts', () => {
     try { await navigateToCronRunSession({}, 'session-3') }
     catch (error) { message = error instanceof Error ? error.message : String(error) }
     expect(message).toBe('Session navigation is unavailable')
+  })
+})
+
+describe('scheduled execution mode', () => {
+  test('normalizes and retains supported modes, defaulting unknown values', () => {
+    for (const [value, expected] of [[null, 'default'], ['default', 'default'], ['orchestrate', 'orchestrate'], ['parallel', 'parallel'], ['invalid', 'default']] as const) {
+      expect(cronExecutionMode(value)).toBe(expected)
+      expect(retainedCronTaskFields({ id: 'task', executionMode: value } as CronTask).executionMode).toBe(expected)
+    }
+  })
+})
+
+describe('scheduled channel picker', () => {
+  const labelOf = (id: string) => id.toUpperCase()
+  const translate = (key: string) => key.replace('cron_form_channel_', '')
+  const connected = { id: 'chat', connected: true, ownerId: 'owner' }
+  const direct = { channelId: 'chat', targetId: 'owner' }
+  const group = { ...direct, chatType: 'group', threadId: 'thread', accountId: 'other' }
+  const build = (binding: Parameters<typeof buildCronChannelSelectState>[0], channels: Parameters<typeof buildCronChannelSelectState>[1]) =>
+    buildCronChannelSelectState(binding, channels, translate, labelOf)
+
+  test('offers a ready DM without selecting it for an unbound task', () => {
+    expect(build(null, [connected])).toEqual({ options: [{ value: '', label: 'none' }, { value: 'dm:chat', label: 'CHAT · me' }], initialValue: '', pendingDmLabels: [] })
+  })
+
+  test('selects a matching DM without duplicating the option', () => {
+    expect(build(direct, [connected]).initialValue).toBe('dm:chat')
+    expect(build(direct, [connected]).options.map(option => option.value)).toEqual(['', 'dm:chat'])
+  })
+
+  test('preserves disconnected, group, and unloaded bindings', () => {
+    expect(build(direct, []).options[1]).toEqual({ value: '__existing__', label: 'CHAT · me (disconnected)' })
+    expect(build(group, [connected])).toMatchObject({ initialValue: '__existing__', options: [
+      { value: '', label: 'none' }, { value: '__existing__', label: 'CHAT · groupowner' }, { value: 'dm:chat', label: 'CHAT · me' },
+    ] })
+    expect(build(direct, null)).toMatchObject({ initialValue: '__existing__', options: [
+      { value: '', label: 'none' }, { value: '__existing__', label: 'CHAT · me' },
+    ] })
+  })
+
+  test('reports connected channels pending a DM target', () => {
+    expect(build(null, [{ ...connected, ownerId: ' ' }, { id: 'offline', connected: false }]).pendingDmLabels).toEqual(['CHAT'])
+  })
+
+  test('resolves clearing, copying a saved binding, and selecting a DM', () => {
+    const owners = { chat: 'owner' }
+    const resolve = (selection: string) => resolveCronChannelBindingSelection(selection, group, owners, labelOf)
+    expect(resolve('')).toBeNull()
+    expect(resolve('__existing__')).toEqual(group)
+    expect(resolve('__existing__')).not.toBe(group)
+    expect(resolve('dm:chat')).toEqual({ ...direct, accountId: 'default', chatType: 'direct', label: 'CHAT' })
+    expect(resolve('dm:missing')).toBeNull()
+    expect(selectedCronChannelId('__existing__', group)).toBe('chat')
+    expect(selectedCronChannelId('__existing__', null)).toBe('')
+    expect(selectedCronChannelId('dm:other', group)).toBe('other')
+    expect(selectedCronChannelId('', group)).toBe('')
   })
 })

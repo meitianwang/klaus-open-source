@@ -9,10 +9,11 @@ import { useT } from '../../i18n'
 import { rawIconHtml } from '../../components/Icon'
 import { AUTH_MODE_ORDER, sourceLabel } from '../settings/model-shared'
 import {
+  buildCronChannelSelectState, CRON_EXECUTION_MODES, cronExecutionMode, resolveCronChannelBindingSelection, selectedCronChannelId,
   channelLabelOf, compileSchedule, cronExecutionValue, cronPermissionPreset, fmtDate, pad2,
   parseCronExecutionValue, parseSchedule, resolvedCronTaskTimezone, retainedCronTaskFields,
 } from './data'
-import type { CronPermissionPreset, CronTask } from './data'
+import type { ConnectedCronChannel, CronExecutionMode, CronPermissionPreset, CronTask } from './data'
 import { cronThinkingItems, cronThinkingLevels, cronThinkingSelection, cronThinkingValue, DEFAULT_THINKING_LEVEL, THINKING_LEVELS } from './model-thinking'
 import styles from './cron.module.css'
 
@@ -39,7 +40,7 @@ export function positionPopup(anchor: HTMLElement, popup: HTMLElement): void {
   })
 }
 
-type PopupId = 'freq' | 'weekday' | 'monthday' | 'date' | 'time' | 'tz' | 'source' | 'model' | 'thinking' | 'location' | 'permission' | null
+type PopupId = 'freq' | 'weekday' | 'monthday' | 'date' | 'time' | 'tz' | 'source' | 'model' | 'thinking' | 'location' | 'permission' | 'executionMode' | 'channel' | null
 
 // ---- Custom dropdown (button + floating panel) ----
 // Preferred over a native <select> so the open panel matches Klaus styling
@@ -263,14 +264,16 @@ export function CronTaskFormModal({ existing, onClose, onSaved }: {
     : tzAll
   ).slice(0, 60)
 
-  // ---- Channel binding（write-once：编辑态只读 summary，新建态才可挑） ----
-  const [boundSummary, setBoundSummary] = useState<{ text: string; locked: boolean } | null>(null)
-  const [channelHint, setChannelHint] = useState<{ text: string; warning: boolean }>({ text: '', warning: false })
-  const [channelLoadFailed, setChannelLoadFailed] = useState(false)
+  const [channelState, setChannelState] = useState(() => buildCronChannelSelectState(existing?.channelBinding, null, t, channelLabelOf))
+  const channelOptions = channelState.options
+  const [channelSelection, setChannelSelection] = useState(channelState.initialValue)
+  const [channelOwnerIds, setChannelOwnerIds] = useState<Record<string, string>>({})
+  const userTouchedChannelRef = useRef(false)
+  const [channelHint, setChannelHint] = useState({ text: '', warning: false })
   const [channelReloadSequence, setChannelReloadSequence] = useState(0)
-  const baseChannelHintRef = useRef('')
-  const channelHostRef = useRef<HTMLDivElement>(null)
-  const channelSelectRef = useRef<any>(null)
+  const selectedChannel = selectedCronChannelId(channelSelection, existing?.channelBinding)
+  const qqWarning = selectedChannel === 'qqbot' || selectedChannel === 'qq'
+  const [executionMode, setExecutionMode] = useState<CronExecutionMode>(() => cronExecutionMode(existing?.executionMode))
 
   // ---- Execution location: an ordinary session, one project, or every folder in a workspace. ----
   const [locationItems, setLocationItems] = useState<Array<{ value: string; label: string }>>([
@@ -388,89 +391,34 @@ export function CronTaskFormModal({ existing, onClose, onSaved }: {
     existing?.notificationPolicy === 'all_runs' ? 'all_runs' : '',
   )
 
-  // Channel-specific gotchas that aren't obvious from the dropdown item alone.
-  // QQ is the current standout: official bots can't send proactive messages
-  // without audit approval, so a cron-triggered push can silently fail on the
-  // server side.
-  const updateChannelHint = (pickedValue: string) => {
-    if (pickedValue === 'qq') {
-      setChannelHint({ text: t('cron_form_channel_qq_warning'), warning: true })
-      return
-    }
-    setChannelHint({ text: baseChannelHintRef.current, warning: false })
-  }
-
   useEffect(() => {
     let cancelled = false
     const run = async () => {
-      // Binding is write-once: set on create, never changed. So in edit mode
-      // we always show a read-only summary — never the editable dropdown.
-      if (editingId) {
-        if (existing?.channelBinding) {
-          const b = existing.channelBinding
-          const label = channelLabelOf(b.channelId)
-          const target = b.chatType === 'group'
-            ? t('cron_form_channel_group') + (b.label || b.targetId)
-            : (b.label || t('cron_form_channel_me'))
-          setBoundSummary({ text: `${label} · ${target}`, locked: true })
-        } else {
-          setBoundSummary({ text: t('cron_form_channel_none_bound'), locked: false })
-        }
-        return
-      }
-
-      setChannelLoadFailed(false)
-      let channels: any[]
       try {
-        const loaded = await w().klaus.channels.list()
-        if (!Array.isArray(loaded)) throw new Error(t('cron_form_channel_load_failed'))
-        channels = loaded
+        const channels = await w().klaus.channels.list()
+        if (!Array.isArray(channels)) throw new Error(t('cron_form_channel_load_failed'))
+        const loadedChannels = await Promise.all(channels.map(async (ch): Promise<ConnectedCronChannel> => {
+          const ownerId = ch.connected ? await w().klaus.settings.kv.get(`channel.${ch.id}.owner_id`) : null
+          return { id: ch.id, connected: ch.connected, ownerId: ownerId == null ? null : String(ownerId) }
+        }))
+        if (cancelled) return
+        const state = buildCronChannelSelectState(existing?.channelBinding, loadedChannels, t, channelLabelOf)
+        setChannelOwnerIds(Object.fromEntries(loadedChannels.flatMap(ch => ch.ownerId?.trim() ? [[ch.id, ch.ownerId]] : [])))
+        setChannelState(state)
+        if (!userTouchedChannelRef.current) setChannelSelection(state.initialValue)
+        setChannelHint({ text: state.pendingDmLabels.length
+          ? t('cron_form_channel_hint_dm') + state.pendingDmLabels.join(', ') + t('cron_form_channel_hint_dm_suffix')
+          : t('cron_form_channel_hint'), warning: false })
       } catch {
-        if (!cancelled) {
-          setChannelLoadFailed(true)
-          setChannelHint({ text: t('cron_form_channel_load_failed'), warning: true })
-        }
-        return
+        if (cancelled) return
+        const state = buildCronChannelSelectState(existing?.channelBinding, null, t, channelLabelOf)
+        setChannelState(state)
+        if (!userTouchedChannelRef.current) setChannelSelection(state.initialValue)
+        setChannelHint({ text: t('cron_form_channel_load_failed'), warning: true })
       }
-      const items: any[] = [{ value: '', i18nKey: 'cron_form_channel_none' }]
-      const pendingDmChannels: string[] = []
-      try {
-        for (const ch of channels) {
-          if (!ch.connected) continue
-          // owner_id is captured on first DM to the bot; until that happens we
-          // don't have a target for "send to me" delivery. Drop the channel from
-          // the picker and explain in the hint below.
-          const key = `channel.${ch.id}.owner_id`
-          const ownerId = await w().klaus.settings.kv.get(key)
-          const label = channelLabelOf(ch.id)
-          if (ownerId) {
-            items.push({ value: ch.id, label: `${label} · ${t('cron_form_channel_me')}` })
-          } else {
-            pendingDmChannels.push(label)
-          }
-        }
-      } catch {
-        if (!cancelled) {
-          setChannelLoadFailed(true)
-          setChannelHint({ text: t('cron_form_channel_load_failed'), warning: true })
-        }
-        return
-      }
-      if (cancelled || !channelHostRef.current) return
-      channelSelectRef.current = w().klsSelect.bind(channelHostRef.current, {
-        items,
-        value: '',
-        onChange: (value: string) => updateChannelHint(value),
-      })
-
-      // Hint morphs depending on what's available.
-      baseChannelHintRef.current = pendingDmChannels.length
-        ? t('cron_form_channel_hint_dm') + pendingDmChannels.join(', ') + t('cron_form_channel_hint_dm_suffix')
-        : t('cron_form_channel_hint')
-      updateChannelHint('')
     }
     void run()
-    return () => { cancelled = true; channelSelectRef.current?.destroy?.() }
+    return () => { cancelled = true }
   }, [channelReloadSequence])
 
   useEffect(() => {
@@ -570,38 +518,23 @@ export function CronTaskFormModal({ existing, onClose, onSaved }: {
     const target = parseCronExecutionValue(locationValue)
     const thinking = modelValue.startsWith('cursor:') || thinkingLevelsOf(modelValue).includes(displayedThinking) ? displayedThinking : DEFAULT_THINKING_LEVEL
 
-    // channelBinding is only written on create. Edits retain whatever the
-    // row already had (upsertTask preserves the column on conflict).
-    let channelBinding
-    let createdBy
-    if (!editingId) {
-      const pickedChannel = channelSelectRef.current?.getValue?.() || ''
-      if (pickedChannel && !pickedChannel.startsWith('__disabled__:')) {
-        let ownerId
-        try {
-          ownerId = await w().klaus.settings.kv.get(`channel.${pickedChannel}.owner_id`)
-        } catch (error: any) {
-          const message = error?.message || t('cron_form_channel_load_failed')
-          setSaveError(message)
-          w().showToast?.(message)
-          return
-        }
-        if (ownerId) {
-          channelBinding = {
-            channelId: pickedChannel,
-            accountId: 'default',
-            targetId: ownerId,
-            chatType: 'direct',
-          }
-          createdBy = 'manual'
-        }
-      }
-      if (!createdBy) createdBy = 'manual'
-    }
-
     setSaving(true)
     setSaveError('')
     try {
+      let ownerIds = channelOwnerIds
+      if (channelSelection.startsWith('dm:')) {
+        const channelId = selectedCronChannelId(channelSelection, existing?.channelBinding)
+        let ownerId = Object.hasOwn(ownerIds, channelId) ? ownerIds[channelId] : undefined
+        if (!ownerId?.trim()) {
+          try {
+            const loaded = await w().klaus.settings.kv.get(`channel.${channelId}.owner_id`)
+            ownerId = loaded == null ? undefined : String(loaded)
+          } catch { /* Report lookup failure through the form. */ }
+        }
+        if (!ownerId?.trim()) throw new Error(t('cron_form_channel_load_failed'))
+        ownerIds = { ...ownerIds, [channelId]: ownerId }
+      }
+      const channelBinding = resolveCronChannelBindingSelection(channelSelection, existing?.channelBinding, ownerIds, channelLabelOf)
       const result = await w().klaus.settings.cron.upsert({
         id,
         name: name || undefined,
@@ -611,7 +544,8 @@ export function CronTaskFormModal({ existing, onClose, onSaved }: {
         deleteAfterRun: isOneShot,
         timezone: tz,
         channelBinding,
-        createdBy,
+        ...(!editingId ? { createdBy: 'ui' } : {}),
+        executionMode,
         model: model || null,
         workdir: target.kind === 'project' ? target.root : null,
         workspaceId: target.kind === 'workspace' ? target.id : null,
@@ -815,6 +749,17 @@ export function CronTaskFormModal({ existing, onClose, onSaved }: {
           </div>
 
           <div className={styles['cron-form-row']}>
+            <label>{t('cron_form_execution_mode')}</label>
+            <CronDd
+              id="cron-form-execution-mode" cls={styles['cron-dd-permission']} value={executionMode}
+              items={CRON_EXECUTION_MODES.map(value => ({ value, label: t(`cron_form_execution_mode_${value}`) }))}
+              open={openPopup === 'executionMode'} onToggle={() => togglePopup('executionMode')}
+              onPick={(value) => { setExecutionMode(cronExecutionMode(value)); setOpenPopup(null) }}
+            />
+            <p className={styles['cron-form-hint']}>{t('cron_form_execution_mode_hint')}</p>
+          </div>
+
+          <div className={styles['cron-form-row']}>
             <label>{t('cron_form_permission')}</label>
             <CronDd
               id="cron-form-permission" cls={styles['cron-dd-permission']} value={permissionPreset}
@@ -827,11 +772,14 @@ export function CronTaskFormModal({ existing, onClose, onSaved }: {
 
           <div className={styles['cron-form-row']}>
             <label>{t('cron_form_channel')}</label>
-            <div id="cron-form-channel" className="kls-select" hidden={!!editingId} ref={channelHostRef} />
-            <div id="cron-form-channel-bound" className={`${styles['cron-form-channel-bound']}${boundSummary?.locked ? ' ' + styles['is-locked'] : ''}`} hidden={!editingId}>{boundSummary?.text ?? ''}</div>
-            <p className={`${styles['cron-form-hint']}${channelHint.warning ? ' is-warning' : ''}`} id="cron-form-channel-hint">
-              {channelHint.text || t('cron_form_channel_hint')}
-              {channelLoadFailed ? <> <button type="button" className="btn-xs" onClick={() => setChannelReloadSequence(value => value + 1)}>{t('cron_retry')}</button></> : null}
+            <CronDd
+              id="cron-form-channel" cls={styles['cron-dd-permission']} value={channelSelection} items={channelOptions}
+              open={openPopup === 'channel'} onToggle={() => togglePopup('channel')}
+              onPick={(value) => { userTouchedChannelRef.current = true; setChannelSelection(value); setOpenPopup(null) }}
+            />
+            <p className={`${styles['cron-form-hint']}${channelHint.warning || qqWarning ? ' is-warning' : ''}`} id="cron-form-channel-hint">
+              {channelHint.warning ? channelHint.text : qqWarning ? t('cron_form_channel_qq_warning') : channelHint.text || t('cron_form_channel_hint')}
+              {channelHint.warning ? <> <button type="button" className="btn-xs" onClick={() => setChannelReloadSequence(value => value + 1)}>{t('cron_retry')}</button></> : null}
             </p>
           </div>
 

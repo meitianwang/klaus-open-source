@@ -3,7 +3,7 @@
     {
       "type": "function",
       "name": "CronCreate",
-      "description": "Schedule a persistent local task that gives a saved prompt to Klaus at a future time, once or repeatedly. Use for reminders, recurring work, monitoring, follow-ups, or requests to check back later; do not use shell sleep or timers as a scheduling workaround. Write clear, cohesive, human-readable instructions. Inspect existing tasks with CronList before creating a replacement or duplicate. Preserve the user's notification intent in monitoring prompts: unless periodic updates were explicitly requested, stay quiet while the state is unchanged or non-actionable and notify only for a meaningful change, completion, failure, or required user action. Confirm the schedule in plain language; do not expose raw cron syntax unless requested. Pass the user's chosen project directory, workspace, and permission preset when they name one.",
+      "description": "Schedule a persistent local task that gives a saved prompt to Klaus at a future time, once or repeatedly. Use for reminders, recurring work, monitoring, follow-ups, or requests to check back later; do not use shell sleep or timers as a scheduling workaround. Write clear, cohesive, human-readable instructions. Inspect existing tasks with CronList before creating a replacement or duplicate. Preserve the user's notification intent in monitoring prompts: unless periodic updates were explicitly requested, stay quiet while the state is unchanged or non-actionable and notify only for a meaningful change, completion, failure, or required user action. Confirm the schedule in plain language; do not expose raw cron syntax unless requested. Pass the user's chosen project directory, workspace, execution mode, and permission preset when they name one.",
       "inputSchema": {
         "type": "object",
         "properties": {
@@ -38,6 +38,15 @@
               "default",
               "auto",
               "bypassPermissions"
+            ]
+          },
+          "executionMode": {
+            "description": "Optional execution mode when starting each run: default, orchestrate, or parallel. Omit for default.",
+            "type": "string",
+            "enum": [
+              "default",
+              "orchestrate",
+              "parallel"
             ]
           }
         },
@@ -84,5 +93,6 @@
   "invalidPermissionPreset": "permissionPreset 必须是 default、auto、bypassPermissions 之一。",
   "invalidExpression": "cron 表达式无效：\"invalid\"。应为 5 个字段：分 时 日 月 周。",
   "unreachableExpression": "cron 表达式 \"0 0 31 2 *\" 在未来一年内没有任何可触发时刻。",
-  "promptChangeReason": "Clarify local scheduling, existing-task inspection, readable saved instructions, monitoring notification intent, and cancellation scope, and expose the chosen project, workspace, and permission preset for scheduled runs."
+  "promptChangeReason": "Clarify local scheduling, existing-task inspection, readable saved instructions, monitoring notification intent, and cancellation scope, and expose the chosen project, workspace, execution mode, and permission preset for scheduled runs.",
+  "invalidExecutionMode": "executionMode 必须是 default、orchestrate、parallel 之一。"
 }

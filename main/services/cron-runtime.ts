@@ -3,7 +3,7 @@ import { Cron } from 'croner';
 import { presetRuntimePolicy } from '../../contracts/runtime-settings';
 import type { Json } from '../ipc/contract';
 import type { ClientEvent } from '../engine/protocol';
-import { CRON_PERMISSION_PRESETS, CronStore } from './cron-store';
+import { CRON_EXECUTION_MODES, CRON_PERMISSION_PRESETS, CronStore, type CronExecutionMode } from './cron-store';
 import type { CronPermissionPreset } from './cron-store';
 import { object, string, errorMessage, type JsonObject, type ServicePush } from './service-types';
 
@@ -27,6 +27,7 @@ interface Running {
 export interface CronRuntimeDeps {
   store: CronStore;
   newSession(options: { title: string; runtimePolicyOverride: import('../../contracts/runtime-settings').RuntimePolicy; hostMetadata: JsonObject;
+    orchestrationModeOverride?: boolean; ultraModeOverride?: boolean;
     workdir?: string | null; projectRoot?: string | null; workspaceId?: string | null }): Promise<Json>;
   send(sessionId: string, prompt: string, displayMetadata?: JsonObject): Promise<unknown>;
   interrupt(sessionId: string): Promise<unknown>;
@@ -127,10 +128,17 @@ export class CronRuntime {
       if (typeof permissionPreset !== 'string' || !CRON_PERMISSION_PRESETS.includes(permissionPreset)) {
         throw new Error(`Scheduled task ${taskId} has an invalid permission preset.`);
       }
+      const executionMode = (entry.task.executionMode ?? 'default') as CronExecutionMode;
+      if (!CRON_EXECUTION_MODES.includes(executionMode)) {
+        throw new Error(`Scheduled task ${taskId} has an invalid execution mode.`);
+      }
+      const orchestrationModeOverride = executionMode === 'orchestrate';
+      const ultraModeOverride = executionMode === 'parallel';
       const row = object(await this.deps.newSession({ title: taskName, runtimePolicyOverride: presetRuntimePolicy(permissionPreset),
+        orchestrationModeOverride, ultraModeOverride,
         ...(workspaceId ? { workspaceId } : workdir ? { workdir, projectRoot: workdir } : {}),
         hostMetadata: { threadSource: 'automation', automation: {
-          taskId, taskName, runId: entry.runId, triggerType: entry.trigger,
+          taskId, taskName, runId: entry.runId, triggerType: entry.trigger, executionMode,
           ...(typeof entry.task.thinking === 'string' && entry.task.thinking ? { thinking: entry.task.thinking } : {}),
           ...(typeof entry.task.model === 'string' && entry.task.model ? { model: entry.task.model } : {}),
         } } }));

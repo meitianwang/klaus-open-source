@@ -15,7 +15,7 @@ CREATE TABLE IF NOT EXISTS cron_tasks (
   thinking TEXT, light_context INTEGER DEFAULT 0,
   delete_after_run INTEGER DEFAULT 0, timezone TEXT, deliver TEXT, webhook_url TEXT,
   webhook_token TEXT, failure_alert TEXT, channel_binding TEXT, created_by TEXT, engine_mode TEXT,
-  workspace_id TEXT, permission_preset TEXT,
+  workspace_id TEXT, permission_preset TEXT, execution_mode TEXT,
   created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS cron_runs (
@@ -26,7 +26,9 @@ CREATE TABLE IF NOT EXISTS cron_runs (
 CREATE INDEX IF NOT EXISTS idx_cron_runs_started ON cron_runs(started_at DESC);
 CREATE INDEX IF NOT EXISTS idx_cron_runs_task ON cron_runs(task_id);
 `;
-const TASK_COLUMNS = 'id,name,description,schedule,prompt,enabled,thinking,delete_after_run,timezone,channel_binding,created_by,notification_policy,model,workdir,workspace_id,permission_preset,created_at,updated_at';
+const TASK_COLUMNS = 'id,name,description,schedule,prompt,enabled,thinking,delete_after_run,timezone,channel_binding,created_by,notification_policy,model,workdir,workspace_id,permission_preset,execution_mode,created_at,updated_at';
+export const CRON_EXECUTION_MODES = ['default', 'orchestrate', 'parallel'] as const;
+export type CronExecutionMode = typeof CRON_EXECUTION_MODES[number];
 export const CRON_PERMISSION_PRESETS = ['default', 'auto', 'bypassPermissions'] as const satisfies readonly PermissionPreset[];
 export type CronPermissionPreset = typeof CRON_PERMISSION_PRESETS[number];
 // Pre-notification-policy databases miss the column; CREATE TABLE IF NOT EXISTS
@@ -55,6 +57,10 @@ function ensureColumns(db: DatabaseSync): void {
   // previous unrestricted override. Persist that behavior explicitly so a
   // later permission default cannot silently tighten or widen old tasks.
   db.prepare("UPDATE cron_tasks SET permission_preset='bypassPermissions' WHERE permission_preset IS NULL").run();
+  if (!columns.some(column => column.name === 'execution_mode')) {
+    db.exec('ALTER TABLE cron_tasks ADD COLUMN execution_mode TEXT');
+  }
+  db.exec("UPDATE cron_tasks SET execution_mode='default' WHERE execution_mode IS NULL");
   const migration = 'migrated.cron_stopped_runs_v1';
   if (!db.prepare('SELECT 1 FROM settings WHERE key=?').get(migration)) {
     db.prepare("UPDATE cron_runs SET status='stopped',error=NULL WHERE status IN ('failed','success') AND error IN (?,?)")
@@ -84,6 +90,23 @@ function storedPermissionPreset(value: unknown, taskId: string): CronPermissionP
   }
   throw new IpcHandlerError('CRON_PERMISSION_PRESET_INVALID', `Scheduled task ${taskId} has an invalid stored permission preset: ${typeof value === 'string' ? JSON.stringify(value) : typeof value}. Only ${CRON_PERMISSION_PRESETS.join(', ')} are allowed, or omit the field for the legacy default.`);
 }
+function executionMode(value: unknown): CronExecutionMode {
+  if (value == null) return 'default';
+  if (CRON_EXECUTION_MODES.includes(value as CronExecutionMode)) return value as CronExecutionMode;
+  throw new IpcHandlerError('BAD_REQUEST', `executionMode must be one of ${CRON_EXECUTION_MODES.join(', ')}`);
+}
+function storedExecutionMode(value: unknown, taskId: string): CronExecutionMode {
+  if (value == null) return 'default';
+  if (CRON_EXECUTION_MODES.includes(value as CronExecutionMode)) return value as CronExecutionMode;
+  throw new IpcHandlerError('CRON_EXECUTION_MODE_INVALID', `Scheduled task ${taskId} has an invalid stored execution mode.`);
+}
+function normalizeChannelBinding(value: unknown): JsonObject {
+  const record = object(value);
+  if (!value || typeof value !== 'object' || Array.isArray(value) || !string(record.channelId).trim() || !string(record.targetId).trim()) {
+    throw new IpcHandlerError('BAD_REQUEST', 'channelBinding requires channelId and targetId');
+  }
+  return record;
+}
 function binding(raw: unknown): Json {
   if (typeof raw !== 'string') return null;
   try { const value = object(JSON.parse(raw)); return Object.hasOwn(value, 'channelId') && Object.hasOwn(value, 'targetId') ? value : null; }
@@ -99,6 +122,7 @@ function task(row: Record<string, unknown>): JsonObject {
     channelBinding: binding(row.channel_binding), createdBy: optional(row.created_by),
     notificationPolicy: policy === 'all_runs' ? 'all_runs' : 'failed_runs_only',
     model: optional(row.model), workdir: optional(row.workdir), workspaceId: optional(row.workspace_id),
+    executionMode: storedExecutionMode(row.execution_mode, string(row.id)),
     permissionPreset: storedPermissionPreset(row.permission_preset, string(row.id)),
     createdAt: integer(row.created_at) ?? 0, updatedAt: integer(row.updated_at) ?? 0,
   };
@@ -145,19 +169,22 @@ export class CronStore {
       const selectedPermission = permissionPreset(payload.permissionPreset);
       const existing = db.prepare('SELECT channel_binding,created_by FROM cron_tasks WHERE id=?').get(id), now = Date.now();
       const retainedBinding = binding(existing?.channel_binding);
-      const channelBinding = payload.channelBinding !== undefined && payload.channelBinding !== null ? JSON.stringify(payload.channelBinding) : retainedBinding !== null ? JSON.stringify(retainedBinding) : null;
-      db.prepare(`INSERT INTO cron_tasks (id,user_id,name,description,schedule,prompt,enabled,thinking,delete_after_run,timezone,channel_binding,created_by,notification_policy,model,workdir,workspace_id,permission_preset,created_at,updated_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+      const channelBinding = payload.channelBinding === undefined
+        ? (retainedBinding !== null ? JSON.stringify(retainedBinding) : null)
+        : payload.channelBinding === null ? null : JSON.stringify(normalizeChannelBinding(payload.channelBinding));
+      db.prepare(`INSERT INTO cron_tasks (id,user_id,name,description,schedule,prompt,enabled,thinking,delete_after_run,timezone,channel_binding,created_by,notification_policy,model,workdir,workspace_id,permission_preset,execution_mode,created_at,updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
         name=excluded.name,description=excluded.description,schedule=excluded.schedule,prompt=excluded.prompt,
         enabled=excluded.enabled,thinking=excluded.thinking,
         delete_after_run=excluded.delete_after_run,timezone=excluded.timezone,notification_policy=excluded.notification_policy,
         model=excluded.model,workdir=excluded.workdir,workspace_id=excluded.workspace_id,
-        permission_preset=excluded.permission_preset,updated_at=excluded.updated_at`).run(
+        permission_preset=excluded.permission_preset,channel_binding=excluded.channel_binding,
+        execution_mode=excluded.execution_mode,updated_at=excluded.updated_at`).run(
         id, optional(payload.userId), optional(payload.name), optional(payload.description), string(payload.schedule), string(payload.prompt), Number(payload.enabled === true), optional(payload.thinking),
         Number(payload.deleteAfterRun === true), optional(payload.timezone), channelBinding,
         optional(payload.createdBy) ?? optional(existing?.created_by) ?? 'manual',
         payload.notificationPolicy === 'all_runs' ? 'all_runs' : 'failed_runs_only',
-        optional(payload.model), workdir, workspaceId, selectedPermission,
+        optional(payload.model), workdir, workspaceId, selectedPermission, executionMode(payload.executionMode),
         integer(payload.createdAt) || now, now,
       );
     });

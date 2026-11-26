@@ -9,7 +9,7 @@ import { PageHeader } from '../../components/PageHeader'
 import { ModalPortal } from '../../components/ModalPortal'
 import { rawIconHtml } from '../../components/Icon'
 import {
-  CRON_PAGE_RELOAD_EVENT, CRON_PAGE_VISIBLE_EVENT, channelLabelOf, cronExecutionTarget, cronPermissionPreset,
+  CRON_PAGE_RELOAD_EVENT, CRON_PAGE_VISIBLE_EVENT, channelLabelOf, cronExecutionMode, cronExecutionTarget, cronPermissionPreset,
   effectiveCronRunStatus, humanizeSchedule, relFromNow,
   sortTasksFlat, taskMatchesSearch,
 } from './data'
@@ -388,6 +388,8 @@ export function CronPage() {
     return t('cron_form_project_none')
   }
 
+  const executionModeLabel = (task: CronTask): string => t(`cron_form_execution_mode_${cronExecutionMode(task.executionMode)}`)
+
   const permissionLabel = (task: CronTask): string => {
     const preset = cronPermissionPreset(task.permissionPreset)
     return t(preset === 'default' ? 'perm_manual' : preset === 'auto' ? 'perm_auto' : 'perm_bypass')
@@ -450,7 +452,7 @@ export function CronPage() {
     const next = task.enabled ? (status.nextRuns[task.id] ?? null) : null
     const last = lastRunByTask.get(task.id)
     const meta: string[] = [humanizeSchedule(task.schedule) || t('cron_custom_schedule')]
-    meta.push(executionLabel(task), permissionLabel(task))
+    meta.push(executionLabel(task), executionModeLabel(task), permissionLabel(task))
     if (task.channelBinding) meta.push(channelLabelOf(task.channelBinding.channelId))
     return (
       <div className={styles['cron-detail']} key={task.id}>

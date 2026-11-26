@@ -11,6 +11,7 @@ export interface CronChannelBinding {
   targetId?: string
   chatType?: string
   label?: string
+  threadId?: string
 }
 
 export interface CronTask {
@@ -30,7 +31,8 @@ export interface CronTask {
   permissionPreset?: CronPermissionPreset | null
   deleteAfterRun?: boolean
   timezone?: string
-  channelBinding?: CronChannelBinding
+  executionMode?: CronExecutionMode | null
+  channelBinding?: CronChannelBinding | null
   createdBy?: string
   /** Notification gating: 'failed_runs_only' (default) | 'all_runs'. */
   notificationPolicy?: 'failed_runs_only' | 'all_runs'
@@ -102,9 +104,10 @@ export function cronDeleteSucceeded(result: unknown): boolean {
   return payload.ok === true || payload.deleted === true
 }
 
-export function retainedCronTaskFields(existing: CronTask | null): Pick<CronTask, 'enabled' | 'description' | 'thinking' | 'model' | 'workdir' | 'workspaceId' | 'permissionPreset' | 'notificationPolicy'> {
-  if (!existing) return { enabled: true, permissionPreset: 'bypassPermissions', notificationPolicy: 'failed_runs_only' }
+export function retainedCronTaskFields(existing: CronTask | null): Pick<CronTask, 'enabled' | 'description' | 'thinking' | 'model' | 'workdir' | 'workspaceId' | 'permissionPreset' | 'notificationPolicy' | 'executionMode'> {
+  if (!existing) return { enabled: true, executionMode: cronExecutionMode(undefined), permissionPreset: 'bypassPermissions', notificationPolicy: 'failed_runs_only' }
   return {
+    executionMode: cronExecutionMode(existing?.executionMode),
     enabled: existing.enabled !== false,
     description: existing.description,
     thinking: existing.thinking,
@@ -313,6 +316,7 @@ export function taskMatchesSearch(task: CronTask, searchQuery: string): boolean 
     task.workdir,
     task.workspaceId,
     task.permissionPreset,
+    task.executionMode,
     task.channelBinding?.label,
     task.channelBinding?.targetId,
     task.channelBinding?.channelId,
@@ -343,3 +347,64 @@ export function runMatchesSearch(run: CronRun, searchQuery: string): boolean {
 // 跨文件 reload 协议：onShow 进入与外部刷新都经此事件让挂载中的 CronPage 重拉。
 export const CRON_PAGE_RELOAD_EVENT = 'klaus:cron-page-reload'
 export const CRON_PAGE_VISIBLE_EVENT = 'klaus:cron-page-visible'
+
+export const CRON_EXECUTION_MODES = ['default', 'orchestrate', 'parallel'] as const
+export type CronExecutionMode = typeof CRON_EXECUTION_MODES[number]
+
+export function cronExecutionMode(value: unknown): CronExecutionMode {
+  return value === 'orchestrate' || value === 'parallel' ? value : 'default'
+}
+
+export interface ConnectedCronChannel { id: string; connected: boolean; ownerId?: string | null }
+export interface CronChannelSelectOption { value: string; label: string }
+
+export function buildCronChannelSelectState(
+  existingBinding: CronChannelBinding | null | undefined,
+  channels: ConnectedCronChannel[] | null,
+  translate: (key: string) => string,
+  labelOf: (id: string) => string,
+): { options: CronChannelSelectOption[]; initialValue: string; pendingDmLabels: string[] } {
+  const options = [{ value: '', label: translate('cron_form_channel_none') }]
+  const pendingDmLabels: string[] = []
+  const me = translate('cron_form_channel_me')
+  const ready = (channels ?? []).filter(ch => ch.connected && ch.ownerId && String(ch.ownerId).trim())
+  for (const ch of ready) options.push({ value: `dm:${ch.id}`, label: `${labelOf(ch.id)} · ${me}` })
+  for (const ch of channels ?? []) {
+    if (ch.connected && !String(ch.ownerId ?? '').trim()) pendingDmLabels.push(labelOf(ch.id))
+  }
+  let initialValue = ''
+  if (existingBinding?.channelId && existingBinding.targetId) {
+    const { channelId, targetId, chatType, threadId, accountId } = existingBinding
+    const match = chatType !== 'group' && !threadId && (!accountId || accountId === 'default')
+      && ready.find(ch => ch.id === channelId && String(ch.ownerId) === String(targetId))
+    if (match) initialValue = `dm:${match.id}`
+    else {
+      const baseName = existingBinding.label || labelOf(channelId)
+      const detail = chatType === 'group' ? `${translate('cron_form_channel_group')}${targetId}`
+        : channels !== null && !channels.some(ch => ch.id === channelId && ch.connected)
+          ? `${me} (${translate('cron_form_channel_disconnected')})` : me
+      initialValue = '__existing__'
+      options.splice(1, 0, { value: initialValue, label: `${baseName} · ${detail}` })
+    }
+  }
+  return { options, initialValue, pendingDmLabels }
+}
+
+export function resolveCronChannelBindingSelection(
+  selection: string,
+  existingBinding: CronChannelBinding | null | undefined,
+  ownerIdsByChannel: Record<string, string>,
+  labelOf: (id: string) => string,
+): CronChannelBinding | null {
+  if (selection === '__existing__') return existingBinding ? { ...existingBinding } : null
+  const channelId = selectedCronChannelId(selection, existingBinding)
+  const ownerId = channelId && Object.hasOwn(ownerIdsByChannel, channelId) ? ownerIdsByChannel[channelId] : ''
+  return ownerId?.trim()
+    ? { channelId, accountId: 'default', targetId: String(ownerId), chatType: 'direct', label: labelOf(channelId) }
+    : null
+}
+
+export function selectedCronChannelId(selection: string, existingBinding: CronChannelBinding | null | undefined): string {
+  if (selection === '__existing__') return existingBinding?.channelId || ''
+  return selection.startsWith('dm:') ? selection.slice(3) : ''
+}

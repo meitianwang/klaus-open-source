@@ -355,7 +355,7 @@ export function registerFeatureSettingsTests(h: Harness, freshRoot: () => string
     assertDeepEqual(changed, ['advisor', 'advisor', 'image_generation.model_config', 'video_generation.model_config'], 'host runtime invalidation');
     assertEqual(object(await invoke(registry, 'settings:advisor:get', { source: 'local' })).activeScope, 'configuration', 'activation describes the configured selection, not authenticated provider readiness');
   });
-  h.test('cron upserts preserve create-only binding and owner fields and list oldest first', () => {
+  h.test('cron upserts edit channel bindings, preserve owner fields and list oldest first', () => {
     const root = freshRoot(), store = new CronStore(root);
     store.upsertTask({ id: 'later', schedule: '0 9 * * *', prompt: 'later', createdAt: 2000 });
     store.upsertTask({ id: 'first', schedule: '0 8 * * *', prompt: 'before', enabled: true, createdAt: 1000, createdBy: 'tool', channelBinding: { channelId: 'one', targetId: 'target' }, userId: 'owner' });
@@ -363,8 +363,12 @@ export function registerFeatureSettingsTests(h: Harness, freshRoot: () => string
     assertDeepEqual(store.listTasks().map(row => row.id), ['first', 'later'], 'creation order stable after update');
     const first = store.getTask('first')!;
     assertEqual(first.createdBy, 'tool', 'createdBy retained'); assertEqual(first.createdAt, 1000, 'creation time retained');
-    assertDeepEqual(first.channelBinding, { channelId: 'one', targetId: 'target' }, 'channel binding create only');
+    assertDeepEqual(first.channelBinding, { channelId: 'two', targetId: 'wrong' }, 'channel binding updates');
     assertEqual(first.prompt, 'after', 'editable fields changed'); assertEqual(first.name, null, 'missing optional strings remain null');
+    store.upsertTask({ id: 'first', schedule: '0 7 * * *', prompt: 'retain' });
+    assertDeepEqual(store.getTask('first')?.channelBinding, first.channelBinding, 'omission retains binding');
+    store.upsertTask({ id: 'first', schedule: '0 7 * * *', prompt: 'clear', channelBinding: null });
+    assertEqual(store.getTask('first')?.channelBinding, null, 'null clears binding');
     withSettingsDb(root, db => assertEqual(db.prepare('SELECT user_id FROM cron_tasks WHERE id=?').get('first')!.user_id, 'owner', 'creator account retained'));
   });
   h.test('cron tasks persist the frozen model pick and project directory and migrate pre-model databases', () => {
