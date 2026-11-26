@@ -2061,8 +2061,8 @@ void (async () => {
                   is_error: false,
                   content: [{
                     type: 'text',
-                    text: JSON.stringify({ exitCode: 0, durationMs: 3200, stdout: bulkyStdout + '\n' + delegationEnvelope, stderr: '' }),
-                  }],
+                    text: JSON.stringify({ exitCode: 0, durationMs: 3200, stdout: bulkyStdout, stderr: '' }),
+                  }, { type: 'text', text: delegationEnvelope }],
                 },
               },
               {

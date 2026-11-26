@@ -1,5 +1,76 @@
 {
   "_why": "The delegation envelope is the wire shape of cross-conversation messaging: the host encodes it when send_message_to_thread delivers into another conversation, and the renderer parses it to fold the wrapper and show only the prompt the sender wrote. Escaping must round-trip exactly, because a payload that survives encoding but not decoding reaches the recipient model corrupted — and a corrupted source-thread-id means the reply goes nowhere. parseDelegationEnvelope deliberately returns null for anything that is not exactly one well-formed envelope: swallowing user-visible text is worse than leaving protocol markup on screen. Cross-host delivery adds an optional source-host-id so replies address the sending device and the renderer never opens an unrelated local conversation with the same id. Legacy envelopes keep their exact encoding and parsed object shape. A malformed remote host cannot silently become a local source link. These vectors pin escaping, source identity, backward compatibility, and rejection cases.",
+  "embeddedExtraction": [
+    {
+      "name": "single trailing envelope",
+      "text": "output\n<klaus-delegation><input>one</input></klaus-delegation>",
+      "expectedParsed": [
+        {
+          "sourceThreadId": null,
+          "input": "one"
+        }
+      ]
+    },
+    {
+      "name": "two trailing envelopes",
+      "text": "output\r\n<klaus-delegation><input>one</input></klaus-delegation>\r\n<klaus-delegation><input>two</input></klaus-delegation>",
+      "expectedParsed": [
+        {
+          "sourceThreadId": null,
+          "input": "one"
+        },
+        {
+          "sourceThreadId": null,
+          "input": "two"
+        }
+      ]
+    },
+    {
+      "name": "standalone envelope with newline",
+      "text": "<klaus-delegation><input>one</input></klaus-delegation>\n",
+      "expectedParsed": [
+        {
+          "sourceThreadId": null,
+          "input": "one"
+        }
+      ]
+    },
+    {
+      "name": "nested input",
+      "text": "   42\t<klaus-delegation><input><input>inner</input></input></klaus-delegation>",
+      "expectedParsed": []
+    },
+    {
+      "name": "unclosed input",
+      "text": "   67\t<klaus-delegation><input>unclosed',\n   68\t'prose before <klaus-delegation><input>x</input></klaus-delegation>'",
+      "expectedParsed": []
+    },
+    {
+      "name": "inline twin envelopes",
+      "text": "   69\t<klaus-delegation><input>one</input></klaus-delegation><klaus-delegation><input>two</input></klaus-delegation>",
+      "expectedParsed": []
+    },
+    {
+      "name": "grep result",
+      "text": "src/test.ts:42:<klaus-delegation><input>x</input></klaus-delegation>",
+      "expectedParsed": []
+    },
+    {
+      "name": "JSON property",
+      "text": "{\"text\": \"<klaus-delegation><input>x</input></klaus-delegation>\"}",
+      "expectedParsed": []
+    },
+    {
+      "name": "trailing tool output",
+      "text": "<klaus-delegation><input>x</input></klaus-delegation>\nEnd of result",
+      "expectedParsed": []
+    },
+    {
+      "name": "raw ampersand",
+      "text": "<klaus-delegation><input>x & y</input></klaus-delegation>",
+      "expectedParsed": []
+    }
+  ],
   "initialInput": {
     "_why": "A conversation created on the owner's behalf starts with an owner input outside the activity fold. Its provider-invisible display metadata distinguishes it from later coordination messages while preserving the model-facing source envelope.",
     "input": "Investigate the flaky test.",

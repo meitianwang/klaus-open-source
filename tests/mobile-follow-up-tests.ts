@@ -54,13 +54,25 @@ export async function registerMobileFollowUpTests(h: Harness): Promise<void> {
       { name: 'diagram.png', path: '/uploads/managed-diagram.png', mimeType: 'image/png' },
       { name: 'report.pdf', path: '/uploads/managed-report.pdf', mimeType: 'application/pdf' },
     ];
-    const text = `Queued input:\n${encodeDelegationEnvelope('', 'source-chat', 'host-studio', attachments)}\nEnd of result`;
-    const result = compactMobileToolResult('send_message_to_thread', { content: [{ type: 'text', text }] });
+    const envelope = encodeDelegationEnvelope('', 'source-chat', 'host-studio', attachments);
+    const text = `Queued input:\n${envelope}`;
+    const result = compactMobileToolResult('send_message_to_thread', {
+      content: [{ type: 'text', text: 'Queued input:' }, { type: 'text', text: envelope }],
+    });
     assert.ok(Array.isArray(result?.content));
     const event = compactMobileEngineEvent({ type: 'tool_end', toolName: 'send_message_to_thread', content: text });
     for (const value of [object(result.content[0]).text, event?.content]) {
       assert.equal(typeof value, 'string');
       assert.deepEqual(parseDelegationEnvelope(string(value))?.attachments, attachments);
+    }
+
+    for (const [toolName, output] of [
+      ['read', `   68\t${envelope}`],
+      ['grep', `sample.ts:68:${envelope}`],
+      ['bash', `Exit code: 0\nOutput:\n${envelope}`],
+      ['bash', `Output:\n${envelope}\nEnd of result`],
+    ]) {
+      assert.deepEqual(compactMobileToolResult(toolName!, { content: [{ type: 'text', text: output }] })?.content, []);
     }
 
     const prompt = 'x'.repeat(140);

@@ -1,4 +1,4 @@
-import { DELEGATION_TAG_OPEN, encodeDelegationEnvelope, findEmbeddedDelegationEnvelopes } from '../../../contracts/thread-delegation';
+import { DELEGATION_TAG_OPEN, encodeDelegationEnvelope, extractToolResultDelegations, findEmbeddedDelegationEnvelopes } from '../../../contracts/thread-delegation.js';
 import type { Json } from '../../ipc/contract';
 import { object, string, type JsonObject } from '../service-types';
 
@@ -376,9 +376,10 @@ export function compactMobileToolResult(toolName: string, rawResult: unknown, to
     return result;
   }
 
-  const rawText = extractResultText(result);
+  const split = Array.isArray(result.content) ? extractToolResultDelegations(result.content) : null;
+  const rawText = extractResultText(split ? { ...result, content: split.content } : result);
   const shellEnvelope = parseJsonObject(rawText);
-  const delegationText = extractDelegationText(rawText, shellEnvelope);
+  const delegationText = split ? '' : extractDelegationText(rawText, shellEnvelope);
 
   const retainedMedia = Array.isArray(result.content)
     ? result.content.filter(entry => {
@@ -388,6 +389,9 @@ export function compactMobileToolResult(toolName: string, rawResult: unknown, to
     : [];
 
   const contentBlocks: Json[] = [...retainedMedia];
+  for (const env of split?.delegations ?? []) {
+    contentBlocks.push({ type: 'text', text: encodeDelegationEnvelope(env.input, env.sourceThreadId, env.sourceHostId, env.attachments) });
+  }
   if (delegationText) {
     contentBlocks.push({ type: 'text', text: delegationText });
   }

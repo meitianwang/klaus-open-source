@@ -50,7 +50,7 @@ import { renderMarkdownHtml, stripMarkdownImagesForPaths, collectMarkdownImagePa
 import { parseCreatedThreadDirective } from '../../../../contracts/created-thread-directive'
 import { InlineVisualizationHtml, stripInlineVisLines } from './inline-visualization'
 import type { InlineVisFragment } from '../../../../contracts/inline-visualization'
-import { parseDelegationEnvelope, findEmbeddedDelegationEnvelopes, encodeDelegationEnvelope, delegationDisplayAttachments, initialDelegationMetadata, type DelegationEnvelope } from '../../../../contracts/thread-delegation'
+import { parseDelegationEnvelope, findEmbeddedDelegationEnvelopes, extractToolResultDelegations, encodeDelegationEnvelope, delegationDisplayAttachments, initialDelegationMetadata, type DelegationEnvelope } from '../../../../contracts/thread-delegation'
 import { hasPendingTurnStart, useChatStream, forgetRewoundTurn, loadSessionHistory, loadOlderHistoryPage, loadTurnHistoryItems, retryHistoryLoad, retainSessionStream, selectSessionStream, selectSubagentParentId, chatStreamStore, setTurnCollapsed, type LiveUnit as StoreLiveUnit, type ToolCardState } from '../stream-store'
 import { transcriptScrollControllerFor, type TranscriptScrollController } from '../transcript-scroll-controller'
 import { VirtualTranscript, latestTurnPhase } from './virtual-transcript'
@@ -1359,20 +1359,16 @@ export function segmentsFromBlocks(blocks: any[], thinkingDurationMs: number | u
       if (isTaskMutationTool(b.name)) continue
       const activityKind = subagentActivityKind(b.name || '')
       const agent = activityKind !== null
-      const result = normalizeToolResultForReplay(b.__result)
+      const hasContent = b.__result && typeof b.__result === 'object' && Array.isArray(b.__result.content)
+      const split = !agent && hasContent ? extractToolResultDelegations(b.__result.content) : null
+      const result = normalizeToolResultForReplay(split ? { ...b.__result, content: split.content } : b.__result)
       const actionOutput = result?.taskControl ? JSON.stringify(result.taskControl) : result?.text
       if (result && isAgentActionToolName(b.name || '', b.input, actionOutput) && b.__result?.agentCommunication) {
         result.text = JSON.stringify(b.__result.agentCommunication)
       }
-      // A mid-turn delegation arrives drained into this result's text (the
-      // engine appends it after the tool's own output). Split it off before the
-      // card renders, so the tool card shows only its own output and the
-      // envelope surfaces as its own user bubble via `segment.delegations`.
-      const delegations = !agent && result
-        ? findEmbeddedDelegationEnvelopes(result.text).map(segment => segment.parsed)
-        : []
-      if (delegations.length && result) {
-        const found = findEmbeddedDelegationEnvelopes(result.text)
+      const found = !agent && !hasContent && result ? findEmbeddedDelegationEnvelopes(result.text) : []
+      const delegations = split?.delegations ?? found.map(segment => segment.parsed)
+      if (found.length && result) {
         let rebuilt = ''
         for (const entry of found) rebuilt += entry.before
         rebuilt += result.text.slice(found.reduce((at, entry) => at + entry.before.length + entry.raw.length, 0))

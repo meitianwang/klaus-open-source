@@ -107,7 +107,7 @@ export function encodeDelegationEnvelope(input: string, sourceThreadId?: string 
  * an envelope embedded in a message that may carry other text.
  */
 export const DELEGATION_RE = new RegExp(
-  `<${DELEGATION_TAG}>\\s*(?:<${DELEGATION_SOURCE_TAG}>([\\s\\S]*?)</${DELEGATION_SOURCE_TAG}>\\s*)?(?:<${DELEGATION_SOURCE_HOST_TAG}>([^<>]*?)</${DELEGATION_SOURCE_HOST_TAG}>\\s*)?(?:<${DELEGATION_ATTACHMENTS_TAG}>((?:(?!</?${DELEGATION_TAG}>)[\\s\\S])*?)</${DELEGATION_ATTACHMENTS_TAG}>\\s*)?<${DELEGATION_INPUT_TAG}>([\\s\\S]*?)</${DELEGATION_INPUT_TAG}>\\s*</${DELEGATION_TAG}>`,
+  `<${DELEGATION_TAG}>\\s*(?:<${DELEGATION_SOURCE_TAG}>([^<>]*?)</${DELEGATION_SOURCE_TAG}>\\s*)?(?:<${DELEGATION_SOURCE_HOST_TAG}>([^<>]*?)</${DELEGATION_SOURCE_HOST_TAG}>\\s*)?(?:<${DELEGATION_ATTACHMENTS_TAG}>((?:(?!</?${DELEGATION_TAG}>)[\\s\\S])*?)</${DELEGATION_ATTACHMENTS_TAG}>\\s*)?<${DELEGATION_INPUT_TAG}>([^<>]*?)</${DELEGATION_INPUT_TAG}>\\s*</${DELEGATION_TAG}>`,
   'g',
 )
 
@@ -141,7 +141,7 @@ export interface EmbeddedDelegation {
 }
 
 /**
- * Find every delegation envelope inside a text that also carries other content.
+ * Find a contiguous suffix of standalone delegation envelopes in flat tool output.
  *
  * {@link parseDelegationEnvelope} refuses anything that is not EXACTLY one envelope,
  * which is right for a delivered message but wrong for a tool result: the engine
@@ -157,20 +157,47 @@ export interface EmbeddedDelegation {
 export function findEmbeddedDelegationEnvelopes(text: string): EmbeddedDelegation[] {
   if (typeof text !== 'string' || !text.includes(DELEGATION_TAG_OPEN)) return []
   DELEGATION_RE.lastIndex = 0
-  const found: EmbeddedDelegation[] = []
-  let cursor = 0
+  const found: Array<{ start: number; end: number; raw: string; parsed: DelegationEnvelope }> = []
   let match: RegExpExecArray | null
-  // The regex is global, so this loop consumes every envelope and resets lastIndex
-  // before returning: a shared instance leaking lastIndex across renders would skip
-  // envelopes in the next call, exactly as in {@link parseDelegationEnvelope}.
   while ((match = DELEGATION_RE.exec(text)) !== null) {
+    const start = match.index
+    const end = start + match[0].length
+    if (start !== 0 && text[start - 1] !== '\n') continue
+    if (end !== text.length && text[end] !== '\n' && !(text[end] === '\r' && text[end + 1] === '\n')) continue
     const parsed = parseMatch(match)
-    if (!parsed) continue
-    found.push({ before: text.slice(cursor, match.index), raw: match[0], parsed })
-    cursor = match.index + match[0].length
+    if (parsed) found.push({ start, end, raw: match[0], parsed })
   }
   DELEGATION_RE.lastIndex = 0
-  return found
+  const last = found.at(-1)
+  if (!last || !/^[ \t\r\n]*$/u.test(text.slice(last.end))) return []
+  let first = found.length - 1
+  while (first > 0 && /^(?:\r?\n)+$/u.test(text.slice(found[first - 1]!.end, found[first]!.start))) first--
+  return found.slice(first).map(({ start, raw, parsed }, index) => ({
+    before: text.slice(index === 0 ? 0 : found[first + index - 1]!.end, start), raw, parsed,
+  }))
+}
+
+/** Separate appended delegation blocks from the tool's own result blocks. */
+export function extractToolResultDelegations<T>(blocks: readonly T[]): { content: T[]; delegations: DelegationEnvelope[] } {
+  let cutoff = blocks.length
+  const groups: DelegationEnvelope[][] = []
+  while (cutoff > 0) {
+    const block = blocks[cutoff - 1]
+    if (!block || typeof block !== 'object') break
+    const proto = Object.getPrototypeOf(block)
+    if (proto !== Object.prototype && proto !== null) break
+    const { type, text } = block as Record<string, unknown>
+    if (type !== 'text' || typeof text !== 'string') break
+    const single = parseDelegationEnvelope(text)
+    if (single) groups.push([single])
+    else {
+      const multi = findEmbeddedDelegationEnvelopes(text)
+      if (!multi.length || multi[0]!.before.trim() !== '') break
+      groups.push(multi.map(entry => entry.parsed))
+    }
+    cutoff--
+  }
+  return { content: blocks.slice(0, cutoff), delegations: groups.reverse().flat() }
 }
 
 export function parseDelegationEnvelope(text: string): DelegationEnvelope | null {
@@ -188,6 +215,7 @@ export function parseDelegationEnvelope(text: string): DelegationEnvelope | null
 }
 
 function parseMatch(match: RegExpExecArray): DelegationEnvelope | null {
+  if ([match[1], match[2], match[4]].some(value => value !== undefined && /&(?!amp;|lt;|gt;)/u.test(value))) return null
   const source = match[1] === undefined ? '' : unescapeDelegationText(match[1]).trim()
   const host = match[2] === undefined ? undefined : unescapeDelegationText(match[2]).trim()
   if (host === '') return null

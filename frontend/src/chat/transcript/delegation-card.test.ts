@@ -28,6 +28,7 @@ const { setDeviceNamesForTest } = await import('../device-names')
 // which is the assertion that actually catches a typo'd key.
 const stylesheet = readFileSync(new URL('./transcript.module.css', import.meta.url), 'utf8')
 const envelopeVectors = JSON.parse(readFileSync(new URL('../../../../contracts/vectors/thread-delegation-vectors.json', import.meta.url), 'utf8')) as {
+  embeddedExtraction: Array<{ name: string; text: string; expectedParsed: NonNullable<ReturnType<typeof parseDelegationEnvelope>>[] }>
   remoteRoundTrip: Array<{
     name: string; input: string; sourceThreadId: string | null; sourceHostId: string; expected: string
     expectedParsed: { sourceThreadId: string | null; sourceHostId?: string; input: string }
@@ -295,5 +296,11 @@ describe('delegation attachments', () => {
       expect(primaryToolTarget('send_message_to_thread', args)).toBe(prompt ? `thread-b — ${prompt}` : 'thread-b')
       expect(chatActivitySentHead(args)).toBe(prompt || '')
     }
+  })
+})
+
+describe('embedded delegation extraction', () => {
+  for (const item of envelopeVectors.embeddedExtraction) test(item.name, () => {
+    expect(findEmbeddedDelegationEnvelopes(item.text).map(entry => entry.parsed)).toEqual(item.expectedParsed)
   })
 })

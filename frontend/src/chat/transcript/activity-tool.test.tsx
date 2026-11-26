@@ -357,9 +357,9 @@ describe('a delegation inside tool output is folded, not printed as protocol mar
     expect(html).not.toContain('klaus-delegation')
   })
 
-  test('every envelope is folded and the text between them is kept in order', () => {
+  test('trailing envelopes fold and preceding output stays in order', () => {
     const second = encodeDelegationEnvelope('Second message.', 'thread-sender')
-    const html = render(tool({ output: `HEAD\n${envelope}\nMIDDLE\n${second}\nTAIL` }), true)
+    const html = render(tool({ output: `HEAD\nMIDDLE\nTAIL\n${envelope}\n${second}` }), true)
     for (const kept of ['HEAD', 'MIDDLE', 'TAIL', 'Stop and report what you found.', 'Second message.']) {
       expect(html).toContain(kept)
     }
@@ -367,6 +367,14 @@ describe('a delegation inside tool output is folded, not printed as protocol mar
     // Order is preserved: the fold cannot reorder the tool's own output.
     expect(html.indexOf('HEAD')).toBeLessThan(html.indexOf('MIDDLE'))
     expect(html.indexOf('MIDDLE')).toBeLessThan(html.indexOf('TAIL'))
+  })
+
+  test('interleaved and line-numbered envelopes remain literal output', () => {
+    for (const output of [`HEAD\n${envelope}\nTAIL`, `   68\t${envelope}`]) {
+      const html = render(tool({ output }), true)
+      expect(html).toContain('&lt;klaus-delegation&gt;')
+      expect(html).not.toContain('Sent by Klaus from another chat')
+    }
   })
 
   test('output with no envelope renders exactly as before', () => {

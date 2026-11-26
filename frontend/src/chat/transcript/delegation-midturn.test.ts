@@ -25,7 +25,7 @@ function replayMessage(content: any[], overrides: Record<string, unknown> = {}):
 describe('a mid-turn delegation is lifted out of its tool result', () => {
   test('segmentsFromBlocks strips the envelope from the tool output and records it', () => {
     const segments = segmentsFromBlocks([
-      { type: 'tool_use', id: 'call-1', name: 'read', input: { path: '/tmp/a.ts' }, __result: { content: [{ type: 'text', text: `line one\n${ENVELOPE}` }] } },
+      { type: 'tool_use', id: 'call-1', name: 'read', input: { path: '/tmp/a.ts' }, __result: { content: [{ type: 'text', text: 'line one' }, { type: 'text', text: ENVELOPE }] } },
     ], undefined)
     const tools = segments.find(s => s.kind === 'tools')
     expect(tools).toBeTruthy()
@@ -37,7 +37,7 @@ describe('a mid-turn delegation is lifted out of its tool result', () => {
 
   test('unitsFromMessages emits a delegation unit after the tools unit', () => {
     const units = unitsFromMessages([replayMessage([
-      { type: 'tool_use', id: 'call-1', name: 'read', input: { path: '/tmp/a.ts' }, __result: { content: [{ type: 'text', text: `out\n${ENVELOPE}` }] } },
+      { type: 'tool_use', id: 'call-1', name: 'read', input: { path: '/tmp/a.ts' }, __result: { content: [{ type: 'text', text: 'out' }, { type: 'text', text: ENVELOPE }] } },
     ])])
     const kinds = units.map(u => u.type)
     expect(kinds).toContain('delegation')
@@ -52,7 +52,7 @@ describe('a mid-turn delegation is lifted out of its tool result', () => {
 
   test('two envelopes in one result become two units in arrival order', () => {
     const units = unitsFromMessages([replayMessage([
-      { type: 'tool_use', id: 'call-1', name: 'read', input: {}, __result: { content: [{ type: 'text', text: `a\n${ENVELOPE}\nb\n${ENVELOPE_WITH_HOST}\nc` }] } },
+      { type: 'tool_use', id: 'call-1', name: 'read', input: {}, __result: { content: [{ type: 'text', text: 'a' }, { type: 'text', text: ENVELOPE }, { type: 'text', text: ENVELOPE_WITH_HOST }] } },
     ])])
     const delegations = units.filter(u => u.type === 'delegation')
     expect(delegations).toHaveLength(2)
@@ -65,7 +65,7 @@ describe('a mid-turn delegation is lifted out of its tool result', () => {
     const units = unitsFromMessages([
       replayMessage([
         { type: 'text', text: 'working' },
-        { type: 'tool_use', id: 'call-1', name: 'read', input: {}, __result: { content: [{ type: 'text', text: `out\n${ENVELOPE}` }] } },
+        { type: 'tool_use', id: 'call-1', name: 'read', input: {}, __result: { content: [{ type: 'text', text: 'out' }, { type: 'text', text: ENVELOPE }] } },
         { type: 'text', text: 'final answer', phase: 'final_answer', isFinalReply: true },
       ], { isFinalReply: true }),
     ])
@@ -87,6 +87,30 @@ describe('a mid-turn delegation is lifted out of its tool result', () => {
     expect(delegationIndex).toBeGreaterThan(0)
     expect(fold!.items.slice(0, delegationIndex).some((item: any) =>
       item.kind === 'activity-fold' || (item.kind === 'unit' && item.unit.type === 'tools'))).toBe(true)
+  })
+
+  test('legacy flat tool output still extracts a trailing delegation', () => {
+    const units = unitsFromMessages([replayMessage([
+      { type: 'tool_use', id: 'call-1', name: 'read', input: {}, __result: { text: `out\n${ENVELOPE}` } },
+    ])])
+    expect(units.filter(u => u.type === 'delegation')).toHaveLength(1)
+    expect(units.find(u => u.type === 'tools')?.segment?.tools?.[0]?.output?.text).toBe('out')
+  })
+
+  test('structured tool output keeps source literals and shell output intact', () => {
+    const cases = [
+      ['read', "   42\t<klaus-delegation><input><input>inner</input></input></klaus-delegation>"],
+      ['read', "   67\t<klaus-delegation><input>unclosed',\n   68\t'prose before <klaus-delegation><input>x</input></klaus-delegation>'"],
+      ['read', "   69\t<klaus-delegation><input>one</input></klaus-delegation><klaus-delegation><input>two</input></klaus-delegation>"],
+      ['bash', `Exit code: 0\nOutput:\n${ENVELOPE}`],
+    ]
+    for (const [name, text] of cases) {
+      const units = unitsFromMessages([replayMessage([
+        { type: 'tool_use', id: 'call-1', name, input: {}, __result: { content: [{ type: 'text', text }] } },
+      ])])
+      expect(units.filter(u => u.type === 'delegation')).toHaveLength(0)
+      expect(units.find(u => u.type === 'tools')?.segment?.tools?.[0]?.output?.text).toBe(text)
+    }
   })
 
   test('plain tool output without an envelope yields no delegation units', () => {
@@ -214,7 +238,7 @@ test('lifts mid-turn attachments into the clean user display snapshot', () => {
   const prose = 'Review the diagram and report.'
   const envelope = encodeDelegationEnvelope(prose, 'sender-thread', undefined, attachments)
   const units = unitsFromMessages([replayMessage([
-    { type: 'tool_use', id: 'call-1', name: 'read', input: {}, __result: { content: [{ type: 'text', text: `Tool output\n${envelope}` }] } },
+    { type: 'tool_use', id: 'call-1', name: 'read', input: {}, __result: { content: [{ type: 'text', text: 'Tool output' }, { type: 'text', text: envelope }] } },
   ])])
   const lifted = units.filter(unit => unit.type === 'delegation')
   expect(lifted).toHaveLength(1)
