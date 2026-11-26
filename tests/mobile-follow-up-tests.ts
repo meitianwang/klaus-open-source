@@ -6,6 +6,8 @@ import type { Json } from '../main/ipc/contract';
 import { object, string, type JsonObject } from '../main/services/service-types';
 import { ClientFollowUpQueue, QueueMutationError, snapshotToWire, rowToWire, INTERRUPTED_QUEUE_REASON } from '../main/sessions/client-queue';
 import { AttachmentService } from '../main/services/attachments';
+import { compactMobileEngineEvent, compactMobileToolInput, compactMobileToolResult } from '../main/services/mobile/transcript-compact';
+import { encodeDelegationEnvelope, parseDelegationEnvelope } from '../contracts/thread-delegation';
 import { WorkspaceStore } from '../main/services/workspaces';
 import { Harness, waitFor } from './harness';
 import { mobileFixture } from './mobile-fixture';
@@ -47,6 +49,34 @@ async function fixture() {
     close: async () => { await attachments.close(); await f.close(); } };
 }
 export async function registerMobileFollowUpTests(h: Harness): Promise<void> {
+  await h.test('mobile delegation compaction preserves attachments and bounds input summaries', async () => {
+    const attachments = [
+      { name: 'diagram.png', path: '/uploads/managed-diagram.png', mimeType: 'image/png' },
+      { name: 'report.pdf', path: '/uploads/managed-report.pdf', mimeType: 'application/pdf' },
+    ];
+    const text = `Queued input:\n${encodeDelegationEnvelope('', 'source-chat', 'host-studio', attachments)}\nEnd of result`;
+    const result = compactMobileToolResult('send_message_to_thread', { content: [{ type: 'text', text }] });
+    assert.ok(Array.isArray(result?.content));
+    const event = compactMobileEngineEvent({ type: 'tool_end', toolName: 'send_message_to_thread', content: text });
+    for (const value of [object(result.content[0]).text, event?.content]) {
+      assert.equal(typeof value, 'string');
+      assert.deepEqual(parseDelegationEnvelope(string(value))?.attachments, attachments);
+    }
+
+    const prompt = 'x'.repeat(140);
+    const target = { type: 'remote', hostId: 'host-studio' };
+    const extraNames = Array.from({ length: 20 }, (_, index) => `file-${index}.txt`);
+    for (const tool of ['send_message_to_thread', 'create_thread']) {
+      const input = compactMobileToolInput(tool, {
+        prompt: `${prompt}\nignored`,
+        attachments: ['/docs/diagram.png', 'C:\\docs\\report.pdf', ...extraNames.map(name => `/docs/${name}`)],
+        target: { ...target, ignored: true },
+      });
+      assert.equal(input.prompt, `${'x'.repeat(120)}…`);
+      assert.deepEqual(input.attachmentNames, ['diagram.png', 'report.pdf', ...extraNames.slice(0, 18)]);
+      assert.deepEqual(input.target, target);
+    }
+  });
   await h.test('confirmed remote queue admission remains accepted when its snapshot is unavailable', async () => {
     const x = await fixture(), { f } = x;
     try {

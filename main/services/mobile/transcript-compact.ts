@@ -271,7 +271,7 @@ function extractDelegationText(rawText: string, shellEnvelope?: JsonObject | nul
     const envelopes = findEmbeddedDelegationEnvelopes(candidate);
     if (envelopes.length > 0) {
       return envelopes
-        .map(env => encodeDelegationEnvelope(env.parsed.input, env.parsed.sourceThreadId, env.parsed.sourceHostId))
+        .map(env => encodeDelegationEnvelope(env.parsed.input, env.parsed.sourceThreadId, env.parsed.sourceHostId, env.parsed.attachments))
         .join('\n');
     }
   }
@@ -310,6 +310,22 @@ export function compactMobileToolInput(toolName: string, rawInput: unknown, resu
         compact[key] = value;
       } else if (typeof value === 'boolean') {
         compact[key] = value;
+      }
+    }
+    if (lower === 'send_message_to_thread' || lower === 'create_thread') {
+      if (typeof parsed.prompt === 'string' && parsed.prompt.trim()) compact.prompt = truncateSingleLine(parsed.prompt, 120);
+      if (Array.isArray(parsed.attachments)) {
+        const names = parsed.attachments.filter((entry): entry is string => typeof entry === 'string' && Boolean(entry.trim()))
+          .slice(0, 20).map(entry => entry.trim().replace(/\\/g, '/').split('/').filter(Boolean).at(-1) ?? entry.trim());
+        if (names.length) compact.attachmentNames = names;
+      }
+      const target = object(parsed.target);
+      if (target) {
+        const summary = {
+          ...(typeof target.type === 'string' && target.type ? { type: truncateScalar(target.type) } : {}),
+          ...(typeof target.hostId === 'string' && target.hostId ? { hostId: truncateScalar(target.hostId) } : {}),
+        };
+        if (Object.keys(summary).length) compact.target = summary;
       }
     }
     const commandValue = parsed.command ?? parsed.cmd;
