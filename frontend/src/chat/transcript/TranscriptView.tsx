@@ -1,3 +1,4 @@
+import { appendLocalMediaCacheKey, stampLocalMediaHtml } from '../../../bridge/media-url'
 import { friendlyErrorText } from '../friendly-errors'
 import { noticeI18nKey } from '../notice-codes'
 import { pendingSubmissionRecovery } from '../composer/pending-submission'
@@ -3171,6 +3172,7 @@ function UnitView({ unit, isThinkingExpanded, onToggleThinking, archived, runnin
       inlineVis={segment.inlineVis}
       endResourceTurn={readOnly ? null : unit.endResourceTurn}
       turnId={unit.turnId}
+      mediaScopeKey={unit.turnId || unit.key}
       actionsHtml={unit.hasActions ? renderMsgActionsHtml({ ts: unit.ts, copyText: '', uuid: msg?.uuid, turnId: unit.turnId, kind: 'assistant', archived, running, readOnly, goalCompletion: unit.goalCompletion }) : ''}
     />
     return unit.friendFollowUp ? <FriendFollowUp text={unit.resolvedText ?? segment.text ?? ''}>{bubble}</FriendFollowUp> : bubble
@@ -3190,6 +3192,7 @@ export function HistoryToolCards({ tools, sessionId = '', stateSessionId = sessi
 function HistoryActivityTool({ tool, sessionId, stateSessionId, turnKey, suppressFigurePaths, readOnly }: {
   tool: SegmentTool; sessionId: string; stateSessionId: string; turnKey: string; suppressFigurePaths?: ReadonlySet<string>; readOnly?: boolean
 }) {
+  const mediaCacheKey = combineMediaCacheKey(useContext(MediaCacheEpochContext), tool.toolCallId)
   const parentAgentId = useChatStream(state => selectSubagentParentId(state, stateSessionId))
   const saved = useChatStream(state => state.sessions[stateSessionId]?.turnCollapseOverrides[`tool:${tool.toolCallId}`])
   const [localOpen, setLocalOpen] = useState(false)
@@ -3205,7 +3208,7 @@ function HistoryActivityTool({ tool, sessionId, stateSessionId, turnKey, suppres
     state: tool.state === 'running' || tool.state === 'error' || tool.state === 'interrupted' || tool.state === 'awaiting-approval' ? tool.state : 'done' }
   const media = activityToolPresentation(data).kind === 'image' ? [] : (tool.output?.media || []).filter(item => !suppressFigurePaths?.has(item.path))
   return <><ActivityTool tool={data} open={open} onToggle={toggle} readOnly={readOnly} />
-    {media.length ? <RawHtml className={styles['media-figures']} html={renderMediaFigureHtml(media.map(item => ({ path: item.path, sessionId, src: mediaUrl(item.path, sessionId), name: basenameFromPath(item.path) })))} /> : null}
+    {media.length ? <RawHtml className={styles['media-figures']} html={renderMediaFigureHtml(media.map(item => ({ path: item.path, sessionId, src: appendLocalMediaCacheKey(mediaUrl(item.path, sessionId), mediaCacheKey), name: basenameFromPath(item.path) })))} /> : null}
   </>
 }
 
@@ -3463,9 +3466,10 @@ function TurnHistoryGap({ sessionId, turnId, pagination, open, observe }: {
  * anywhere in the transcript container, the same class the folded card and the
  * markdown-rendered inline images use.
  */
-export function TurnMediaBlock({ paths, sessionId }: { paths: string[]; sessionId: string }) {
+export function TurnMediaBlock({ paths, sessionId, cacheKey }: { paths: string[]; sessionId: string; cacheKey?: string }) {
+  const key = combineMediaCacheKey(useContext(MediaCacheEpochContext), cacheKey)
   const figures = paths
-    .map(path => ({ path, src: mediaUrl(path, sessionId), name: basenameFromPath(path) || 'image' }))
+    .map(path => ({ path, src: appendLocalMediaCacheKey(mediaUrl(path, sessionId), key), name: basenameFromPath(path) || 'image' }))
     .filter(item => item.src)
   if (!figures.length) return null
   // 容器用 turn-media 而不是 media-figures：这个区块是正文列（.msg-group）的兄弟
@@ -3792,13 +3796,25 @@ export function TurnChangesBlock({ sessionId, turnId, status, finalText }: {
   )
 }
 
-export function FinalAssistantBubble({ text, actionsHtml = '', suppressImagePaths, sessionId = '', navigationAnswer = true, inlineVis, endResourceTurn, turnId = '' }: { endResourceTurn?: { turnId: string; status: string } | null; turnId?: string; text: string; actionsHtml?: string; suppressImagePaths?: ReadonlySet<string>; sessionId?: string; navigationAnswer?: boolean; inlineVis?: readonly InlineVisFragment[] }) {
+export const MediaCacheEpochContext = createContext<string>('')
+let nextMediaCacheEpoch = 0
+
+function useMediaCacheEpoch(sessionId?: string) {
+  return useMemo(() => `m${++nextMediaCacheEpoch}`, [sessionId])
+}
+
+function combineMediaCacheKey(epoch: string, scope?: string): string {
+  return epoch && scope ? `${epoch}:${scope}` : epoch || scope || ''
+}
+
+export function FinalAssistantBubble({ text, actionsHtml = '', suppressImagePaths, sessionId = '', navigationAnswer = true, inlineVis, endResourceTurn, turnId = '', mediaScopeKey }: { mediaScopeKey?: string; endResourceTurn?: { turnId: string; status: string } | null; turnId?: string; text: string; actionsHtml?: string; suppressImagePaths?: ReadonlySet<string>; sessionId?: string; navigationAnswer?: boolean; inlineVis?: readonly InlineVisFragment[] }) {
   const source = suppressImagePaths?.size ? stripMarkdownImagesForPaths(text, suppressImagePaths) : text
   const { projected, present } = useTurnEndResources(sessionId, navigationAnswer ? endResourceTurn : null, source)
   // A line that only links a file the resource card shows says the same thing
   // twice; the card is that file's presentation. Copying keeps the full reply.
   const display = useMemo(() => stripEndResourceLinkLines(source, endResourceFilePaths(present), sessionWorkdirOf(sessionId)), [source, present, sessionId])
-  const html = inlineVisPostProcess(useAsyncMarkdownHtml(display, sessionId, `history:${turnId}`, false))
+  const epoch = useContext(MediaCacheEpochContext)
+  const html = stampLocalMediaHtml(inlineVisPostProcess(useAsyncMarkdownHtml(display, sessionId, `history:${turnId}`, false)), combineMediaCacheKey(epoch, mediaScopeKey || turnId))
   // 操作栏必须是 group 直接子节点（:scope > .msg-actions 查询与旧结构对齐），
   // 故 group 内容整体由工厂拼接。data-md 存原始 markdown 供复制。
   return (
@@ -3851,6 +3867,7 @@ function CompactSummaryCard({ text, sessionId }: { text: string; sessionId?: str
 export type TranscriptScrollMode = 'main' | 'simple' | 'none'
 
 export function TranscriptView({ sessionId, container, scroll = 'none', readOnly = false, contextSessionId }: { sessionId: string; container: HTMLElement; scroll?: TranscriptScrollMode; readOnly?: boolean; contextSessionId?: string }) {
+  const mediaCacheEpoch = useMediaCacheEpoch(sessionId)
   const contextId = contextSessionId || sessionId
   const sessionIdRef = useRef(sessionId)
   sessionIdRef.current = sessionId
@@ -4111,7 +4128,7 @@ export function TranscriptView({ sessionId, container, scroll = 'none', readOnly
       ? <TurnFold node={node} key={node.key} unitProps={unitProps} sessionId={contextId}
           onToggleFold={(foldKey, open) => setTurnCollapsed(sessionId, foldKey, open)} />
     : node.kind === 'turn-media'
-      ? <TurnMediaBlock paths={node.paths} sessionId={contextId} key={node.key} />
+      ? <TurnMediaBlock paths={node.paths} cacheKey={node.key} sessionId={contextId} key={node.key} />
     : node.kind === 'turn-visuals'
       ? <VisualArtifactsBlock sessionId={contextId} artifacts={node.artifacts} key={node.key} />
       : node.kind === 'turn-changes'
@@ -4125,24 +4142,26 @@ export function TranscriptView({ sessionId, container, scroll = 'none', readOnly
             : <UnitView unit={node.unit} key={node.unit.key} {...unitProps} />
 
   return (
-    <AgentEntranceProvider units={[...historyUnits, ...selectSessionStream(chatStreamStore.getState(), sessionId).liveUnits]} readOnly={readOnly}>
-      {showHistorySkeleton ? <TranscriptHistorySkeleton label={t('loading')} /> : null}
-      {!showHistorySkeleton && historyLoadFailed ? (
-        <div className={`${styles['transcript-load-failed']}`} role="alert">
-          <span className={`${styles['transcript-load-failed-text']}`}>{t('transcript_history_load_failed')}</span>
-          <button className={`${styles['transcript-load-failed-retry']}`} type="button"
-            onClick={() => { void retryHistoryLoad(sessionId) }}>
-            {t('transcript_history_load_retry')}
-          </button>
-        </div>
-      ) : null}
-      <LiveTail sessionId={sessionId} unitProps={unitProps} scroll={scroll} container={container}
-        timeline={{ groups: turnGroups, controller: scroll !== 'none' ? controller : null, renderNode }} />
-      {!readOnly && <FriendTaskApproval sessionId={sessionId} skipPending={inlineApprovalRequests} />}
-      {!readOnly && <AsyncQuestionComposer sessionId={sessionId} composer={unitProps.questionComposer} source={container} />}
-      {compactionPendingTrigger && !hasLiveCompaction ? <CompactionEvent loading trigger={compactionPendingTrigger} /> : null}
-      {quoteSurface ? <QuoteSelectionToolbar container={container} surface={quoteSurface} /> : null}
-    </AgentEntranceProvider>
+    <MediaCacheEpochContext.Provider value={mediaCacheEpoch}>
+      <AgentEntranceProvider units={[...historyUnits, ...selectSessionStream(chatStreamStore.getState(), sessionId).liveUnits]} readOnly={readOnly}>
+        {showHistorySkeleton ? <TranscriptHistorySkeleton label={t('loading')} /> : null}
+        {!showHistorySkeleton && historyLoadFailed ? (
+          <div className={`${styles['transcript-load-failed']}`} role="alert">
+            <span className={`${styles['transcript-load-failed-text']}`}>{t('transcript_history_load_failed')}</span>
+            <button className={`${styles['transcript-load-failed-retry']}`} type="button"
+              onClick={() => { void retryHistoryLoad(sessionId) }}>
+              {t('transcript_history_load_retry')}
+            </button>
+          </div>
+        ) : null}
+        <LiveTail sessionId={sessionId} unitProps={unitProps} scroll={scroll} container={container}
+          timeline={{ groups: turnGroups, controller: scroll !== 'none' ? controller : null, renderNode }} />
+        {!readOnly && <FriendTaskApproval sessionId={sessionId} skipPending={inlineApprovalRequests} />}
+        {!readOnly && <AsyncQuestionComposer sessionId={sessionId} composer={unitProps.questionComposer} source={container} />}
+        {compactionPendingTrigger && !hasLiveCompaction ? <CompactionEvent loading trigger={compactionPendingTrigger} /> : null}
+        {quoteSurface ? <QuoteSelectionToolbar container={container} surface={quoteSurface} /> : null}
+      </AgentEntranceProvider>
+    </MediaCacheEpochContext.Provider>
   )
 }
 
@@ -4218,11 +4237,12 @@ export function LiveToolCard({ card, suppressFigurePaths, sessionId = '', stateS
   onToggle: () => void
   suppressDelegations?: boolean
 }) {
+  const mediaCacheKey = combineMediaCacheKey(useContext(MediaCacheEpochContext), card.toolCallId)
   const parentAgentId = useChatStream(state => selectSubagentParentId(state, stateSessionId))
   const data = { ...liveToolData(card, sessionId), parentAgentId }
   const media = (activityToolPresentation(data).kind === 'image' ? [] : card.media || []).filter(item => !suppressFigurePaths?.has(item.path)).map((item) => ({
     path: item.path,
-    src: mediaUrl(item.path, sessionId),
+    src: appendLocalMediaCacheKey(mediaUrl(item.path, sessionId), mediaCacheKey),
     name: basenameFromPath(item.path) || 'image',
   })).filter(item => item.src)
   return (
@@ -4344,7 +4364,7 @@ function LiveDelegationView({ delegation, sessionId }: { delegation: DelegationE
       + renderDelegationBubbleHtml(delegation.input, delegation.attachments, path => mediaUrl(path, sessionId)) + '</div>'} />
 }
 
-function LiveTextView({ unit, sessionId, unitProps, mediaPaths, mediaAliases, isLastText, endResourceTurn }: {
+export function LiveTextView({ unit, sessionId, unitProps, mediaPaths, mediaAliases, isLastText, endResourceTurn }: {
   unit: Extract<LiveUnit, { type: 'live-text' }>
   sessionId: string
   unitProps: UnitProps
@@ -4358,7 +4378,9 @@ function LiveTextView({ unit, sessionId, unitProps, mediaPaths, mediaAliases, is
   const source = isLastText || mediaPaths.size === 0 ? resolved : stripMarkdownImagesForPaths(unit.text, mediaPaths)
   const { projected, present } = useTurnEndResources(sessionId, isLastText && !unit.streaming && !unitProps.readOnly ? endResourceTurn : null, source)
   const display = useMemo(() => stripEndResourceLinkLines(source, endResourceFilePaths(present), sessionWorkdirOf(sessionId)), [source, present, sessionId])
-  const markdown = useAsyncMarkdownHtml(display, unitProps.sessionId || sessionId, unit.key, unit.streaming)
+  const epoch = useContext(MediaCacheEpochContext)
+  const markdown = stampLocalMediaHtml(useAsyncMarkdownHtml(display, unitProps.sessionId || sessionId, unit.key, unit.streaming),
+    combineMediaCacheKey(epoch, isLastText && unit.turnId ? unit.turnId : unit.key))
   const html = unit.streaming
     ? `${stripInlineVisLines(markdown)}<span class="streaming-dots"><span></span><span></span><span></span></span>`
     : inlineVisPostProcess(markdown)
@@ -5132,7 +5154,7 @@ const TranscriptTurnFrame = memo(function TranscriptTurnFrame({ renderKey, ident
       headerBefore={fold ? 'turn-work-header' : undefined}
       onToggle={() => savedFold ? setTurnCollapsed(unitProps.streamSessionId || unitProps.sessionId || '', foldKey, open)
         : liveProps?.onToggleFold(foldKey, open)} sections={orderedSections} />
-    {liveProps?.turnMedia.length ? <TurnMediaBlock paths={liveProps.turnMedia} sessionId={liveProps.sessionId} /> : null}
+    {liveProps?.turnMedia.length ? <TurnMediaBlock paths={liveProps.turnMedia} cacheKey={live?.owner || saved?.turnId || saved?.key} sessionId={liveProps.sessionId} /> : null}
   </div>
 })
 
@@ -5458,7 +5480,7 @@ export function LiveTail({ sessionId, unitProps, scroll = 'none', container, tim
             {/* 出图区块在折叠之外（与历史层的 turn-media 节点同位置）：图是交付物，
                 藏在「已处理 N 个操作」里等于没交付。 */}
             {ownsMedia && context.turnMedia?.length
-              ? <TurnMediaBlock paths={context.turnMedia} sessionId={unitProps.sessionId || sessionId} />
+              ? <TurnMediaBlock paths={context.turnMedia} cacheKey={owner || key} sessionId={unitProps.sessionId || sessionId} />
               : null}
           </>
         )
@@ -5492,6 +5514,7 @@ export function StaticTranscriptView({ msgs, container, running, sessionId }: {
   running: boolean
   sessionId?: string
 }) {
+  const mediaCacheEpoch = useMediaCacheEpoch(sessionId)
   const t = useT()
   // Nested subagent lifecycles affect this view's preventAutoCollapse decision
   // just as they do in the main transcript.
@@ -5568,7 +5591,7 @@ export function StaticTranscriptView({ msgs, container, running, sessionId }: {
             : node.kind === 'turn-visuals'
               ? (sessionId ? <VisualArtifactsBlock sessionId={sessionId} artifacts={node.artifacts} key={node.key} /> : null)
               : node.kind === 'turn-media'
-                ? <TurnMediaBlock paths={node.paths} sessionId={sessionId || ''} key={node.key} />
+                ? <TurnMediaBlock paths={node.paths} cacheKey={node.key} sessionId={sessionId || ''} key={node.key} />
                 : node.kind === 'worktree-init'
                   ? null
                   : node.kind === 'work-divider'
@@ -5581,13 +5604,15 @@ export function StaticTranscriptView({ msgs, container, running, sessionId }: {
     </div> : null
   }
   return (
-    <AgentEntranceProvider units={units} readOnly>
-      {controller && sessionId && groups.length > 0 ? <VirtualTranscript sessionId={sessionId} container={container} controller={controller}
-        entries={groups.map(group => ({ key: group.key, turnId: group.turnId }))} renderRow={renderGroup} latestKey={groups.at(-1)?.key ?? null} placementKey={null}
-        phase={running ? 'prework' : 'idle'} running={running} onApiChange={ignoreVirtualListApi} /> : nodes.map(renderNode)}
-      {waiting ? <ActivityWaitingIndicator label={waitingAgents.length
-        ? t('activity_waiting_for_agents').replace('{agents}', new Intl.ListFormat(intlLocale()).format(waitingAgents)) : undefined} /> : null}
-    </AgentEntranceProvider>
+    <MediaCacheEpochContext.Provider value={mediaCacheEpoch}>
+      <AgentEntranceProvider units={units} readOnly>
+        {controller && sessionId && groups.length > 0 ? <VirtualTranscript sessionId={sessionId} container={container} controller={controller}
+          entries={groups.map(group => ({ key: group.key, turnId: group.turnId }))} renderRow={renderGroup} latestKey={groups.at(-1)?.key ?? null} placementKey={null}
+          phase={running ? 'prework' : 'idle'} running={running} onApiChange={ignoreVirtualListApi} /> : nodes.map(renderNode)}
+        {waiting ? <ActivityWaitingIndicator label={waitingAgents.length
+          ? t('activity_waiting_for_agents').replace('{agents}', new Intl.ListFormat(intlLocale()).format(waitingAgents)) : undefined} /> : null}
+      </AgentEntranceProvider>
+    </MediaCacheEpochContext.Provider>
   )
 }
 

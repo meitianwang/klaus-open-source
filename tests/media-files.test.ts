@@ -136,6 +136,21 @@ h.test('synchronous frontend URLs are decoded strictly and checked against curre
   assertEqual((await f.media.respond(new Request(`klaus-media://localhost/${Buffer.from(text).toString('base64url')}?s=s`))).status, 404, 'path URL cannot read arbitrary text');
   f.media.close();
 });
+h.test('legacy cache tokens isolate URLs without changing file authorization', async () => {
+  const f = await fixture();
+  const url = `klaus-media://localhost/${Buffer.from(f.path).toString('base64url')}?s=s`;
+  const first = await f.media.respond(new Request(`${url}&v=first-1`));
+  assertEqual(first.status, 200, 'valid token accepted');
+  assertEqual(await first.text(), '0123456789', 'original bytes');
+  await writeFile(f.path, 'replacement');
+  const second = await f.media.respond(new Request(`${url}&v=second_2`));
+  assertEqual(second.status, 200, 'new token accepted');
+  assertEqual(await second.text(), 'replacement', 'updated bytes');
+  for (const query of ['v=', 'v=%2F', `v=${'a'.repeat(65)}`, 'v=a&v=b', 's=s&v=a', 'v=a&unknown=b']) {
+    assertEqual((await f.media.respond(new Request(`${url}&${query}`))).status, 404, query);
+  }
+  f.media.close();
+});
 h.test('directory deletion cancels ongoing streams and holds new media reads until released', async () => {
   const f = await fixture(); await writeFile(f.path, Buffer.alloc(4 * 1024 * 1024));
   const response = await f.media.respond(new Request(f.url));

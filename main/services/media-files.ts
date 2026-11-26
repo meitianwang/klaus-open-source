@@ -8,6 +8,7 @@ import { pathInside } from './workspaces';
 import { sniffMime } from './media';
 
 export const MEDIA_SCHEME = 'klaus-media';
+const LEGACY_CACHE_TOKEN = /^[A-Za-z0-9._-]{1,64}$/;
 const TYPES: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
   svg: 'image/svg+xml', bmp: 'image/bmp', avif: 'image/avif', ico: 'image/x-icon', pdf: 'application/pdf',
@@ -126,8 +127,10 @@ export class MediaFiles {
   }
 
   private legacy(url: URL): Grant | undefined {
+    const version = url.searchParams.get('v');
     if (url.protocol !== `${MEDIA_SCHEME}:` || url.hostname !== 'localhost' || url.port || url.username || url.password || url.hash
-      || [...url.searchParams.keys()].some(key => key !== 's') || url.searchParams.getAll('s').length > 1) return undefined;
+      || [...url.searchParams.keys()].some(key => key !== 's' && key !== 'v') || url.searchParams.getAll('s').length > 1
+      || url.searchParams.getAll('v').length > 1 || (version !== null && !LEGACY_CACHE_TOKEN.test(version))) return undefined;
     const segment = url.pathname.slice(1);
     if (!segment || segment.length > 32768 || !/^[A-Za-z0-9_-]+$/.test(segment)) return undefined;
     const bytes = Buffer.from(segment, 'base64url');

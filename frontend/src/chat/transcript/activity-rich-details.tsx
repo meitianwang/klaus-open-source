@@ -1,3 +1,4 @@
+import { appendLocalMediaCacheKey } from '../../../bridge/media-url'
 import { useState } from 'react'
 import { Icon } from '../../components/Icon'
 import { humanizeSchedule } from '../../pages/cron/data'
@@ -10,7 +11,7 @@ import styles from './activity-rich-details.module.css'
 export function ImageActivityDetails({ tool, presentation, locale }: { tool: ActivityToolData; presentation: ActivityToolPresentation; locale: string }) {
   const sessionId = tool.sessionId ?? ''
   const images = (presentation.imagePaths ?? []).map(path => ({ path, name: path.split(/[/\\]/).at(-1) || path,
-    src: (window as any).klaus?.media?.url?.(path, sessionId) || '' })).filter(image => image.src)
+    src: appendLocalMediaCacheKey((window as any).klaus?.media?.url?.(path, sessionId) || '', tool.toolCallId) })).filter(image => image.src)
   const unsupportedNotice = presentation.imageUnsupportedByModel ? <p className={styles.notice} data-image-unsupported>
     {locale.startsWith('zh')
       ? '读取时模型不支持图像，仅收到占位说明；切换到支持图像的模型后可直接看到原图。'
