@@ -33,7 +33,14 @@ export const badRequest = (message: string): MobileError => new MobileError(400,
 export function mobileError(error: unknown): MobileError {
   if (error instanceof MobileError) return error;
   if (error instanceof Error && error.name === 'AbortError') return new MobileError(503, 'bridge_stopped', 'Mobile bridge stopped');
-  const value = object(error), nested = object(value.error);
+  const value = object(error), nested = object(value.error), kind = string(value.kind);
+  if (kind === 'timeout') {
+    const method = string(value.method);
+    return new MobileError(504, 'engine_timeout', method ? `Desktop engine timed out (${method})` : 'Desktop engine timed out');
+  }
+  if (kind === 'closed') return new MobileError(503, 'engine_closed', 'Desktop engine connection closed');
+  if (kind === 'io') return new MobileError(503, 'engine_io_error', string(value.message) || 'Desktop engine I/O error');
+  if (kind === 'server') return new MobileError(502, 'engine_rpc_error', string(value.message) || 'Desktop engine RPC error');
   return new MobileError(500, string(value.code) || string(nested.code) || 'desktop_error',
     error instanceof Error ? error.message : string(nested.message) || string(value.message) || 'Desktop request failed');
 }

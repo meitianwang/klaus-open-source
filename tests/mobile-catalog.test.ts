@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { MobileCatalog, catalogAccountKey, catalogCursor, type CatalogCursor, type CatalogSourcePage } from '../main/services/mobile/catalog';
 import { MobileHydrationQueue } from '../main/services/mobile/hydration-queue';
+import { mobileError } from '../main/services/mobile/protocol';
 import { MobileTaskStreams } from '../main/services/mobile/task-stream';
 import { object, string, type JsonObject } from '../main/services/service-types';
 import { Harness, sleep, waitFor } from './harness';
@@ -409,6 +410,44 @@ void (async () => {
       const failure = await client.next('error'); assert.equal(failure.code, 'history_changed_too_quickly');
       await sleep(20); assert(!client.messages.some(row => ['task_snapshot', 'task_follow_ready'].includes(string(row.type))));
     } finally { release(); await f.close(); }
+  });
+  await h.test('engine RPC failures map to specific mobile error codes instead of opaque desktop_error', async () => {
+    const timedOut = mobileError({ kind: 'timeout', method: 'engine/readSessionSummary' });
+    assert.equal(timedOut.status, 504);
+    assert.equal(timedOut.code, 'engine_timeout');
+    assert.equal(timedOut.message, 'Desktop engine timed out (engine/readSessionSummary)');
+
+    const closed = mobileError({ kind: 'closed' });
+    assert.equal(closed.status, 503);
+    assert.equal(closed.code, 'engine_closed');
+    assert.equal(closed.message, 'Desktop engine connection closed');
+
+    const ioFailure = mobileError({ kind: 'io', message: 'write EPIPE' });
+    assert.equal(ioFailure.status, 503);
+    assert.equal(ioFailure.code, 'engine_io_error');
+    assert.equal(ioFailure.message, 'write EPIPE');
+
+    const serverFailure = mobileError({ kind: 'server', code: -32000, message: 'session busy' });
+    assert.equal(serverFailure.status, 502);
+    assert.equal(serverFailure.code, 'engine_rpc_error');
+    assert.equal(serverFailure.message, 'session busy');
+
+    const f = await mobileFixture({
+      catalogPage: async () => { throw { kind: 'timeout', method: 'engine/readSessionSummary' }; },
+    });
+    try {
+      await f.enable();
+      const client = await f.connect(true);
+      await client.next('hello');
+      client.socket.send(JSON.stringify({ type: 'catalog_sync', requestId: 'cat-timeout-1' }));
+      const failure = await client.next('error');
+      assert.equal(failure.action, 'catalog_sync');
+      assert.equal(failure.requestId, 'cat-timeout-1');
+      assert.equal(failure.code, 'engine_timeout');
+      assert.equal(failure.message, 'Desktop engine timed out (engine/readSessionSummary)');
+    } finally {
+      await f.close();
+    }
   });
   process.exitCode = await h.finish(join(__dirname, 'mobile-catalog.result.json'), 'mobile-catalog');
 })().catch(error => { console.error(error); process.exitCode = 1; });
