@@ -61,9 +61,12 @@ export class GlobalModelTiersState {
     this.generation++
     this.saveGeneration++
   }
-  async load(): Promise<void> {
+  async load(opts?: { background?: boolean }): Promise<void> {
     const generation = ++this.generation
-    this.update({ loading: true, loadError: '', optionsError: '' })
+    const { mapping, options, loadError, optionsError } = this.snapshot
+    if (!opts?.background || !mapping || !options || loadError || optionsError) {
+      this.update({ loading: true, loadError: '', optionsError: '' })
+    }
     await Promise.all([
       this.api.get().then(mapping => {
         if (generation !== this.generation) return

@@ -1,3 +1,4 @@
+import { visibleLanguageModelOptions } from '../shared/language-model-options';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { EngineSettings } from '../main/services/engine-settings';
@@ -190,6 +191,33 @@ h.test('grouped Cursor catalogs preserve exact nondefault members through tiers 
   });
   assertEqual(object(object(reply.tiers).high).status, 'ready', 'a saved nondefault tier remains ready');
   assertEqual(object(object(reply.tiers).high).label, 'Fixture Model', 'tier label uses the family');
+});
+
+h.test('Antigravity tier catalogs retain curated flags and validate saved uncurated targets', async () => {
+  const dependencies = deps([], []);
+  dependencies.sourceStatus = async () => ({ loggedIn: true });
+  const target = { source: 'antigravity', modelId: 'gemini-3.8-flash-tiered' };
+  dependencies.request = async () => ({ models: [
+    { key: target.modelId, display_name: 'Saved Flash' },
+    { key: 'gemini-4-carbon-high', inRecommendedSort: true },
+  ] });
+  const source = await sourceTierCatalog(target.source, dependencies);
+  const rows = source.options as JsonObject[];
+  assertEqual(rows.find(row => row.modelId === 'gemini-4-carbon-high')?.inRecommendedSort, true, 'curated flag reaches the catalog');
+  assertEqual(rows.find(row => row.modelId === target.modelId)?.label, 'Saved Flash', 'uncurated row remains in the catalog');
+  assertEqual(source.status, 'ready', 'a curated option is selectable');
+  assertDeepEqual(visibleLanguageModelOptions(rows as Array<{ modelId: string; inRecommendedSort?: boolean }>, 'antigravity').map(row => row.modelId),
+    ['gemini-4-carbon-high'], 'only curated entries appear in the menu');
+  await validateTierTarget(target, dependencies);
+  const catalog = await modelTierCatalog({ ...mapping(), high: target }, dependencies);
+  assertEqual(object(object(catalog.tiers).high).status, 'ready', 'saved uncurated target still resolves');
+});
+
+h.test('a Cursor catalog with only automatic routing is unavailable', async () => {
+  const dependencies = deps([], []);
+  dependencies.sourceStatus = async () => ({ loggedIn: true });
+  dependencies.request = async () => ({ models: [{ key: 'auto-smart', display_name: 'Automatic' }] });
+  assertEqual((await sourceTierCatalog('cursor', dependencies)).status, 'unavailable', 'routing aliases do not make the menu ready');
 });
 
 void (async () => {

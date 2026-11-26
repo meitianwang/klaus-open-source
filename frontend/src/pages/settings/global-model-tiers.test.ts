@@ -3,7 +3,7 @@ import cursorVectors from '../../../../contracts/vectors/cursor-grouped-paramete
 import tierVectors from '../../../../contracts/vectors/global-model-tier-vectors.json'
 import type { GlobalModelTierMapping, GlobalModelTierOptions, ModelTierName, ModelTierReference } from '../../../bridge/types'
 import { FOLLOW_CHAT_MODEL, GlobalModelTiersState, type TierSettingsApi } from './global-model-tiers-state'
-import { loadGlobalModelTierMappings, loadGlobalModelTierOptions, mappedModelTiers, modelReferenceLabel, saveGlobalModelTier } from './model-shared'
+import { languageModelSelectItems, visibleLanguageModelOptions, loadGlobalModelTierMappings, loadGlobalModelTierOptions, mappedModelTiers, modelReferenceLabel, saveGlobalModelTier } from './model-shared'
 
 const initial = (): GlobalModelTierMapping => ({
   version: 1, revision: 7,
@@ -40,6 +40,46 @@ function deferred<T>() {
   const promise = new Promise<T>(done => { resolve = done })
   return { promise, resolve }
 }
+
+test('language model menus retain curated families and display a saved hidden selection', () => {
+  const curated = { modelId: 'gemini-4-carbon-high', label: 'Carbon', inRecommendedSort: true, antigravityFamilyId: 'carbon', antigravityVariants: [
+    { value: 'antigravity:gemini-4-carbon-high', available: true },
+    { value: 'antigravity:gemini-4-carbon-low', available: true },
+  ] }
+  const saved = { modelId: 'gemini-3.8-flash-tiered', label: 'Saved Flash' }
+  const rows = [saved, { modelId: 'tab_flash_lite_preview', label: 'Preview' }, curated]
+  expect(visibleLanguageModelOptions(rows, 'antigravity')).toEqual([curated])
+  expect(visibleLanguageModelOptions(rows.slice(0, 2), 'antigravity')).toEqual(rows.slice(0, 2))
+  expect(languageModelSelectItems(rows, 'antigravity', saved.modelId, 'Pick')).toEqual([
+    { value: '', label: 'Pick', disabled: true },
+    { value: saved.modelId, label: saved.label, disabled: true },
+    { value: curated.modelId, label: curated.label, disabled: false },
+  ])
+  expect(visibleLanguageModelOptions(rows, 'antigravity', 'gemini-4-carbon-low').map(row => row.modelId)).toEqual(['gemini-4-carbon-low'])
+  expect(visibleLanguageModelOptions(['auto', 'AUTO-SMART[max]', 'Default@MAX', 'concrete'].map(modelId => ({ modelId })), 'cursor'))
+    .toEqual([{ modelId: 'concrete' }])
+})
+
+test('background refresh keeps an open editor and its unsaved draft interactive', async () => {
+  const { api } = host()
+  const state = new GlobalModelTiersState(api)
+  await state.load()
+  state.open('high')
+  state.selectSource('custom')
+  state.selectModel('balanced')
+  const pending = deferred<GlobalModelTierOptions>()
+  api.options = () => pending.promise
+  const refresh = state.load({ background: true })
+  const draft = { tier: 'high', source: 'custom', modelId: 'balanced', revision: 7 }
+  expect(state.getSnapshot().editor).toEqual(draft)
+  expect(state.getSnapshot().loading).toBe(false)
+  expect(state.canSave()).toBe(true)
+  pending.resolve(options())
+  await refresh
+  expect(state.getSnapshot().editor).toEqual(draft)
+  expect(state.getSnapshot().loading).toBe(false)
+  expect(state.canSave()).toBe(true)
+})
 
 describe('shared model tier editor', () => {
   test('saves one structured source-local reference atomically and reloads it', async () => {

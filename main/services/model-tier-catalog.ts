@@ -8,6 +8,7 @@ import type { EngineSettings } from './engine-settings';
 import { MODEL_SOURCES } from './session-store';
 import { MODEL_TIERS, type ModelTierMapping, type ModelReference } from './model-tier-settings';
 import { type EngineRequest, type JsonObject, object, string, errorMessage } from './service-types';
+import { visibleLanguageModelOptions } from '../../shared/language-model-options';
 import { modelOptionForValue, modelOptionIsSelectable, pickCursorModelMetadata } from '../../shared/cursor-model-catalog';
 
 export interface TierCatalogDeps {
@@ -59,12 +60,13 @@ export async function sourceTierCatalog(source: string, deps: TierCatalogDeps): 
     const optionsStartedAt = Date.now();
     const rows = await composer.options(source, false, 'cached');
     optionsMs = Date.now() - optionsStartedAt;
-    const options: JsonObject[] = [];
+    const options: (JsonObject & { modelId: string; inRecommendedSort?: boolean })[] = [];
     for (const raw of rows) {
       const row = object(raw), prefix = source + ':', value = string(row.value);
       if (!value.startsWith(prefix) || value.length === prefix.length) continue;
       const modelId = value.slice(prefix.length);
-      const item: JsonObject = { modelId, label: string(row.label) || modelId };
+      const item: typeof options[number] = { modelId, label: string(row.label) || modelId };
+      if (row.inRecommendedSort === true) item.inRecommendedSort = true;
       if (typeof row.description === 'string') item.description = row.description;
       if (row.supportedThinkingLevels !== undefined) item.supportedThinkingLevels = row.supportedThinkingLevels;
       Object.assign(item, pickCursorModelMetadata(row), pickAntigravityModelMetadata(row), pickTraeModelMetadata(row), pickKiroModelMetadata(row));
@@ -72,7 +74,7 @@ export async function sourceTierCatalog(source: string, deps: TierCatalogDeps): 
       if (typeof row.reason === 'string') item.reason = row.reason;
       options.push(item);
     }
-    const ready = options.some(row => modelOptionIsSelectable(row, source));
+    const ready = visibleLanguageModelOptions(options, source).some(row => modelOptionIsSelectable(row, source));
     return { source, options, status: ready ? 'ready' : 'unavailable', ...(ready ? {} : options.length
       ? { reason: 'The model catalog contains no selectable entries', reasonCode: 'MODEL_SOURCE_UNAVAILABLE' }
       : { reason: 'No models are configured for this source', reasonCode: 'NO_MODELS_CONFIGURED' }) };
@@ -116,7 +118,8 @@ export async function validateTierTarget(reference: ModelReference, deps: TierCa
   const source = await sourceTierCatalog(reference.source, deps);
   const rows = Array.isArray(source.options) ? source.options.map(object) : [];
   const model = modelOptionForValue(rows, reference.modelId);
-  if (source.status !== 'ready' || !modelOptionIsSelectable(model, reference.source)) {
+  // Menu readiness is not eligibility for a saved catalog member.
+  if (!modelOptionIsSelectable(model, reference.source)) {
     throw new IpcHandlerError('MODEL_TIER_TARGET_UNAVAILABLE', string(model?.reason) || string(source.reason) || 'The selected model is not available in this source');
   }
 }

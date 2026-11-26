@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { modelOptionForValue, modelOptionIsSelectable, modelOptionsForValue } from '../../../../shared/cursor-model-catalog'
+import { modelOptionForValue } from '../../../../shared/cursor-model-catalog'
 import { useT } from '../../i18n'
 import type { GlobalModelTierOptions } from '../../../bridge/types'
-import { KlsSelect, ModelSourceSelect, loadGlobalModelTierOptions, sourceLabel } from './model-shared'
+import { KlsSelect, ModelSourceSelect, languageModelSelectItems, loadGlobalModelTierOptions, sourceLabel } from './model-shared'
 import { useSettingsSnapshot } from './settings-snapshot'
 import {
   ALL_FEATURE_MODEL_ROWS, EMPTY_FEATURE_MODEL_VALUES, FEATURE_MODEL_ROWS, composeFeatureModelValue, effectiveRowSource,
-  featureModelInCatalog, normalizedFeatureModelValues, parseFeatureModelReference,
+  normalizedFeatureModelValues, parseFeatureModelReference,
   type FeatureModelField, type FeatureModelRow as FeatureModelRowSpec, type FeatureModelSlot, type FeatureModelValues,
 } from './feature-models-state'
 import styles from './settings.module.css'
@@ -144,19 +144,7 @@ export function FeatureModelRow({ row, model }: {
   const source = effectiveRowSource(stored, model.sourceChoices[row.slot], model.sourceRows.map(candidate => candidate.source))
   const sourceRow = model.sourceRows.find(candidate => candidate.source === source)
   const modelId = storedRef && storedRef.source === source ? storedRef.modelId : ''
-  const modelItems = [
-    { value: '', label: t('model_tiers_pick_model'), disabled: true },
-    ...(storedRef && storedRef.source === source && !featureModelInCatalog(sourceRow?.options || [], storedRef.modelId)
-      ? [{ value: storedRef.modelId, label: storedRef.modelId, disabled: true }] : []),
-    // Model rows carry the name only. The catalog description is provider copy
-    // in two languages; as a second row it stretched the fixed-position panel
-    // across the whole window.
-    ...(modelOptionsForValue(sourceRow?.options || [], modelId) as any[]).map(option => ({
-      value: option.modelId,
-      label: option.label,
-      disabled: !modelOptionIsSelectable(option, source),
-    })),
-  ]
+  const modelItems = languageModelSelectItems(sourceRow?.options || [], source, modelId, t('model_tiers_pick_model'))
   return (
     <div className="pref-row" data-feature-model={row.slot}>
       <div className={styles['pref-row-text']}>

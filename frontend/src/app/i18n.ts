@@ -65,14 +65,14 @@ export function applyI18n() {
   })
 }
 
-export function setLanguage(lang: string) {
+export function setLanguage(lang: string, reloadSettings = true) {
   w().currentLang = lang
   applyI18n()
   // Notify JS-rendered UI (custom selects, dynamic lists) to re-resolve their
   // i18n keys. The DOM walk in applyI18n only catches statically-authored
   // [data-i18n] nodes, not items created later via innerHTML.
   window.dispatchEvent(new CustomEvent('klaus:lang-change', { detail: { lang } }))
-  if (typeof w().settingsVisible !== 'undefined' && w().settingsVisible && typeof w().loadSettingsTab === 'function' && typeof w().currentSettingsTab === 'string') {
+  if (reloadSettings && typeof w().settingsVisible !== 'undefined' && w().settingsVisible && typeof w().loadSettingsTab === 'function' && typeof w().currentSettingsTab === 'string') {
     w().loadSettingsTab(w().currentSettingsTab)
   }
 }
@@ -622,16 +622,16 @@ function bindSystemThemeListener() {
   } catch {}
 }
 
-async function loadPreferences() {
+async function loadPreferences(reloadSettings = true) {
   const distribution = await loadDesktopDistribution()
   try {
     const lang = await w().klaus.settings.kv.get('language')
     // Route through setLanguage so the klaus:lang-change event fires —
     // klsSelect instances bound during script eval (before prefs load) keep
     // their English default labels otherwise (e.g. the cron status filter).
-    if (lang) setLanguage(lang)
-    else if (distribution.defaultLanguage) setLanguage(distribution.defaultLanguage)
-    else setLanguage(/^zh(?:[-_]|$)/i.test(navigator.language) ? 'zh' : 'en')
+    if (lang) setLanguage(lang, reloadSettings)
+    else if (distribution.defaultLanguage) setLanguage(distribution.defaultLanguage, reloadSettings)
+    else setLanguage(/^zh(?:[-_]|$)/i.test(navigator.language) ? 'zh' : 'en', reloadSettings)
     cachedAppearancePreferences = await readAppearancePreferences()
     applyTheme(cachedAppearancePreferences.themeChoice, cachedAppearancePreferences)
     bindSystemThemeListener()
@@ -665,7 +665,15 @@ try {
     // and pending edits. Reapplying preferences here would remount that page
     // twice, discarding its live controls before the mutation settles.
     if (payload?.key === 'plugins' && w().settingsVisible && w().currentSettingsTab === 'browser') return
-    Promise.resolve(loadPreferences()).then(() => {
+    const key = payload?.key
+    const refreshModels = key === 'model_tiers:global' || key === 'advisor' || key === 'orchestrator'
+      || key === 'feature_models' || key?.startsWith('model_catalog:')
+      || (w().settingsVisible && w().currentSettingsTab === 'modelTiers')
+    Promise.resolve(loadPreferences(!refreshModels)).then(() => {
+      if (refreshModels) {
+        window.dispatchEvent(new Event('klaus:models-changed'))
+        return
+      }
       // loadPreferences covers appearance and language. This covers every other
       // row: a settings tab that is open right now is showing what it read when
       // it opened. Same guard as the language switch above.

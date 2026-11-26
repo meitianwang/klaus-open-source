@@ -64,8 +64,11 @@ export function latestAntigravityFamilyIds(families: AntigravityPresentationFami
  *  selections. The menu mirrors the service-curated inventory: once any row
  *  carries the recommended-sort curation flag, uncategorized rows stay out of
  *  the menu. A payload without curation data keeps every delivered row. */
-export function visibleAntigravityModelOptions<T extends { value: string; inRecommendedSort?: boolean }>(options: T[]): T[] {
-  const curated = options.some(row => row.value.startsWith('antigravity:') && row.inRecommendedSort === true);
-  if (!curated) return options;
-  return options.filter(row => !row.value.startsWith('antigravity:') || row.inRecommendedSort === true);
+export function visibleAntigravityModelOptions<T extends { value?: string; modelId?: string; inRecommendedSort?: boolean }>(options: readonly T[], source?: string): T[] {
+  const isAntigravity = (row: T) => source === undefined
+    ? typeof row.value === 'string' && row.value.startsWith('antigravity:')
+    : source === 'antigravity';
+  const curated = options.some(row => isAntigravity(row) && row.inRecommendedSort === true);
+  if (!curated) return options.slice();
+  return options.filter(row => !isAntigravity(row) || row.inRecommendedSort === true);
 }

@@ -1,12 +1,28 @@
-import { modelOptionForValue } from '../../../../shared/cursor-model-catalog'
+import { visibleLanguageModelOptions } from '../../../../shared/language-model-options'
+import { modelOptionForValue, modelOptionIsSelectable } from '../../../../shared/cursor-model-catalog'
 // Shared model-source presentation, global tier references and source sections.
 // Historical source maps remain readable for compatibility, but have no writer.
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from 'react'
-import type { GlobalModelTierMapping, GlobalModelTierOptions, ModelTierName, ModelTierReference } from '../../../bridge/types'
+import type { GlobalModelTierMapping, GlobalModelTierOptions, ModelTierOption, ModelTierName, ModelTierReference } from '../../../bridge/types'
 import { t as tGlobal } from '../../i18n'
 import { settingsErrorText } from './settings-error-text'
 import { rawIconHtml } from '../../components/Icon'
 import styles from './settings.module.css'
+
+export { visibleLanguageModelOptions }
+
+export function languageModelSelectItems(options: readonly ModelTierOption[], source: string, selectedModelId: string, pickModelLabel: string) {
+  const visible = visibleLanguageModelOptions(options, source, selectedModelId)
+  const items = [{ value: '', label: pickModelLabel, disabled: true }]
+  if (selectedModelId && !visible.some(row => row.modelId === selectedModelId)) {
+    items.push({ value: selectedModelId, label: modelOptionForValue(options, selectedModelId)?.label || selectedModelId, disabled: true })
+  }
+  return items.concat(visible.map(row => ({
+    value: String(row.modelId ?? ''),
+    label: String(row.label || row.modelId || ''),
+    disabled: !modelOptionIsSelectable(row, source),
+  })))
+}
 
 const w = () => window as any
 

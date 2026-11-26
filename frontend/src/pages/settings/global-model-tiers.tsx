@@ -1,9 +1,9 @@
-import { modelOptionHasValue, modelOptionForValue, modelOptionIsSelectable, modelOptionsForValue } from '../../../../shared/cursor-model-catalog'
+import { modelOptionForValue, modelOptionIsSelectable } from '../../../../shared/cursor-model-catalog'
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import { useT } from '../../i18n'
 import { ModalPortal } from '../../components/ModalPortal'
 import {
-  AUTH_MODE_ORDER, KlsSelect, MODEL_TIERS, ModelSourceSelect, loadGlobalModelTierMappings,
+  AUTH_MODE_ORDER, languageModelSelectItems, visibleLanguageModelOptions, KlsSelect, MODEL_TIERS, ModelSourceSelect, loadGlobalModelTierMappings,
   loadGlobalModelTierOptions, modelReferenceLabel, saveGlobalModelTier, sourceLabel,
 } from './model-shared'
 import type { GlobalModelTierMapping, GlobalModelTierOptions, ModelTierReference } from '../../../bridge/types'
@@ -88,20 +88,8 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
     || advisorSourceRows.find(row => row.status === 'ready')?.source
     || advisorSourceRows[0]?.source || ''
   const advisorSourceRow = advisorSourceRows.find(row => row.source === advisorSource)
-  const advisorModelItems = [
-    { value: '', label: t('model_tiers_pick_model'), disabled: true },
-    ...(advisorReferenceParsed && advisorReferenceParsed.source === advisorSource
-      && !(advisorSourceRow?.options || []).some(row => modelOptionHasValue(row, advisorReferenceParsed.modelId))
-      ? [{ value: advisorReferenceParsed.modelId, label: advisorReferenceParsed.modelId, disabled: true }] : []),
-    // Model rows carry the name only: the catalog description is provider copy
-    // in two languages and stretched the fixed-position panel to viewport width.
-    ...modelOptionsForValue(advisorSourceRow?.options || [], advisorReferenceParsed?.source === advisorSource ? advisorReferenceParsed.modelId : '').map(row => ({
-      value: row.modelId,
-      label: row.label,
-      disabled: !modelOptionIsSelectable(row, advisorSource),
-    })),
-  ]
   const advisorModelId = advisorReferenceParsed && advisorReferenceParsed.source === advisorSource ? advisorReferenceParsed.modelId : ''
+  const advisorModelItems = languageModelSelectItems(advisorSourceRow?.options || [], advisorSource, advisorModelId, t('model_tiers_pick_model'))
   const advisorSelected = modelOptionForValue(advisorSourceRow?.options || [], advisorModelId)
   const advisorMissing = Boolean(advisor?.model && !advisorReferenceParsed)
     || Boolean(advisorReferenceParsed && !advisorSourceRows.some(row => row.source === advisorReferenceParsed.source))
@@ -186,17 +174,8 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
     : advisorSourceRows.find(row => row.source === orchestratorSource)
   const orchestratorModelId = orchestratorRefParsed && orchestratorRefParsed.source === orchestratorSource ? orchestratorRefParsed.modelId : ''
   const orchestratorSelected = orchestratorSourceRow ? modelOptionForValue(orchestratorSourceRow.options || [], orchestratorModelId) : undefined
-  const orchestratorModelItems = orchestratorSource === USE_MEDIUM_MODEL ? [] : [
-    { value: '', label: t('model_tiers_pick_model'), disabled: true },
-    ...(orchestratorRefParsed && orchestratorRefParsed.source === orchestratorSource
-      && !(orchestratorSourceRow?.options || []).some(row => modelOptionHasValue(row, orchestratorRefParsed.modelId))
-      ? [{ value: orchestratorRefParsed.modelId, label: orchestratorRefParsed.modelId, disabled: true }] : []),
-    ...modelOptionsForValue(orchestratorSourceRow?.options || [], orchestratorModelId).map(row => ({
-      value: row.modelId,
-      label: row.label,
-      disabled: !modelOptionIsSelectable(row, orchestratorSource),
-    })),
-  ]
+  const orchestratorModelItems = orchestratorSource === USE_MEDIUM_MODEL ? []
+    : languageModelSelectItems(orchestratorSourceRow?.options || [], orchestratorSource, orchestratorModelId, t('model_tiers_pick_model'))
   const orchestratorMissing = Boolean(orchestrator?.model && !orchestratorRefParsed)
     || Boolean(orchestratorRefParsed && !advisorSourceRows.some(row => row.source === orchestratorRefParsed.source))
     || Boolean(orchestratorModelId && !orchestratorSelected)
@@ -230,7 +209,7 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
 
   useEffect(() => {
     void state.load()
-    const refresh = () => { void state.load() }
+    const refresh = () => { void state.load({ background: true }) }
     window.addEventListener('klaus:models-changed', refresh)
     window.addEventListener('klaus:auth-mode-changed', refresh)
     return () => {
@@ -276,8 +255,6 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
     window.dispatchEvent(new Event('klaus:models-changed'))
   }
   const source = options?.sources.find(row => row.source === editor?.source)
-  const selected = modelOptionForValue(source?.options || [], editor?.modelId || '')
-  const missingModel = Boolean(editor?.modelId && !selected)
   const conflict = Boolean(editor && mapping && editor.revision !== mapping.revision)
   const configure = (source: string) => { state.close(); configureSource(source) }
   const reasonText = (code?: string, fallback?: string) => {
@@ -316,7 +293,7 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
                 }
                 const next = orchestratorRefParsed && orchestratorRefParsed.source === source
                   ? orchestratorRefParsed.modelId
-                  : (advisorSourceRows.find(row => row.source === source)?.options?.find(opt => modelOptionIsSelectable(opt, source))?.modelId || '')
+                  : (visibleLanguageModelOptions(advisorSourceRows.find(row => row.source === source)?.options || [], source).find(opt => modelOptionIsSelectable(opt, source))?.modelId || '')
                 if (next) void saveOrchestrator({ model: `${source}:${next}` })
               }} />
           </div>
@@ -470,18 +447,7 @@ export function GlobalModelTiers({ configureSource }: { configureSource: (source
                   <div className="form-row">
                     <label id="tier-model-label">{t('model_tiers_model')}</label>
                     <KlsSelect id="tier-model-select" labelId="tier-model-label" className="kls-select kls-select-block"
-                      items={[
-                        { value: '', label: t('model_tiers_pick_model'), disabled: true },
-                        ...(missingModel ? [{ value: editor.modelId, label: editor.modelId, disabled: true }] : []),
-                        // Model rows carry the name only: the catalog
-                        // description is provider copy in two languages and
-                        // stretched the fixed-position panel to viewport width.
-                        ...modelOptionsForValue(source?.options || [], editor.modelId).map(row => ({
-                          value: row.modelId,
-                          label: row.label,
-                          disabled: !modelOptionIsSelectable(row, editor.source),
-                        })),
-                      ]}
+                      items={languageModelSelectItems(source?.options || [], editor.source, editor.modelId, t('model_tiers_pick_model'))}
                       value={editor.modelId} disabled={saving || source?.status !== 'ready' || Boolean(optionsError)}
                       bindKey={`model|${editor.source}|${editor.modelId}|${JSON.stringify(source)}|${saving}|${optionsError}`}
                       onChange={value => state.selectModel(value)} />

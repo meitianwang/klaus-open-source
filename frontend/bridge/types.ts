@@ -52,6 +52,7 @@ export interface GlobalModelTierMapping {
 export interface ModelTierOption extends CursorModelMetadata, AntigravityModelMetadata, TraeModelMetadata, KiroModelMetadata {
   modelId: string
   label: string
+  inRecommendedSort?: boolean
   description?: string
   available?: boolean
   reason?: string
