@@ -15,9 +15,15 @@ expose('klaus', {
   artifacts: {
     read: (sessionId: string, filePath: string) => call('artifacts:read', { sessionId, filePath }),
     fileUrl: (sessionId: string, filePath: string) => call('artifacts:file-url', { sessionId, filePath }),
+    openDefault: (sessionId: string, filePath: string) =>
+      call('artifacts:open-default', { sessionId, filePath }) as Promise<{ ok?: boolean; path?: string; error?: string }>,
     reveal: (filePath: string) => call('artifacts:reveal', { filePath }),
     openWorkspace: (sessionId: string) => call('artifacts:open-workspace', { sessionId }),
     openWindow: (sessionId: string, filePath: string) => call('artifacts:open-window', { sessionId, filePath }),
+    writeOffice: (sessionId: string, filePath: string, office: unknown, options?: { expectedMtimeMs?: number | null; force?: boolean }) =>
+      call('artifacts:write-office', { sessionId, filePath, office, ...(options ? { expectedMtimeMs: options.expectedMtimeMs, force: options.force } : {}) }),
+    saveOfficeAs: (sessionId: string, filePath: string, office: unknown) =>
+      call('artifacts:save-office-as', { sessionId, filePath, office }),
   },
   memory: {
     readFile: (filePath: string) => call('memory:read-file', { filePath }),

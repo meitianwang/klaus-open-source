@@ -64,7 +64,7 @@ function ensureWorker(): Worker | null {
   try {
     const generation = workerGeneration
     worker = factory?.() ?? new Worker(new URL('./markdown.worker.ts', import.meta.url), { type: 'module' })
-    const icons = Object.fromEntries(['note.md', 'config.json', 'run.sh', 'app.ts', 'doc.pdf', 'sheet.xlsx', 'report.docx', 'deck.pptx', 'file.bin'].map(path => [fileIconName(path), fileIconSvg(path)]))
+    const icons = Object.fromEntries(['note.md', 'config.json', 'run.sh', 'app.ts', 'doc.pdf', 'sheet.xlsx', 'data.csv', 'report.docx', 'deck.pptx', 'map.xmind', 'page.html', 'file.bin'].map(path => [fileIconName(path), fileIconSvg(path)]))
     worker.postMessage({ type: 'initialize', icons })
     worker.onmessage = ({ data }) => {
       if (generation !== workerGeneration) return

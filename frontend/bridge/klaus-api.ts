@@ -608,9 +608,19 @@ expose('klaus', {
     widgetUrl: (sessionId: string, widgetId: string, revision: number, filePath: string) =>
       call('artifacts:widget-url', { sessionId, widgetId, revision, filePath }),
     openWorkspace: (sessionId: string) => call('artifacts:open-workspace', { sessionId }),
+    openDefault: (sessionId: string, filePath: string) =>
+      call('artifacts:open-default', { sessionId, filePath }) as Promise<{ ok?: boolean; path?: string; error?: string }>,
     reveal: (filePath: string) => call('artifacts:reveal', { filePath }),
     saveCopy: (sessionId: string, filePath: string) =>
       call('artifacts:save-copy', { sessionId, filePath }) as Promise<{ ok?: boolean; cancelled?: boolean; filePath?: string; error?: string }>,
+    writeOffice: (sessionId: string, filePath: string, office: unknown, options?: { expectedMtimeMs?: number | null; force?: boolean }) =>
+      call('artifacts:write-office', { sessionId, filePath, office, ...(options ? { expectedMtimeMs: options.expectedMtimeMs, force: options.force } : {}) }) as Promise<{
+        ok?: boolean; path?: string; mtimeMs?: number; conflict?: boolean; error?: string
+      }>,
+    saveOfficeAs: (sessionId: string, filePath: string, office: unknown) =>
+      call('artifacts:save-office-as', { sessionId, filePath, office }) as Promise<{
+        ok?: boolean; cancelled?: boolean; filePath?: string; fileName?: string; mtimeMs?: number; officeWritable?: boolean; error?: string
+      }>,
     openWindow: (sessionId: string, filePath: string, displayName?: string) =>
       call('artifacts:open-window', { sessionId, filePath, displayName }),
   },
@@ -1892,6 +1902,8 @@ expose('klaus', {
       subscribe('tray:open-settings', () => cb()),
     deepLinkOpenSession: (cb: (payload: { sessionId: string }) => void): Unsubscribe =>
       subscribe('deep-link:open-session', (payload: { sessionId: string }) => cb(payload)),
+    deepLinkOpenFolder: (cb: (payload: { directory: string }) => void | Promise<void>): Unsubscribe =>
+      subscribe('deep-link:open-folder', (payload: { directory: string }) => cb(payload)),
     deepLinkOpenTeamIssue: (cb: (payload: TeamIssueDeepLink) => void | Promise<void>): Unsubscribe =>
       subscribe('deep-link:open-team-issue', (payload: TeamIssueDeepLink) => cb(payload)),
     deepLinkFriendInvite: (cb: (payload: { email: string }) => void): Unsubscribe =>

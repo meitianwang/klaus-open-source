@@ -4,6 +4,7 @@ import { createHash } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
 import { requireTarget } from './resources.mjs';
 import { DEFAULT_DESKTOP_EDITION, desktopEdition } from './desktop-edition.mjs';
+import { electronBuilderFileAssociations, macDocumentTypes } from './file-associations.mjs';
 
 // Stable registry identities for the first Electron release and its isolated
 // installation fixture. Do not derive them from the former shell's app ID.
@@ -47,7 +48,14 @@ export function installerConfiguration({ platform, arch, version, electronVersio
     toolsets: { nsis: '1.2.1' },
     publish: null,
     protocols: fixture ? [] : [{ name: edition.productName, schemes: [edition.protocol] }],
-    mac: { target: [{ target: 'zip', arch: [arch] }], artifactName: `${edition.artifactPrefix}-${version}-darwin-${arch}.zip`, icon: join(assets, 'icon.icns'), notarize: false },
+    fileAssociations: fixture ? [] : electronBuilderFileAssociations(edition),
+    mac: {
+      target: [{ target: 'zip', arch: [arch] }],
+      artifactName: `${edition.artifactPrefix}-${version}-darwin-${arch}.zip`,
+      icon: join(assets, 'icon.icns'),
+      notarize: false,
+      ...(fixture ? {} : { extendInfo: { CFBundleDocumentTypes: macDocumentTypes(edition) } }),
+    },
     win: { target: [{ target: 'nsis', arch: [arch] }], artifactName: `${edition.artifactPrefix}-${version}-win32-${arch}-setup.exe`, icon: join(assets, 'icon.ico'), requestedExecutionLevel: 'asInvoker', verifyUpdateCodeSignature: true },
     nsis: {
       guid: fixture ? FIXTURE_NSIS_GUID : edition.nsisGuid,

@@ -285,7 +285,8 @@ void (async () => {
       // 775 adds the eleven `design:*` owner-panel transport channels for Design Canvas.
       // 783 adds the eight `photo-editing:*` owner-panel transport channels for Photo Editing.
       // 791 adds the eight `motion-graphics:*` owner-panel transport channels for Motion Graphics.
-      assert.equal(channels.size, 791);
+      // 794 adds `artifacts:open-default`, `artifacts:write-office`, and `artifacts:save-office-as` for built-in Office/XMind/CSV editing and default-app fallback.
+      assert.equal(channels.size, 794);
       const companionChannels = [...channels].filter(channel => channel.startsWith('desktop-pet:'));
       assert.equal(companionChannels.length, 58);
       for (const channel of companionChannels) {

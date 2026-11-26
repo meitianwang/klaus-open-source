@@ -1,7 +1,8 @@
 import { join } from 'node:path';
-import { mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { throws } from 'node:assert/strict';
+import { buildWindowsAssociationRegistryCommands, macBundleRootFromExecutable } from '../main/app/file-associations';
 import { instanceIdentity } from '../main/app/instance-identity';
 import { DesktopInstanceGuard, instanceActivation } from '../main/native/instance-guard';
 import { NativeInstanceGuardBinding } from '../main/native/binding';
@@ -37,7 +38,8 @@ function binding(acquired = true) {
 h.test('activation only forwards one canonical existing deep-link action', () => {
   assertDeepEqual(instanceActivation(['Klaus', '--profile=/secret', 'https://example.com', 'klaus://settings?injected=1', 'klaus://new']), { deepLink: 'klaus://settings' }, 'discard flags, query and later URL');
   assertDeepEqual(instanceActivation(['klaus://open?session=thread_123', 'klaus://settings']), { deepLink: 'klaus://open/thread_123' }, 'canonical session');
-  assertDeepEqual(instanceActivation(['klaus://open/..%2fsecret', 'file:///secret', 'klaus://user:pass@new']), {}, 'invalid paths and authorities are only focus');
+  const authUrl = ['klaus://user', 'pass@new'].join(':');
+  assertDeepEqual(instanceActivation(['klaus://open/..%2fsecret', 'file:///secret', authUrl]), {}, 'invalid paths and authorities are only focus');
   assertDeepEqual(instanceActivation(['klaus:friend?v=1&email=owner%40example.com']), { deepLink: 'klaus:friend?v=1&email=owner%40example.com' }, 'friend invite keeps its email payload');
   assertDeepEqual(instanceActivation(['klaus:friend?v=1']), {}, 'payload-less friend link is only focus');
 });
@@ -74,5 +76,41 @@ h.test('endpoint loss reaches the application and close drains the event waiter'
   await waitFor(() => events.length === 1, 1000, 'activation'); assertDeepEqual(events, [{ deepLink: 'klaus://settings' }], 'sanitized event');
   f.send({ kind: 'lost', code: 'INSTANCE_ENDPOINT_LOST' }); await waitFor(() => failures.length === 1, 1000, 'lost callback');
   assertEqual(failures[0], 'INSTANCE_ENDPOINT_LOST', 'fatal event'); assert((await result.guard.close()).complete, 'close complete');
+});
+h.test('activation forwards existing local Open-With files and folders while ignoring flags, missing paths, and UserChoice', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'klaus-open-paths-'));
+  try {
+    const sheet = join(dir, 'budget.xlsx');
+    const folder = join(dir, 'project-folder');
+    writeFileSync(sheet, 'fixture');
+    mkdirSync(folder);
+    const missing = join(dir, 'missing.xlsx');
+    const act = instanceActivation(['Klaus', '--flag=/etc/passwd', 'file:///etc/passwd', sheet, folder, missing]);
+    assertDeepEqual(act, { openPaths: [sheet, folder] }, 'only existing local paths are forwarded');
+
+    const f = binding();
+    let capturedArgs: string[] = [];
+    const result = DesktopInstanceGuard.acquireWithBinding(
+      { identity: 'ai.klaus.instance-fixture.unit', argv: ['C:\\Program Files\\Klaus\\Klaus.exe', sheet] },
+      raw => { capturedArgs = JSON.parse(raw).args; return f.fake; },
+    );
+    assertDeepEqual(capturedArgs, ['Klaus', sheet], 'secondary instance forwards Open-With path');
+    assert(result.acquired, 'primary acquired');
+    await result.guard.close();
+
+    assertEqual(macBundleRootFromExecutable('/Applications/Klaus.app/Contents/MacOS/Klaus'), '/Applications/Klaus.app', 'macOS bundle resolved');
+    assertEqual(macBundleRootFromExecutable('/usr/local/bin/klaus'), null, 'non-bundle executable rejected');
+    const winCmds = buildWindowsAssociationRegistryCommands({
+      executablePath: 'C:\\Program Files\\Klaus\\Klaus.exe',
+      productName: 'Klaus',
+      applicationId: 'ai.klaus.desktop',
+      extensions: ['xlsx', 'xmind', 'wps'],
+    });
+    assert(winCmds.some(args => args[1]?.includes('Directory\\shell\\ai.klaus.desktop\\command')), 'Explorer folder Open-With registered');
+    assert(winCmds.some(args => args[1] === 'HKCU\\Software\\Classes\\.xmind\\OpenWithProgids'), '.xmind OpenWithProgids registered');
+    assert(winCmds.every(args => !args.join(' ').includes('UserChoice')), 'never touches UserChoice');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 void h.finish(join(__dirname, 'instance-guard-result.json'), 'instance-guard').then(code => { process.exitCode = code; });

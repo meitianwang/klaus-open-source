@@ -1,11 +1,43 @@
 import { join } from 'node:path';
 import { Worker } from 'node:worker_threads';
-import { officePreviewFamily, type OfficeDocBlock, type OfficeDocumentPreview, type OfficeErrorPreview, type OfficePreviewKind, type OfficePreviewPayload, type OfficeSpreadsheetPreview } from '../../../contracts/office-preview';
+import { parseDelimitedSpreadsheet } from '../../../contracts/office-formula';
+import { extOfPath, officePreviewFamily, type OfficeDocBlock, type OfficeDocumentPreview, type OfficeErrorPreview, type OfficePreviewKind, type OfficePreviewPayload, type OfficeSpreadsheetPreview } from '../../../contracts/office-preview';
 import { parseDocxArchive } from './docx';
+import { parseOdtArchive } from './document-writer';
 import type { ExtractedOffice } from './office-worker';
 import { parseOdpArchive, parsePptxArchive } from './pptx';
+import { parseOdsArchive } from './spreadsheet-writer';
 import { parseTextSpreadsheet, parseXlsxArchive } from './xlsx';
+import { parseXmindArchive, summarizeMindMapTopic } from './xmind';
 import { childElements, decodeEntities, OfficeParseError, openSafeZip, parseXml, textContent, type XmlElement } from './xml';
+
+export { writeOfficeBuffer } from './office-writer';
+
+export function decodeSpreadsheetText(bytes: Buffer): string {
+  if (!bytes.length) return '';
+  const bom2 = bytes.subarray(0, 2).toString('hex');
+  if (bom2 === 'fffe') return new TextDecoder('utf-16le').decode(bytes.subarray(2));
+  if (bom2 === 'feff') return new TextDecoder('utf-16be').decode(bytes.subarray(2));
+  if (bytes.length >= 3 && bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    return new TextDecoder('utf-8').decode(bytes.subarray(3));
+  }
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    try {
+      return new TextDecoder('gb18030').decode(bytes);
+    } catch {
+      return bytes.toString('utf8');
+    }
+  }
+}
+
+export function parseCsvTsvBuffer(filePath: string, bytes: Buffer): { text: string; office: OfficeSpreadsheetPreview; truncated: boolean } {
+  const text = decodeSpreadsheetText(bytes);
+  const delimiter: ',' | '\t' = extOfPath(filePath) === 'tsv' ? '\t' : ',';
+  const { preview, truncated } = parseDelimitedSpreadsheet(text, delimiter);
+  return { text, office: preview, truncated };
+}
 
 function workerExtract(bytes: Buffer, mimeType: string): Promise<ExtractedOffice> {
   return new Promise((resolve, reject) => {
@@ -86,7 +118,7 @@ function markupDocument(source: string): OfficeDocumentPreview {
   return { kind: 'document', blocks };
 }
 
-function summarize(office: OfficePreviewPayload): { plainText: string; truncated: boolean } {
+export function summarizeOfficePayload(office: OfficePreviewPayload): { plainText: string; truncated: boolean } {
   let remaining = 256 * 1024, truncated = false;
   const parts: string[] = [];
   const append = (text: string) => {
@@ -125,6 +157,15 @@ function summarize(office: OfficePreviewPayload): { plainText: string; truncated
       for (const paragraph of paragraphs) { for (const run of paragraph.runs) append(run.br ? '\n' : run.text); append('\n'); }
     }
     if (slide.notes) append(`${slide.notes}\n`);
+  } else if (office.kind === 'mindmap') {
+    for (const sheet of office.sheets) {
+      if (truncated) break;
+      append(`${sheet.title}\n`);
+      for (const line of summarizeMindMapTopic(sheet.rootTopic)) {
+        if (truncated) break;
+        append(`${line}\n`);
+      }
+    }
   }
   return { plainText: parts.join('').trimEnd(), truncated };
 }
@@ -143,35 +184,52 @@ export async function parseOfficeBuffer(filePath: string, bytes: Buffer): Promis
     if (magic === '504b0304' || magic === '504b0506') {
       const zip = await openSafeZip(bytes);
       try {
+        if (await zip.read('content.json')) return await parseXmindArchive(zip);
         if (await zip.readXml('xl/workbook.xml')) return await parseXlsxArchive(zip);
         if (await zip.readXml('word/document.xml')) return await parseDocxArchive(zip);
         if (await zip.readXml('ppt/presentation.xml')) return await parsePptxArchive(zip);
-        if (await zip.readXml('content.xml')) {
+        const contentRoot = await zip.readXml('content.xml');
+        if (contentRoot) {
+          if (contentRoot.local === 'xmap-content' || family === 'mindmap') return await parseXmindArchive(zip);
           const mime = (await zip.read('mimetype', 256))?.toString('utf8').trim();
           if (family === 'presentation' || mime === 'application/vnd.oasis.opendocument.presentation') return await parseOdpArchive(zip);
           const spreadsheet = mime === 'application/vnd.oasis.opendocument.spreadsheet' || family === 'spreadsheet';
-          return await fallback(`application/vnd.oasis.opendocument.${spreadsheet ? 'spreadsheet' : 'text'}`, spreadsheet ? 'spreadsheet' : 'document');
+          if (spreadsheet) {
+            try { return await parseOdsArchive(zip); } catch { return await fallback('application/vnd.oasis.opendocument.spreadsheet', 'spreadsheet'); }
+          }
+          try { return await parseOdtArchive(zip); } catch { return await fallback('application/vnd.oasis.opendocument.text', 'document'); }
         }
         throw new OfficeParseError('unsupported', 'Unrecognized Office archive');
       } finally { zip.close(); }
     }
     if (bytes.subarray(0, 8).toString('hex') === 'd0cf11e0a1b11ae1') {
-      if (bytes.includes(Buffer.from('EncryptedPackage')) || bytes.includes(Buffer.from('EncryptedPackage', 'utf16le'))) throw new OfficeParseError('encrypted', 'Encrypted Office package');
-      return fallback({ document: 'application/msword', spreadsheet: 'application/vnd.ms-excel', presentation: 'application/vnd.ms-powerpoint' }[family]);
+      if (bytes.includes(Buffer.from('EncryptedPackage')) || bytes.includes(Buffer.from('EncryptedPackage', 'utf16le'))) {
+        throw new OfficeParseError('encrypted', 'Encrypted Office package');
+      }
+      if (family === 'mindmap') throw new OfficeParseError('corrupted', 'Invalid XMind archive');
+      const oleMime = family === 'spreadsheet'
+        ? 'application/vnd.ms-excel'
+        : family === 'presentation'
+          ? 'application/vnd.ms-powerpoint'
+          : 'application/msword';
+      return fallback(oleMime);
     }
     if (bytes.subarray(0, 5).toString() === '{\\rtf') return fallback('application/rtf', 'document');
-    const bom = bytes.subarray(0, 2).toString('hex');
-    const encoding = bom === 'fffe' ? 'utf-16le' : bom === 'feff' ? 'utf-16be' : 'utf-8';
-    const text = new TextDecoder(encoding).decode(bytes).trimStart();
-    if (!text.startsWith('<')) return undefined;
-    if (family === 'spreadsheet') return parseTextSpreadsheet(text) ?? undefined;
-    if (family === 'document') return { preview: markupDocument(text), truncated: false };
+    const decoded = decodeSpreadsheetText(bytes).trimStart();
+    if (decoded.startsWith('<')) {
+      if (family === 'spreadsheet') return parseTextSpreadsheet(decoded) ?? undefined;
+      if (family === 'document') return { preview: markupDocument(decoded), truncated: false };
+      return undefined;
+    }
+    if (family === 'spreadsheet' && !decoded.includes('\0') && decoded.includes('\t')) {
+      return parseDelimitedSpreadsheet(decoded, '\t');
+    }
     return undefined;
   };
   try {
     const parsed = await parse();
     if (!parsed) return failure('corrupted');
-    const summary = summarize(parsed.preview);
+    const summary = summarizeOfficePayload(parsed.preview);
     return { office: parsed.preview, plainText: summary.plainText, truncated: parsed.truncated };
   } catch (error) {
     return error instanceof OfficeParseError ? failure(error.code, error.message) : failure('corrupted');
@@ -212,7 +270,7 @@ export async function parsePdfBuffer(bytes: Buffer): Promise<{ office: OfficePre
     }
     const truncated = data.truncated || sources.length > 200;
     const office: OfficePreviewPayload = { kind: 'pdf', pageCount: Math.max(data.pageCount, sources.length), pages, truncated };
-    const summary = summarize(office);
+    const summary = summarizeOfficePayload(office);
     return { office, plainText: summary.plainText, truncated: truncated || summary.truncated };
   } catch {
     return { office: { kind: 'error', family: 'pdf', code: bytes.includes('/Encrypt') ? 'encrypted' : 'corrupted' }, plainText: '', truncated: false };

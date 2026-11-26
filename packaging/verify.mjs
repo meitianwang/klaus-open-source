@@ -9,6 +9,7 @@ import { officialPluginRequiredFiles, parseOfficialPluginRecords } from './offic
 import { verifyBrowserImportResource } from './browser-import.mjs';
 import { POLICY_NOTICE_CATALOG, POLICY_NOTICE_DIRECTORY } from '../engine/scripts/policy-notices.mjs';
 import { DEFAULT_DESKTOP_EDITION, desktopEdition, packagedDesktopEditionDocument, validateDesktopEditionDocuments } from './desktop-edition.mjs';
+import { REQUIRED_CORE_ASSOCIATED_EXTENSIONS } from './file-associations.mjs';
 
 /**
  * The package's own definitions decide its identity, so a package built for an
@@ -54,6 +55,26 @@ export function verifyMacPackageIdentity(text, edition) {
   const info = plist.parse(text);
   if (info.CFBundleIdentifier !== edition.application || info.CFBundleExecutable !== edition.executableName
     || !info.CFBundleURLTypes?.some(value => value.CFBundleURLSchemes?.includes(edition.protocol))) throw new Error('Packaged macOS edition identity mismatch');
+}
+
+export function verifyMacDocumentTypes(text) {
+  const info = plist.parse(text);
+  if (!Array.isArray(info.CFBundleDocumentTypes) || info.CFBundleDocumentTypes.length === 0) {
+    throw new Error('Packaged macOS Info.plist is missing CFBundleDocumentTypes');
+  }
+  const declared = new Set();
+  let hasFolder = false;
+  for (const entry of info.CFBundleDocumentTypes) {
+    if (entry.LSHandlerRank && entry.LSHandlerRank !== 'Alternate') {
+      throw new Error(`Unexpected macOS document handler rank: ${entry.LSHandlerRank}`);
+    }
+    for (const ext of entry.CFBundleTypeExtensions ?? []) declared.add(String(ext).toLowerCase());
+    if (entry.LSItemContentTypes?.includes('public.folder')) hasFolder = true;
+  }
+  if (!hasFolder) throw new Error('Packaged macOS Info.plist is missing public.folder association');
+  for (const required of REQUIRED_CORE_ASSOCIATED_EXTENSIONS) {
+    if (!declared.has(required)) throw new Error(`Packaged macOS Info.plist is missing .${required} association`);
+  }
 }
 
 function relativeRequires(source, filename) {
@@ -153,6 +174,7 @@ export function verifyPackage(bundle) {
   if (manifest.platform === 'darwin' && pkg.klausDesktopEdition !== undefined) {
     const info = readFileSync(join(locations.bundle, 'Contents/Info.plist'), 'utf8');
     verifyMacPackageIdentity(info, edition);
+    verifyMacDocumentTypes(info);
   }
   // The inventory is portable JSON, while @electron/asar accepts host paths.
   if (actualAppFiles.length !== manifest.appFiles.length || new Set(manifest.appFiles.map(file => file.path)).size !== actualAppFiles.length) throw new Error('Packaged application file count differs from the manifest');

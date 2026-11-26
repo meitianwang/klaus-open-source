@@ -105,11 +105,11 @@ export function registerFileWorkspaceTests(h: Harness, freshRoot: () => string):
       assert(paths.includes(join(f.dir, 'hidden/match.ts')) && !paths.includes(join(f.dir, 'dist/match.ts')), 'changing exclusions invalidates the search snapshot');
     } finally { f.files.close(); }
   });
-  h.test('files/workspaces register 34 real channels and enforce duplicate ownership', async () => {
+  h.test('files/workspaces register 37 real channels and enforce duplicate ownership', async () => {
     const f = await fixture(freshRoot());
     try {
       assertDeepEqual(f.registry.channels(), [...FILE_CHANNELS, ...WORKSPACE_CHANNELS].sort(), 'actual registrations');
-      assertEqual(f.registry.size(), 34, 'registered channels');
+      assertEqual(f.registry.size(), 37, 'registered channels');
       assertDeepEqual(await invoke(f.registry, 'session:pick-workdir'), { path: null }, 'cancelled picker');
       assertDeepEqual(await invoke(f.registry, 'session:pick-workdirs'), { paths: [] }, 'cancelled multi picker');
       assertDeepEqual(await invoke(f.registry, 'workspace:list', {}), { error: 'invalid sessionId' }, 'invalid arguments reach service');

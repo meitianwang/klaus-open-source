@@ -2,7 +2,7 @@ import { requireInterruptConfirmation } from '../sessions/turn-interrupt';
 import { autoUpdater, BrowserWindow, clipboard, ClipboardItem, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, protocol, safeStorage, screen, session, shell, systemPreferences, Tray, webContents, type App, type WebContents } from 'electron';
 import { VoiceChatPresentationRuntime } from './voice-chat-presentation';
 import { createPowerSaveRuntime } from './power-save-runtime';
-import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AppshotRuntime, appshotCaptureApplication, registerAppshotHandlers } from './appshot-runtime';
 import { appshotContextText } from '../../contracts/appshot-context';
@@ -290,6 +290,7 @@ export interface DesktopRuntime {
   runMainWindowCommand(commandId: string): void;
   showQuickInput(): Promise<{ ok: boolean; error?: string }>;
   openDeepLink(url: string): void;
+  openSystemPaths(paths: readonly string[]): void;
   prepareUpdate(): Promise<void>;
   shutdown(): Promise<void>;
 }
@@ -1838,6 +1839,12 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       const contents = webContents.fromId(senderId);
       const owner = (contents && BrowserWindow.fromWebContents(contents)) ?? window;
       const result = await dialog.showSaveDialog(owner, { defaultPath: defaultName });
+      return result.canceled || !result.filePath ? undefined : result.filePath;
+    },
+    saveOfficeDialog: async (senderId, defaultPath, filters) => {
+      const contents = webContents.fromId(senderId);
+      const owner = (contents && BrowserWindow.fromWebContents(contents)) ?? window;
+      const result = await dialog.showSaveDialog(owner, { defaultPath, filters });
       return result.canceled || !result.filePath ? undefined : result.filePath;
     },
   });
@@ -3603,6 +3610,33 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
           .catch(() => { if (!closing) log.write('deep-link', 'The Issue link could not be delivered to the main window'); });
       }
       else sendToMainWindow(focusedMainWindow(), action.kind === 'new' ? 'tray:new-chat' : 'tray:open-settings');
+    },
+    openSystemPaths: paths => {
+      const EXTERNAL_FILE_SESSION_ID = '__external__';
+      for (const rawPath of paths) {
+        if (typeof rawPath !== 'string' || !rawPath.trim()) continue;
+        try {
+          const resolved = resolve(rawPath);
+          const real = realpathSync(resolved);
+          const info = statSync(real);
+          if (info.isDirectory()) {
+            workspaces.projectsAdd({ path: real });
+            show();
+            void deliverToFocusedMain('deep-link:open-folder', { directory: real }, notificationNavigation.signal)
+              .catch(() => { if (!closing) log.write('open-file', 'The folder open action could not be delivered to the main window'); });
+          } else if (info.isFile()) {
+            artifactPaths.record(resolved, EXTERNAL_FILE_SESSION_ID, true);
+            artifactPaths.record(real, EXTERNAL_FILE_SESSION_ID, true);
+            void openPreviewWindow({
+              kind: 'artifact',
+              sessionId: EXTERNAL_FILE_SESSION_ID,
+              filePath: real,
+            }).catch(error => log.write('open-file', error instanceof Error ? error.message : String(error)));
+          }
+        } catch (error) {
+          log.write('open-file', error instanceof Error ? error.message : String(error));
+        }
+      }
     },
     shutdown, prepareUpdate,
   };

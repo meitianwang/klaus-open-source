@@ -2,10 +2,13 @@
 export function fileIconName(name: string): string {
   const lower = (name || '').toLowerCase()
   if (/\.pdf$/.test(lower)) return 'resource-file-pdf'
-  if (/\.(xlsx?|xlsm|xltx|xltm|ods)$/.test(lower)) return 'resource-file-excel'
-  if (/\.(docx?|docm|dotx|dotm|odt|rtf)$/.test(lower)) return 'resource-file-word'
-  if (/\.(pptx?|pptm|ppsx?|potx|potm|odp)$/.test(lower)) return 'resource-file-powerpoint'
-  if (/\.(md|markdown)$/.test(lower)) {
+  if (/\.(csv|tsv)$/.test(lower)) return 'resource-file-spreadsheet'
+  if (/\.(xlsx?|xlsm|xltx|xltm|xlt|ods|et|ett)$/.test(lower)) return 'resource-file-excel'
+  if (/\.(docx?|docm|dotx|dotm|dot|odt|rtf|wps|wpt)$/.test(lower)) return 'resource-file-word'
+  if (/\.(pptx?|pptm|ppsx?|ppsm|potx|potm|pot|odp|dps|dpt)$/.test(lower)) return 'resource-file-powerpoint'
+  if (/\.xmind$/.test(lower)) return 'resource-file-document'
+  if (/\.(html?|xhtml)$/.test(lower)) return 'resource-file-html'
+  if (/\.(md|markdown|mdown|mkd)$/.test(lower)) {
     return 'chat-file'
   }
   if (/\.(json|ya?ml|toml)$/.test(lower)) {

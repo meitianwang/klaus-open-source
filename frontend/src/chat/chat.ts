@@ -19448,6 +19448,11 @@ inputEl.addEventListener('paste', handleMainComposerPaste)
 klausApi.on.trayNewChat?.(() => newChat())
 klausApi.on.trayOpenSettings?.(() => { if (!document.getElementById('settings-view')?.classList.contains('active')) toggleSettings() })
 klausApi.on.deepLinkOpenSession?.(async ({ sessionId }: { sessionId?: string }) => { if (sessionId) await switchSession(sessionId) })
+klausApi.on.deepLinkOpenFolder?.(async ({ directory }: { directory?: string }) => {
+  if (!directory) return
+  await refreshProjectWorkspaces({ render: true, refreshWorkdir: false })
+  newChat({ workdir: directory })
+})
 klausApi.on.deepLinkOpenTeamIssue?.((payload: unknown) => { openTeamIssueDeepLink(payload) })
 // A clicked add-me link: queue the invite and show the friends page; the page
 // consumes the queue when its island mounts (or immediately, if already up).

@@ -5,7 +5,9 @@ import { object } from '../../services/service-types';
 export const FILE_CHANNELS = [
   'workspace:list', 'workspace:search', 'workspace:open', 'workspace:reveal', 'workspace:rename', 'workspace:delete',
   'workspace:write', 'workspace:get-excludes', 'workspace:set-excludes', 'artifacts:read',
-  'artifacts:authorize-preview', 'artifacts:file-url', 'artifacts:widget-url', 'artifacts:reveal', 'artifacts:open-workspace', 'artifacts:open-window', 'artifacts:save-copy', 'session:file-changes',
+  'artifacts:authorize-preview', 'artifacts:file-url', 'artifacts:widget-url', 'artifacts:reveal', 'artifacts:open-default',
+  'artifacts:open-workspace', 'artifacts:open-window', 'artifacts:save-copy', 'artifacts:write-office', 'artifacts:save-office-as',
+  'session:file-changes',
 ] as const;
 
 export function registerFileHandlers(registry: ChannelRegistry, deps: FileDeps & { files?: FileService }): FileService {
@@ -27,9 +29,12 @@ export function registerFileHandlers(registry: ChannelRegistry, deps: FileDeps &
   registry.register('artifacts:file-url', ctx => files.artifactFileUrl(object(ctx.args[0])), 'files');
   registry.register('artifacts:widget-url', ctx => files.widgetUrl(object(ctx.args[0])), 'files');
   registry.register('artifacts:reveal', ctx => files.revealArtifact(object(ctx.args[0])), 'files');
+  registry.register('artifacts:open-default', ctx => files.openArtifactDefaultApp(object(ctx.args[0])), 'files');
   registry.register('artifacts:open-workspace', ctx => files.openWorkspace(object(ctx.args[0])), 'files');
   registry.register('artifacts:open-window', ctx => files.openArtifactWindow(object(ctx.args[0])), 'files');
   registry.register('artifacts:save-copy', ctx => files.saveArtifactCopy(object(ctx.args[0]), ctx.senderId), 'files');
+  registry.register('artifacts:write-office', ctx => files.writeOfficeArtifact(object(ctx.args[0])), 'files');
+  registry.register('artifacts:save-office-as', ctx => files.saveOfficeArtifactAs(object(ctx.args[0]), ctx.senderId), 'files');
   registry.register('session:file-changes', ctx => files.fileChanges(object(ctx.args[0])), 'files');
   return files;
 }

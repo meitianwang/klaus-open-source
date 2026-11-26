@@ -1,16 +1,28 @@
 // Standalone artifact preview window. Loads file via klausApi.artifacts.read,
-// renders markdown / SVG / source code, supports source/preview toggle.
-//（迁自 js/artifact.js，逻辑原样；KlausArtifactMarkdown 改显式 import。）
+// renders markdown / HTML / SVG / Office / XMind / CSV / source code, and
+// supports source/preview toggle plus in-place document editing.
+import { parseDelimitedSpreadsheet, serializeDelimitedSpreadsheet } from '../../../contracts/office-formula'
+import {
+  isInPlaceWritableOfficeExtension,
+  isRecognizedUnsupportedMediaExtension,
+  isTextSpreadsheetExtension,
+  type OfficePreviewPayload,
+} from '../../../contracts/office-preview'
 import { classifyLink, render as renderSafeMarkdown } from './artifact-markdown'
 import { attachHtmlDocumentToc } from '../chat/markdown-toc'
+import type { MountedOfficeViewer } from '../chat/workspace-office-viewer'
 import { writeClipboardText } from '../clipboard'
 
 document.documentElement.classList.add(/win/i.test(navigator.platform) ? 'platform-win32' : 'platform-darwin')
 
 const klausApi = (window as any).klaus
-const text = (key: string, fallback: string): string => {
+const text = (key: string, fallback: string, vars?: Record<string, string | number>): string => {
   const translated = (window as any).tt?.(key)
-  return translated && translated !== key ? translated : fallback
+  let resolved = translated && translated !== key ? translated : fallback
+  if (vars) {
+    for (const [k, v] of Object.entries(vars)) resolved = resolved.replaceAll(`{${k}}`, String(v))
+  }
+  return resolved
 }
 const preferencesReady = Promise.resolve((window as any).loadPreferences?.()).catch(() => {})
 
@@ -29,7 +41,7 @@ const kind = kindParam === 'memory' ? 'memory'
   : 'artifact'
 
 const FILE_TYPE_LABELS: Record<string, string> = {
-  md: 'Markdown', markdown: 'Markdown',
+  md: 'Markdown', markdown: 'Markdown', mdown: 'Markdown', mkd: 'Markdown',
   json: 'JSON', yaml: 'YAML', yml: 'YAML', toml: 'TOML',
   js: 'JavaScript', mjs: 'JavaScript', cjs: 'JavaScript',
   ts: 'TypeScript', tsx: 'TypeScript', jsx: 'JavaScript',
@@ -37,19 +49,22 @@ const FILE_TYPE_LABELS: Record<string, string> = {
   java: 'Java', kt: 'Kotlin', swift: 'Swift',
   c: 'C', h: 'C', cpp: 'C++', cc: 'C++', hpp: 'C++',
   cs: 'C#', php: 'PHP', sh: 'Shell', bash: 'Shell', zsh: 'Shell',
-  html: 'HTML', htm: 'HTML', css: 'CSS', scss: 'SCSS', less: 'Less',
-  xml: 'XML', svg: 'SVG', sql: 'SQL', csv: 'CSV',
-  xls: 'Excel', xlsx: 'Excel', doc: 'Word', docx: 'Word', ppt: 'PowerPoint', pptx: 'PowerPoint',
+  html: 'HTML', htm: 'HTML', xhtml: 'HTML', css: 'CSS', scss: 'SCSS', less: 'Less',
+  xml: 'XML', svg: 'SVG', sql: 'SQL', csv: 'CSV', tsv: 'TSV', xmind: 'XMind',
+  xls: 'Excel', xlsx: 'Excel', xlt: 'Excel', doc: 'Word', docx: 'Word', dot: 'Word',
+  ppt: 'PowerPoint', pptx: 'PowerPoint', pot: 'PowerPoint', ppsm: 'PowerPoint',
   pdf: 'PDF', xlsm: 'Excel', xltx: 'Excel', xltm: 'Excel', docm: 'Word', dotx: 'Word', dotm: 'Word', rtf: 'RTF',
   pptm: 'PowerPoint', ppsx: 'PowerPoint', potx: 'PowerPoint', potm: 'PowerPoint', pps: 'PowerPoint',
+  wps: 'WPS Writer', wpt: 'WPS Template', et: 'WPS Spreadsheets', ett: 'WPS Template', dps: 'WPS Presentation', dpt: 'WPS Template',
   ods: 'Spreadsheet', odt: 'Document', odp: 'Presentation',
+  '3gp': 'Video', mkv: 'MKV', avi: 'AVI', wmv: 'WMV', flv: 'FLV', wma: 'WMA',
   txt: 'Text', log: 'Log', conf: 'Config', ini: 'Config', env: 'Config',
 }
 const DIRECT_PREVIEW_EXTS: Record<string, string> = {
   png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', bmp: 'image', ico: 'image', avif: 'image',
   pdf: 'pdf',
   mp3: 'audio', wav: 'audio', m4a: 'audio', aac: 'audio', flac: 'audio', ogg: 'audio', oga: 'audio', opus: 'audio',
-  mp4: 'video', webm: 'video', mov: 'video', m4v: 'video', ogv: 'video',
+  mp4: 'video', webm: 'video', mov: 'video', m4v: 'video', ogv: 'video', '3gp': 'video',
 }
 const UNSUPPORTED_PREVIEW_EXTS = new Set([
   'pages', 'numbers', 'key',
@@ -70,7 +85,8 @@ function fileBaseName(p: string) {
   return idx >= 0 ? p.slice(idx + 1) : p
 }
 function directPreviewKind(p: string) {
-  return DIRECT_PREVIEW_EXTS[fileExt(p)] || ''
+  return DIRECT_PREVIEW_EXTS[fileExt(p)]
+    || (isRecognizedUnsupportedMediaExtension(p || '') ? 'unsupported-media' : '')
 }
 function isExternalResourceRef(ref: string) {
   return /^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(ref || '')
@@ -149,14 +165,36 @@ const viewSourceBtn = document.getElementById('aw-view-source')
 const viewPreviewBtn = document.getElementById('aw-view-preview')
 
 const baseName = displayName || fileBaseName(filePath)
-const isMd = /\.(md|markdown)$/i.test(filePath)
+const isMd = /\.(md|markdown|mdown|mkd)$/i.test(filePath)
 const isSvg = /\.svg$/i.test(filePath)
+const isHtml = kind === 'artifact' && /\.(html?|xhtml)$/i.test(filePath)
+const isCsvTsv = kind === 'artifact' && isTextSpreadsheetExtension(filePath)
 const directKind = directPreviewKind(filePath)
 const isUnsupportedPreview = UNSUPPORTED_PREVIEW_EXTS.has(fileExt(filePath))
-const canPreview = isMd || isSvg || !!directKind
+const canTogglePreview = isMd || isSvg || isHtml || isCsvTsv
+const canPreview = canTogglePreview || !!directKind
 let content = ''
+let htmlPreviewUrl = ''
 let view = canPreview ? 'preview' : 'source'
 let previewObjectUrl = ''
+let officePayload: OfficePreviewPayload | null = null
+let officeWritable = false
+let fileMtimeMs: number | null = null
+let savedOfficeJson = ''
+let dirty = false
+let mountedOffice: MountedOfficeViewer | null = null
+
+function updateWindowTitle() {
+  const label = `${dirty ? '• ' : ''}${baseName}`
+  document.title = label
+  if (titleEl) titleEl.textContent = label
+}
+
+function clearMountedOffice() {
+  if (!mountedOffice) return
+  mountedOffice.destroy()
+  mountedOffice = null
+}
 
 function clearActionError() {
   if (!actionErrorEl) return
@@ -182,11 +220,10 @@ async function runAction(key: string, fallback: string, action: () => Promise<un
   }
 }
 
-document.title = baseName
-if (titleEl) titleEl.textContent = baseName
+updateWindowTitle()
 if (filenameEl) { filenameEl.textContent = baseName; filenameEl.title = filePath }
 if (filetypeEl) filetypeEl.textContent = fileTypeLabel(filePath)
-if (viewToggle) viewToggle.classList.toggle('is-hidden', !(isMd || isSvg))
+if (viewToggle) viewToggle.classList.toggle('is-hidden', !canTogglePreview)
 
 function revokePreviewObjectUrl() {
   if (!previewObjectUrl) return
@@ -200,6 +237,8 @@ function syncToggle() {
 }
 
 function renderSource() {
+  clearMountedOffice()
+  bodyEl.classList.remove('is-office-mode')
   markdownToc?.setEnabled(false)
   revokePreviewObjectUrl()
   const pre = document.createElement('pre')
@@ -215,6 +254,8 @@ function renderSource() {
 }
 
 function renderMessage(message: string) {
+  clearMountedOffice()
+  bodyEl.classList.remove('is-office-mode')
   markdownToc?.setEnabled(false)
   revokePreviewObjectUrl()
   const wrap = document.createElement('div')
@@ -222,6 +263,54 @@ function renderMessage(message: string) {
   wrap.textContent = message
   bodyEl.innerHTML = ''
   bodyEl.appendChild(wrap)
+}
+
+function renderUnsupportedMediaCard() {
+  clearMountedOffice()
+  bodyEl.classList.remove('is-office-mode')
+  markdownToc?.setEnabled(false)
+  revokePreviewObjectUrl()
+  const card = document.createElement('div')
+  card.className = 'aw-unsupported-card'
+  const ext = fileExt(filePath) || 'media'
+  const title = document.createElement('div')
+  title.className = 'aw-unsupported-title'
+  title.textContent = text('office_preview_media_unsupported_title', 'Cannot play .{ext} in built-in player', { ext })
+  const desc = document.createElement('div')
+  desc.className = 'aw-unsupported-desc'
+  desc.textContent = text('office_preview_media_unsupported_desc', 'This audio or video container uses codecs that are not supported for inline playback. Open it in your system media player.')
+  const actions = document.createElement('div')
+  actions.className = 'aw-unsupported-actions'
+
+  const openBtn = document.createElement('button')
+  openBtn.type = 'button'
+  openBtn.className = 'aw-unsupported-btn aw-unsupported-btn-primary'
+  openBtn.textContent = text('office_preview_media_open_default', 'Open in Default App')
+  openBtn.addEventListener('click', () => {
+    void runAction('artifacts_action_open_failed', 'Could not open this item', async () => {
+      if (typeof klausApi?.artifacts?.openDefault !== 'function') throw new Error('Open action unavailable')
+      return klausApi.artifacts.openDefault(sessionId, filePath)
+    })
+  })
+
+  const revealBtn = document.createElement('button')
+  revealBtn.type = 'button'
+  revealBtn.className = 'aw-unsupported-btn'
+  revealBtn.textContent = text('office_preview_media_reveal', 'Show in Folder')
+  revealBtn.addEventListener('click', () => {
+    void runAction('artifacts_action_reveal_failed', 'Could not reveal this file', async () => {
+      if (typeof klausApi?.artifacts?.reveal !== 'function') throw new Error('Reveal action unavailable')
+      return klausApi.artifacts.reveal(filePath)
+    })
+  })
+
+  actions.appendChild(openBtn)
+  actions.appendChild(revealBtn)
+  card.appendChild(title)
+  card.appendChild(desc)
+  card.appendChild(actions)
+  bodyEl.innerHTML = ''
+  bodyEl.appendChild(card)
 }
 
 // Skill/memory files carry a YAML frontmatter block (name/description/
@@ -234,6 +323,8 @@ function stripFrontmatter(text: string) {
 }
 
 function renderSvgPreview() {
+  clearMountedOffice()
+  bodyEl.classList.remove('is-office-mode')
   markdownToc?.setEnabled(false)
   revokePreviewObjectUrl()
   const blob = new Blob([content], { type: 'image/svg+xml' })
@@ -254,9 +345,46 @@ function renderSvgPreview() {
   bodyEl.appendChild(wrap)
 }
 
-function renderDirectPreview(url: string, previewKind: string) {
+async function renderHtmlPreview() {
+  clearMountedOffice()
+  bodyEl.classList.remove('is-office-mode')
   markdownToc?.setEnabled(false)
   revokePreviewObjectUrl()
+  let src = htmlPreviewUrl
+  if (!src && typeof klausApi?.artifacts?.fileUrl === 'function') {
+    const res = await klausApi.artifacts.fileUrl(sessionId, filePath).catch(() => null)
+    if (res?.url && !res?.error) {
+      htmlPreviewUrl = res.url
+      src = res.url
+    }
+  }
+  if (!src) {
+    const blob = new Blob([content], { type: 'text/html;charset=utf-8' })
+    previewObjectUrl = URL.createObjectURL(blob)
+    src = previewObjectUrl
+  }
+  if (view !== 'preview') return
+  const wrap = document.createElement('div')
+  wrap.className = 'aw-html-preview'
+  const iframe = document.createElement('iframe')
+  iframe.setAttribute('sandbox', 'allow-scripts')
+  iframe.setAttribute('referrerpolicy', 'no-referrer')
+  iframe.setAttribute('aria-label', baseName)
+  iframe.src = src
+  wrap.appendChild(iframe)
+  bodyEl.innerHTML = ''
+  bodyEl.appendChild(wrap)
+}
+
+function renderDirectPreview(url: string, previewKind: string) {
+  clearMountedOffice()
+  bodyEl.classList.remove('is-office-mode')
+  markdownToc?.setEnabled(false)
+  revokePreviewObjectUrl()
+  if (previewKind === 'unsupported-media') {
+    renderUnsupportedMediaCard()
+    return
+  }
   const wrap = document.createElement('div')
   wrap.className = 'aw-media-preview aw-media-preview-' + previewKind
   let el: HTMLElement | undefined
@@ -276,14 +404,27 @@ function renderDirectPreview(url: string, previewKind: string) {
     audio.controls = true
     audio.preload = 'metadata'
     audio.src = url
-    audio.onerror = () => renderMessage('Preview is not available for this audio file.')
+    audio.onerror = () => renderUnsupportedMediaCard()
+    if (/\.ogg$/i.test(filePath)) {
+      const probe = document.createElement('video')
+      probe.preload = 'metadata'
+      probe.muted = true
+      probe.src = url
+      probe.onloadedmetadata = () => {
+        const hasVideo = probe.videoWidth > 0
+        probe.removeAttribute('src')
+        probe.load()
+        if (hasVideo) renderDirectPreview(url, 'video')
+      }
+      probe.onerror = () => { probe.removeAttribute('src') }
+    }
     el = audio
   } else if (previewKind === 'video') {
     const video = document.createElement('video')
     video.controls = true
     video.preload = 'metadata'
     video.src = url
-    video.onerror = () => renderMessage('Preview is not available for this video file.')
+    video.onerror = () => renderUnsupportedMediaCard()
     el = video
   }
   if (!el) {
@@ -293,6 +434,64 @@ function renderDirectPreview(url: string, previewKind: string) {
   wrap.appendChild(el)
   bodyEl.innerHTML = ''
   bodyEl.appendChild(wrap)
+}
+
+async function saveOfficeInWindow(nextPayload: OfficePreviewPayload) {
+  if (!officeWritable || typeof klausApi?.artifacts?.writeOffice !== 'function') {
+    return { ok: false, error: text('workspace_file_readonly', 'Read-only') }
+  }
+  const res = await klausApi.artifacts.writeOffice(sessionId, filePath, nextPayload, { expectedMtimeMs: fileMtimeMs })
+  if (!res?.ok) {
+    return { ok: false, conflict: !!res?.conflict, error: res?.error || text('office_preview_status_error', 'Save failed') }
+  }
+  officePayload = nextPayload
+  if (isCsvTsv && nextPayload.kind === 'spreadsheet') {
+    content = serializeDelimitedSpreadsheet(nextPayload, fileExt(filePath) === 'tsv' ? '\t' : ',')
+  }
+  fileMtimeMs = res.mtimeMs ?? fileMtimeMs
+  savedOfficeJson = JSON.stringify(nextPayload)
+  dirty = false
+  updateWindowTitle()
+  return { ok: true, mtimeMs: fileMtimeMs }
+}
+
+async function saveOfficeAsInWindow(nextPayload: OfficePreviewPayload) {
+  if (typeof klausApi?.artifacts?.saveOfficeAs !== 'function') {
+    return { ok: false, error: text('office_preview_status_error', 'Save failed') }
+  }
+  const res = await klausApi.artifacts.saveOfficeAs(sessionId, filePath, nextPayload)
+  if (res?.cancelled) return { ok: false, error: 'cancelled' }
+  if (!res?.ok) return { ok: false, error: res?.error || text('office_preview_status_error', 'Save failed') }
+  return { ok: true, savedPath: res.savedPath, mtimeMs: res.mtimeMs }
+}
+
+async function renderOfficePreview(payload: OfficePreviewPayload) {
+  clearMountedOffice()
+  markdownToc?.setEnabled(false)
+  revokePreviewObjectUrl()
+  const { mountOfficeViewer } = await import('../chat/workspace-office-viewer')
+  bodyEl.classList.add('is-office-mode')
+  bodyEl.replaceChildren()
+  const editable = kind === 'artifact' && payload.kind !== 'pdf' && payload.kind !== 'error'
+  mountedOffice = mountOfficeViewer(bodyEl, payload, {
+    translate: (key, vars) => text(key, key, vars),
+    editable,
+    canSaveInPlace: officeWritable,
+    singleSheet: isCsvTsv,
+    dirty,
+    onChange: nextPayload => {
+      officePayload = nextPayload
+      if (isCsvTsv && nextPayload.kind === 'spreadsheet') {
+        content = serializeDelimitedSpreadsheet(nextPayload, fileExt(filePath) === 'tsv' ? '\t' : ',')
+      }
+      dirty = JSON.stringify(nextPayload) !== savedOfficeJson
+      updateWindowTitle()
+    },
+    onSave: nextPayload => saveOfficeInWindow(nextPayload),
+    onSaveAs: nextPayload => saveOfficeAsInWindow(nextPayload),
+    openExternal: url => { void klausApi?.app?.openExternal(url) },
+    copyText: value => { void writeClipboardText(value).catch(() => {}) },
+  })
 }
 
 function rewriteMarkdownImages(root: HTMLElement) {
@@ -312,8 +511,18 @@ function rewriteMarkdownImages(root: HTMLElement) {
 }
 
 function renderPreview() {
+  if (isCsvTsv && officePayload) {
+    void renderOfficePreview(officePayload)
+    return
+  }
+  if (isHtml) {
+    void renderHtmlPreview()
+    return
+  }
   const marked = (window as any).marked
   if (isMd && typeof marked !== 'undefined') {
+    clearMountedOffice()
+    bodyEl.classList.remove('is-office-mode')
     revokePreviewObjectUrl()
     try {
       const previewContent = (kind === 'skill' || kind === 'memory') ? stripFrontmatter(content) : content
@@ -371,11 +580,20 @@ function renderPreview() {
 }
 
 function setView(next: string) {
-  const target = canPreview && next === 'preview' ? 'preview' : 'source'
+  const target = canTogglePreview && next === 'preview' ? 'preview' : 'source'
   if (target === view) return
+  if (mountedOffice && isCsvTsv) {
+    const flushed = mountedOffice.getPayload()
+    officePayload = flushed
+    if (flushed.kind === 'spreadsheet') {
+      content = serializeDelimitedSpreadsheet(flushed, fileExt(filePath) === 'tsv' ? '\t' : ',')
+    }
+  } else if (isCsvTsv && target === 'preview') {
+    officePayload = parseDelimitedSpreadsheet(content, fileExt(filePath) === 'tsv' ? '\t' : ',').preview
+  }
   view = target
   syncToggle()
-  if (!content) return
+  if (!content && !officePayload) return
   const scrollTop = bodyEl.scrollTop
   bodyEl.classList.add('is-swapping')
   setTimeout(() => {
@@ -412,6 +630,7 @@ document.addEventListener('keydown', (e) => {
   if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'w') { e.preventDefault(); window.close() }
 })
 window.addEventListener('beforeunload', () => {
+  clearMountedOffice()
   revokePreviewObjectUrl()
   markdownToc?.destroy()
 })
@@ -422,6 +641,12 @@ syncToggle()
   await preferencesReady
   bodyEl.textContent = text('artifacts_loading', 'Loading…')
   try {
+    if (directKind === 'unsupported-media') {
+      viewToggle?.classList.add('is-hidden')
+      truncEl.style.display = 'none'
+      renderUnsupportedMediaCard()
+      return
+    }
     if (directKind) {
       if (kind !== 'artifact') {
         renderMessage('Preview is not available for this file type.')
@@ -432,11 +657,7 @@ syncToggle()
       if (data?.officeError && typeof data.officeError === 'object') {
         viewToggle?.classList.add('is-hidden')
         truncEl.style.display = 'none'
-        markdownToc?.setEnabled(false)
-        const { mountOfficeViewer } = await import('../chat/workspace-office-viewer')
-        Object.assign(bodyEl.style, { padding: '0', overflow: 'hidden', display: 'flex', flexDirection: 'column' })
-        bodyEl.replaceChildren()
-        mountOfficeViewer(bodyEl, data.officeError, { translate: key => text(key, key) })
+        await renderOfficePreview(data.officeError)
         return
       }
       if (data?.error || !data?.url) throw new Error(data?.error || 'missing preview URL')
@@ -466,17 +687,21 @@ syncToggle()
       return
     }
     content = data?.content || ''
+    fileMtimeMs = typeof data?.mtimeMs === 'number' ? data.mtimeMs : null
     if (data?.office && typeof data.office === 'object') {
-      viewToggle?.classList.add('is-hidden')
-      markdownToc?.setEnabled(false)
-      const { mountOfficeViewer } = await import('../chat/workspace-office-viewer')
-      Object.assign(bodyEl.style, { padding: '0', overflow: 'hidden', display: 'flex', flexDirection: 'column' })
-      bodyEl.replaceChildren()
-      mountOfficeViewer(bodyEl, data.office, {
-        translate: key => text(key, key),
-        openExternal: url => { void klausApi?.app?.openExternal(url) },
-        copyText: value => { void writeClipboardText(value).catch(() => {}) },
-      })
+      officePayload = data.office as OfficePreviewPayload
+      officeWritable = typeof data?.officeWritable === 'boolean'
+        ? data.officeWritable
+        : Boolean(kind === 'artifact' && !data?.truncated && isInPlaceWritableOfficeExtension(filePath))
+      savedOfficeJson = JSON.stringify(officePayload)
+      if (!isCsvTsv) {
+        viewToggle?.classList.add('is-hidden')
+        await renderOfficePreview(officePayload)
+      } else if (view === 'preview') {
+        await renderOfficePreview(officePayload)
+      } else {
+        renderSource()
+      }
     } else if (view === 'preview') renderPreview()
     else renderSource()
     truncEl.style.display = data?.truncated ? 'block' : 'none'

@@ -16,6 +16,34 @@ export function decodeEntities(text: string): string {
   });
 }
 export const decodeOoxmlEscapes = (text: string): string => text.replace(/_x([0-9a-f]{4})_/gi, (_, hex: string) => String.fromCharCode(parseInt(hex, 16)));
+const stripIllegalXmlChars = (value: string): string => value.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g, '');
+export function escapeXml(text: string): string {
+  return stripIllegalXmlChars(text)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+export function escapeXmlAttr(text: string): string {
+  return escapeXml(text)
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;')
+    .replace(/\t/g, '&#x9;')
+    .replace(/\r/g, '&#xD;')
+    .replace(/\n/g, '&#xA;');
+}
+export function serializeXml(node: XmlElement, includeDeclaration = true): string {
+  const render = (el: XmlElement): string => {
+    const attrs = Object.entries(el.attrs)
+      .map(([k, v]) => ` ${k}="${escapeXmlAttr(v)}"`)
+      .join('');
+    if (!el.children.length) return `<${el.name}${attrs}/>`;
+    const inner = el.children
+      .map(child => (typeof child === 'string' ? escapeXml(child) : render(child)))
+      .join('');
+    return `<${el.name}${attrs}>${inner}</${el.name}>`;
+  };
+  return (includeDeclaration ? '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>' : '') + render(node);
+}
 export function parseXml(xml: string): XmlElement {
   const root: XmlElement = { name: '', local: '', attrs: Object.create(null), children: [] };
   const stack = [root];

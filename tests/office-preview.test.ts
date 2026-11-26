@@ -223,4 +223,178 @@ h.test('PDF previews preserve local bytes and isolate remote cache grants', asyn
   } finally { service.close(); media.close(); await rm(tmp, { recursive: true, force: true }); }
 });
 
+h.test('CSV/TSV, XMind (JSON + XML), WPS/template extensions, external Open-With scope, and lossless Office/XMind Save & Save As round-trips', async () => {
+  const tmp = await mkdtemp(join(process.cwd(), 'dist/office-roundtrip-'));
+  const root = join(tmp, 'workspace');
+  const externalDir = join(tmp, 'external');
+  const savedAsPaths: string[] = [];
+  const openedDefaultPaths: string[] = [];
+  const workspaces = new WorkspaceStore({ configRoot: tmp, push: () => {}, onSessionWorkdirChanged: () => {}, pickDirectory: async () => null });
+  const externalGrants = new Map<string, Set<string>>();
+  const producedBySession = (path: string, id: string) => externalGrants.get(id)?.has(path) ?? false;
+  const mediaScope = createConversationMediaScope({
+    configRoot: tmp,
+    prepareSessionMedia: async () => true,
+    resolveSessionDirectory: id => workspaces.resolveSessionDirectory(id),
+    extraRoots: () => [],
+    producedBySession,
+  });
+  const media = new MediaFiles(mediaScope);
+  let nextDialogSavePath: string | undefined = undefined;
+  const service = new FileService({
+    workspaces,
+    watch: false,
+    push: () => {},
+    openPath: async p => { openedDefaultPaths.push(p); },
+    revealPath: () => {},
+    trashPath: async () => {},
+    openPreviewWindow: async () => {},
+    requestSession: async () => ({}),
+    mediaScope,
+    producedBySession,
+    toFileUrl: (path, id, displayName) => media.grant(path, id, displayName),
+    saveOfficeDialog: async () => nextDialogSavePath,
+  });
+  try {
+    await mkdir(root, { recursive: true });
+    await mkdir(externalDir, { recursive: true });
+    workspaces.bindSession('local', { workdir: root });
+
+    // 1. CSV and TSV grid parsing + formula evaluation + writeOfficeArtifact round-trip
+    const csvPath = join(root, 'metrics.csv');
+    await writeFile(csvPath, 'Item,Amount\n"Hosting, EU",120\nStorage,80\nTotal,=SUM(B2:B3)\n', 'utf8');
+    const csvRead = await service.readArtifact({ sessionId: 'local', filePath: csvPath }) as any;
+    assert.equal(csvRead.encoding, 'utf8');
+    assert.equal(csvRead.readonly, false);
+    assert.equal(csvRead.officeWritable, true);
+    assert.equal(csvRead.office.kind, 'spreadsheet');
+    assert.equal(csvRead.office.sheets[0].cells.find((c: any) => c.r === 3 && c.c === 1)?.v, '200');
+    csvRead.office.sheets[0].cells.find((c: any) => c.r === 1 && c.c === 1).v = '300';
+    const csvWrite = await service.writeOfficeArtifact({ sessionId: 'local', filePath: csvPath, office: csvRead.office, expectedMtimeMs: csvRead.mtimeMs }) as any;
+    assert.equal(csvWrite.ok, true);
+    const csvReload = await service.readArtifact({ sessionId: 'local', filePath: csvPath }) as any;
+    assert.equal(csvReload.office.sheets[0].cells.find((c: any) => c.r === 3 && c.c === 1)?.v, '380');
+
+    const tsvPath = join(root, 'metrics.tsv');
+    await writeFile(tsvPath, 'Key\tVal\nAlpha\t42\n', 'utf8');
+    const tsvRead = await service.readArtifact({ sessionId: 'local', filePath: tsvPath }) as any;
+    assert.equal(tsvRead.office.kind, 'spreadsheet');
+    assert.equal(tsvRead.office.sheets[0].cells.find((c: any) => c.r === 1 && c.c === 1)?.v, '42');
+
+    // 2. XMind modern content.json + legacy content.xml + lossless .xmind write round-trip
+    const xmindJsonPath = join(root, 'roadmap.xmind');
+    await writeFile(xmindJsonPath, zip({
+      'content.json': JSON.stringify([{
+        id: 'sheet-1',
+        title: 'Q4 Plan',
+        rootTopic: {
+          id: 'root-1',
+          title: 'Desktop File Support',
+          labels: ['P0'],
+          notes: { plain: { content: 'Core milestone' } },
+          children: { attached: [{ id: 'sub-1', title: 'XMind Native', branch: 'folded' }] },
+        },
+      }]),
+      'metadata.json': JSON.stringify({ creator: { name: 'fixture' } }),
+    }));
+    const xmindRead = await service.readArtifact({ sessionId: 'local', filePath: xmindJsonPath }) as any;
+    assert.equal(xmindRead.office.kind, 'mindmap');
+    assert.equal(xmindRead.officeWritable, true);
+    assert.equal(xmindRead.office.sheets[0].rootTopic.title, 'Desktop File Support');
+    assert.deepEqual(xmindRead.office.sheets[0].rootTopic.labels, ['P0']);
+    assert.equal(xmindRead.office.sheets[0].rootTopic.children[0].folded, true);
+
+    xmindRead.office.sheets[0].rootTopic.children.push({ id: 'sub-2', title: 'In-Place Save' });
+    const xmindSaved = await service.writeOfficeArtifact({ sessionId: 'local', filePath: xmindJsonPath, office: xmindRead.office }) as any;
+    assert.equal(xmindSaved.ok, true);
+    const xmindReload = await service.readArtifact({ sessionId: 'local', filePath: xmindJsonPath }) as any;
+    assert.equal(xmindReload.office.sheets[0].rootTopic.children.length, 2);
+    assert.equal(xmindReload.office.sheets[0].rootTopic.children[1].title, 'In-Place Save');
+
+    const xmindXmlPath = join(root, 'legacy-map.xmind');
+    await writeFile(xmindXmlPath, zip({
+      'content.xml': '<xmap-content><sheet id="s1"><title>Legacy Sheet</title><topic id="r1" branch="folded"><title>Legacy Root</title><children><topics type="attached"><topic id="c1"><title>Child XML</title></topic></topics></children></topic></sheet></xmap-content>',
+    }));
+    const xmindXmlRead = await service.readArtifact({ sessionId: 'local', filePath: xmindXmlPath }) as any;
+    assert.equal(xmindXmlRead.office.kind, 'mindmap');
+    assert.equal(xmindXmlRead.office.sheets[0].rootTopic.title, 'Legacy Root');
+    assert.equal(xmindXmlRead.office.sheets[0].rootTopic.children[0].title, 'Child XML');
+
+    // 3. OOXML lossless write round-trips (.xlsx, .docx, .pptx) + optimistic mtime conflict check
+    const xlsxPath = join(root, 'edit.xlsx');
+    await writeFile(xlsxPath, xlsx);
+    const xlsxRead = await service.readArtifact({ sessionId: 'local', filePath: xlsxPath }) as any;
+    assert.equal(xlsxRead.officeWritable, true);
+    xlsxRead.office.sheets[0].cells.push({ r: 3, c: 0, v: 'Edited Row', t: 's' });
+    const conflictRes = await service.writeOfficeArtifact({ sessionId: 'local', filePath: xlsxPath, office: xlsxRead.office, expectedMtimeMs: 1 }) as any;
+    assert.equal(conflictRes.conflict, true);
+    const okXlsx = await service.writeOfficeArtifact({ sessionId: 'local', filePath: xlsxPath, office: xlsxRead.office, expectedMtimeMs: xlsxRead.mtimeMs }) as any;
+    assert.equal(okXlsx.ok, true);
+    const xlsxReload = await service.readArtifact({ sessionId: 'local', filePath: xlsxPath }) as any;
+    assert.ok(xlsxReload.office.sheets[0].cells.some((c: any) => c.v === 'Edited Row'));
+
+    const docxPath = join(root, 'edit.docx');
+    await writeFile(docxPath, docx);
+    const docxRead = await service.readArtifact({ sessionId: 'local', filePath: docxPath }) as any;
+    docxRead.office.blocks.push({ kind: 'paragraph', heading: 2, runs: [{ text: 'Appended Section', bold: true }] });
+    assert.equal(((await service.writeOfficeArtifact({ sessionId: 'local', filePath: docxPath, office: docxRead.office })) as any).ok, true);
+    const docxReload = await service.readArtifact({ sessionId: 'local', filePath: docxPath }) as any;
+    assert.match(JSON.stringify(docxReload.office.blocks), /Appended Section/);
+
+    // 4. WPS (.wps, .wpt, .et, .ett, .dps, .dpt) & legacy templates (.dot, .xlt, .pot, .ppsm) + Save As conversion
+    const wpsSpreadsheet = join(root, 'sheet.et');
+    await writeFile(wpsSpreadsheet, '<html><table><tr><td>WPS Cell</td><td>99</td></tr></table></html>', 'utf8');
+    const etRead = await service.readArtifact({ sessionId: 'local', filePath: wpsSpreadsheet }) as any;
+    assert.equal(etRead.office.kind, 'spreadsheet');
+    assert.equal(etRead.officeWritable, false);
+    assert.equal(etRead.saveAsExt, 'xlsx');
+    nextDialogSavePath = join(root, 'converted-from-et.xlsx');
+    const saveAsRes = await service.saveOfficeArtifactAs({ sessionId: 'local', filePath: wpsSpreadsheet, office: etRead.office }, 1) as any;
+    assert.equal(saveAsRes.ok, true);
+    savedAsPaths.push(saveAsRes.filePath);
+    const convertedRead = await service.readArtifact({ sessionId: 'local', filePath: nextDialogSavePath }) as any;
+    assert.equal(convertedRead.office.kind, 'spreadsheet');
+    assert.ok(convertedRead.office.sheets[0].cells.some((c: any) => c.v === 'WPS Cell'));
+
+    for (const [ext, payloadBytes, expectedKind, writable] of [
+      ['wps', '{\\rtf1\\ansi WPS Writer}', 'document', false],
+      ['wpt', docx, 'document', false],
+      ['ett', xlsx, 'spreadsheet', false],
+      ['dps', zip({ 'ppt/presentation.xml': '<presentation><sldSz cx="12192000" cy="6858000"/><sldIdLst><sldId r:id="s1"/></sldIdLst></presentation>', 'ppt/_rels/presentation.xml.rels': '<Relationships><Relationship Id="s1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/slide" Target="slides/slide1.xml"/></Relationships>', 'ppt/slides/slide1.xml': '<sld><cSld><spTree><sp><spPr><xfrm><off x="0" y="0"/><ext cx="1000000" cy="1000000"/></xfrm></spPr><txBody><p><r><t>WPS Slide</t></r></p></txBody></sp></spTree></cSld></sld>' }), 'presentation', false],
+      ['dpt', zip({ 'ppt/presentation.xml': '<presentation><sldIdLst/></presentation>' }), 'presentation', false],
+      ['dot', '{\\rtf1\\ansi Word Template}', 'document', false],
+      ['xlt', '<html><table><tr><td>Excel Template</td></tr></table></html>', 'spreadsheet', false],
+      ['pot', zip({ 'ppt/presentation.xml': '<presentation><sldIdLst/></presentation>' }), 'presentation', false],
+      ['ppsm', zip({ 'ppt/presentation.xml': '<presentation><sldIdLst/></presentation>' }), 'presentation', true],
+    ] as const) {
+      const p = join(root, `sample.${ext}`);
+      await writeFile(p, payloadBytes);
+      const r = await service.readArtifact({ sessionId: 'local', filePath: p }) as any;
+      assert.equal(r.office.kind, expectedKind, `expected ${ext} -> ${expectedKind}`);
+      assert.equal(r.officeWritable, writable, `expected ${ext} writable=${writable}`);
+    }
+
+    // 5. External Open-With (__external__) single-file grant & openArtifactDefaultApp + 3gp media MIME
+    const extXlsx = join(externalDir, 'finder-opened.xlsx');
+    await writeFile(extXlsx, xlsx);
+    externalGrants.set('__external__', new Set([extXlsx]));
+    const extRead = await service.readArtifact({ sessionId: '__external__', filePath: extXlsx }) as any;
+    assert.equal(extRead.office.kind, 'spreadsheet');
+    assert.equal(extRead.officeWritable, true);
+    const openDef = await service.openArtifactDefaultApp({ sessionId: '__external__', filePath: extXlsx }) as any;
+    assert.equal(openDef.ok, true);
+    assert.equal(openedDefaultPaths.length, 1);
+
+    const clip3gp = join(root, 'mobile.3gp');
+    await writeFile(clip3gp, Buffer.from([0, 0, 0, 0x14, 0x66, 0x74, 0x79, 0x70]));
+    const url3gp = (await service.artifactFileUrl({ sessionId: 'local', filePath: clip3gp }) as any).url;
+    const res3gp = await media.respond(new Request(url3gp));
+    assert.equal(res3gp.headers.get('content-type'), 'video/3gpp');
+  } finally {
+    service.close();
+    media.close();
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
+
 void h.finish(join(__dirname, 'office-preview-result.json'), 'office-preview').then(code => { process.exitCode = code; });

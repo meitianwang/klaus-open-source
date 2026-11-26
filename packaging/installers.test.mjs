@@ -59,7 +59,24 @@ test('the Windows installer parks the Chrome native host launcher before replaci
 test('real-installation fixtures have a separate application identity and no Klaus deep link', () => {
   const config = installerConfiguration({ ...input, platform: 'win32', arch: 'x64', fixture: true });
   equal(config.appId, 'ai.klaus.desktop.installer-fixture'); equal(config.executableName, 'KlausInstallerFixture'); deepEqual(config.protocols, []);
+  deepEqual(config.fileAssociations, []);
   equal(config.nsis.guid, FIXTURE_NSIS_GUID); equal(config.nsis.guid === ELECTRON_NSIS_GUID, false);
+});
+test('production installers declare Alternate Viewer file and folder associations across macOS and Windows', () => {
+  const macConfig = installerConfiguration({ ...input, platform: 'darwin', arch: 'arm64' });
+  const docTypes = macConfig.mac.extendInfo.CFBundleDocumentTypes;
+  assert(Array.isArray(docTypes) && docTypes.length >= 10, 'macOS CFBundleDocumentTypes populated');
+  assert(docTypes.every(entry => entry.CFBundleTypeRole === 'Viewer' && entry.LSHandlerRank === 'Alternate'), 'all entries stay Alternate Viewers');
+  assert(docTypes.some(entry => entry.LSItemContentTypes?.includes('public.folder')), 'folder Open With entry included');
+  const exts = new Set(docTypes.flatMap(entry => entry.CFBundleTypeExtensions ?? []));
+  for (const ext of ['docx', 'xlsx', 'pptx', 'wps', 'et', 'dps', 'dot', 'xlt', 'pot', 'ppsm', 'csv', 'tsv', 'xmind', 'pdf', 'html', 'mdown', 'mkd', '3gp', 'zip']) {
+    assert(exts.has(ext), `macOS associates .${ext}`);
+  }
+  const winConfig = installerConfiguration({ ...input, platform: 'win32', arch: 'x64' });
+  const winExts = new Set(winConfig.fileAssociations.flatMap(entry => entry.ext));
+  for (const ext of ['docx', 'xlsx', 'pptx', 'wps', 'et', 'dps', 'csv', 'tsv', 'xmind', 'pdf', 'zip']) {
+    assert(winExts.has(ext), `Windows associates .${ext}`);
+  }
 });
 test('unknown targets and ambiguous versions never produce an installer configuration', () => {
   throws(() => installerConfiguration({ ...input, platform: 'win32', arch: 'arm64' }));

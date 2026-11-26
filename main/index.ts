@@ -12,6 +12,7 @@ import { prepareWindowsProfile, type WindowsProfileResult } from './app/windows-
 import { ensureSettingsBackup } from './app/settings-backup';
 import { instanceIdentity } from './app/instance-identity';
 import { DesktopInstanceGuard, instanceActivation, type InstanceActivation } from './native/instance-guard';
+import { ensureSystemFileAssociations } from './app/file-associations';
 import { notificationProbeRequested, runNotificationProbe } from './app/notifications';
 import { runHeadlessBrowser } from './browser/headless-browser';
 import { headlessBrowserRequested } from './browser/headless-browser-protocol';
@@ -43,10 +44,21 @@ if (!app.isPackaged) {
   }
 }
 const deepLinks = process.argv.filter(value => value.startsWith(edition.protocol + ':'));
+const initialOpenPaths = (() => {
+  try { return instanceActivation(process.argv, edition.protocol).openPaths ?? []; }
+  catch { return []; }
+})();
+const openPaths: string[] = [...initialOpenPaths];
 app.on('open-url', (event, url) => {
   event.preventDefault();
   if (runtime) runtime.openDeepLink(url);
   else deepLinks.push(url);
+});
+app.on('open-file', (event, filePath) => {
+  event.preventDefault();
+  if (!filePath) return;
+  if (runtime) runtime.openSystemPaths([filePath]);
+  else openPaths.push(filePath);
 });
 
 function acquireInstance(): DesktopInstanceGuard | undefined {
@@ -86,6 +98,11 @@ if (notificationProbe) {
   const activate = (activation: InstanceActivation): void => {
     if (quitting) return;
     guard.assertHeld();
+    if (activation.openPaths?.length) {
+      if (runtime) runtime.openSystemPaths(activation.openPaths);
+      else openPaths.push(...activation.openPaths);
+      if (!activation.deepLink) return;
+    }
     runtime?.show();
     if (activation.deepLink) {
       if (runtime) runtime.openDeepLink(activation.deepLink);
@@ -164,6 +181,18 @@ if (notificationProbe) {
     if (app.isPackaged) app.setAsDefaultProtocolClient(edition.protocol);
     runtime = await createDesktopRuntime(app, { windowsProfile });
     if (!quitting) for (const url of deepLinks.splice(0)) runtime.openDeepLink(url);
+    if (!quitting && openPaths.length) runtime.openSystemPaths(openPaths.splice(0));
+    if (app.isPackaged && !quitting) {
+      void ensureSystemFileAssociations({
+        packaged: true,
+        platform: process.platform,
+        appVersion: app.getVersion(),
+        executablePath: process.execPath,
+        productName: edition.productName,
+        applicationId: edition.application,
+        configRoot: configRootFrom(),
+      });
+    }
     if (!app.isPackaged && process.connected && !quitting) process.send?.({ type: 'klaus:dev:ready', engines: runtime.engine.inspect().map(({ pid, generation }) => ({ pid, generation })) });
   }).catch(error => {
     dialog.showErrorBox('Klaus could not start', describeStartupFailure(error));

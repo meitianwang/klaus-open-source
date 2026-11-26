@@ -1,5 +1,5 @@
 {
-  "reason": "Standard Office spreadsheets, documents and presentations open as structured read-only previews while text-write endpoints refuse overwriting them.",
+  "reason": "Structured spreadsheets (including CSV/TSV, legacy templates, and WPS), documents, presentations, and XMind mind maps open in rich interactive viewers with structured save and Save As support while raw UTF-8 text-write endpoints continue to refuse overwriting binary archives.",
   "pdfEncoding": "pdf",
   "encoding": "office",
   "readonly": true,
@@ -8,12 +8,20 @@
   "localMaxBytes": 52428800,
   "remoteMaxBytes": 16777216,
   "remoteChunkBytes": 1048576,
-  "limits": { "maxSheetRows": 1000, "maxSheetCols": 80, "maxDocumentBlocks": 2500, "maxPresentationSlides": 200, "maxPdfPages": 200 },
+  "limits": { "maxSheetRows": 1000, "maxSheetCols": 80, "maxDocumentBlocks": 2500, "maxPresentationSlides": 200, "maxPdfPages": 200, "maxMindMapTopics": 5000 },
   "extensions": {
     "pdf": ["pdf"],
-    "spreadsheet": ["xlsx", "xlsm", "xltx", "xltm", "xls", "ods"],
-    "document": ["docx", "docm", "dotx", "dotm", "doc", "odt", "rtf"],
-    "presentation": ["pptx", "pptm", "ppsx", "potx", "potm", "ppt", "pps", "odp"]
+    "textSpreadsheet": ["csv", "tsv"],
+    "spreadsheet": ["xlsx", "xlsm", "xltx", "xltm", "xls", "xlt", "et", "ett", "ods"],
+    "document": ["docx", "docm", "dotx", "dotm", "doc", "dot", "wps", "wpt", "odt", "rtf"],
+    "presentation": ["pptx", "pptm", "ppsx", "ppsm", "potx", "potm", "ppt", "pps", "pot", "dps", "dpt", "odp"],
+    "mindmap": ["xmind"]
   },
+  "inPlaceWritableExtensions": [
+    "xlsx", "xlsm", "xltx", "xltm", "ods", "csv", "tsv",
+    "docx", "docm", "dotx", "dotm", "odt",
+    "pptx", "pptm", "ppsx", "ppsm", "potx", "potm", "odp",
+    "xmind"
+  ],
   "errorCodes": ["encrypted", "too_large", "corrupted", "empty", "unsupported"]
 }

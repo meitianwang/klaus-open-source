@@ -10,6 +10,7 @@ import { recordingArtifactName, computerUseArtifactName, copyTree, electronDownl
 import { copyPolicyNotices } from '../engine/scripts/policy-notices.mjs';
 import { verifyPackage } from '../packaging/verify.mjs';
 import { DEFAULT_DESKTOP_EDITION, desktopEdition, packagedDesktopEditionDocument, useDesktopEditionsFile } from '../packaging/desktop-edition.mjs';
+import { macDocumentTypes } from '../packaging/file-associations.mjs';
 import { DEFAULT_PLUGIN_SEED, collectBundledOfficialPlugins, copyBundledOfficialPlugins, officialPluginRecords, validatePluginSeed } from '../packaging/official-plugins.mjs';
 import { HELPER_MANIFEST as browserImportManifestName, validateBrowserImportResource, helperName as browserImportHelperName } from '../packaging/browser-import.mjs';
 
@@ -175,7 +176,8 @@ try {
       // Photos (and any future location request) aborts without one, so the bundle must
       // declare both purposes.
       NSPhotoLibraryUsageDescription: 'Klaus reads and updates your macOS Photos library when you enable the Photos connector.',
-      NSLocationUsageDescription: 'Klaus reads your location when an agent step needs geographic context.' },
+      NSLocationUsageDescription: 'Klaus reads your location when an agent step needs geographic context.',
+      CFBundleDocumentTypes: macDocumentTypes(edition) },
     ...(platform === 'win32' ? { win32metadata: { CompanyName: 'Klaus', FileDescription: `${edition.productName} desktop`, ProductName: edition.productName } } : {}),
   });
   if (packages.length !== 1) throw new Error('Expected exactly one packaged target');

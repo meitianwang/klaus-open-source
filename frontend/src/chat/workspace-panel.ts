@@ -1,4 +1,5 @@
-import type { OfficePreviewPayload } from '../../../contracts/office-preview'
+import { parseDelimitedSpreadsheet, serializeDelimitedSpreadsheet } from '../../../contracts/office-formula'
+import { isInPlaceWritableOfficeExtension, isRecognizedUnsupportedMediaExtension, isTextSpreadsheetExtension, type OfficePreviewPayload } from '../../../contracts/office-preview'
 import type { WorkspaceOfficeViewState, mountOfficeViewer } from './workspace-office-viewer'
 import { normalizeWorkspacePath, shouldReloadWorkspaceFileOnChange, shouldReloadWorkspaceMediaOnChange, workspaceEventTouchesAnyPath, type WorkspaceChangeNotification } from './workspace-reload-policy'
 // Workspace 面板域（自 chat.ts 拆出，逻辑原样，strict 类型化）。
@@ -89,6 +90,8 @@ export interface WorkspaceTab {
   draftContent: string
   truncated: boolean
   office: OfficePreviewPayload | null
+  officeWritable?: boolean
+  savedOfficeJson?: string
   binary: boolean
   readonly: boolean
   encoding: string
@@ -118,8 +121,11 @@ interface KlausWorkspaceApi {
   }
   artifacts: {
     authorizePreview: (sessionId: string, path: string) => Promise<{ ok?: boolean; filePath?: string; error?: string } | null>
-    read: (sessionId: string | null, path: string) => Promise<{ ok?: boolean; error?: string; content?: string; office?: OfficePreviewPayload | null; binary?: boolean; readonly?: boolean; encoding?: string; truncated?: boolean; mtimeMs?: number | null } | null>
+    read: (sessionId: string | null, path: string) => Promise<{ ok?: boolean; error?: string; content?: string; office?: OfficePreviewPayload | null; officeWritable?: boolean; saveAsExt?: string; binary?: boolean; readonly?: boolean; encoding?: string; truncated?: boolean; mtimeMs?: number | null } | null>
     fileUrl: (sessionId: string | null, path: string) => Promise<{ ok?: boolean; url?: string; error?: string; officeError?: OfficePreviewPayload } | null>
+    openDefault: (sessionId: string | null, path: string) => Promise<{ ok?: boolean; path?: string; error?: string } | null>
+    writeOffice: (sessionId: string | null, path: string, office: OfficePreviewPayload, options?: { expectedMtimeMs?: number | null; force?: boolean }) => Promise<{ ok?: boolean; error?: string; conflict?: boolean; mtimeMs?: number | null } | null>
+    saveOfficeAs: (sessionId: string | null, path: string, office: OfficePreviewPayload) => Promise<{ ok?: boolean; cancelled?: boolean; savedPath?: string; mtimeMs?: number | null; error?: string } | null>
   }
 }
 const klausApi = () => (window as unknown as { klaus: KlausWorkspaceApi }).klaus
@@ -318,7 +324,7 @@ const WORKSPACE_DIRECT_PREVIEW_EXTS: Record<string, string> = {
   png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image', bmp: 'image', ico: 'image', avif: 'image',
   pdf: 'pdf',
   mp3: 'audio', wav: 'audio', m4a: 'audio', aac: 'audio', flac: 'audio', ogg: 'audio', oga: 'audio', opus: 'audio',
-  mp4: 'video', webm: 'video', mov: 'video', m4v: 'video', ogv: 'video',
+  mp4: 'video', webm: 'video', mov: 'video', m4v: 'video', ogv: 'video', '3gp': 'video',
 }
 
 const WORKSPACE_READONLY_SOURCE_PREVIEW_EXTS = new Set(['svg'])
@@ -328,11 +334,16 @@ function workspaceFileExt(filePath: string) {
 }
 
 function workspaceDirectPreviewKind(filePath: string) {
-  return WORKSPACE_DIRECT_PREVIEW_EXTS[workspaceFileExt(filePath)] || ''
+  return WORKSPACE_DIRECT_PREVIEW_EXTS[workspaceFileExt(filePath)]
+    || (isRecognizedUnsupportedMediaExtension(filePath || '') ? 'unsupported-media' : '')
 }
 
 function workspaceIsMarkdown(filePath: string) {
-  return /\.(md|markdown)$/i.test(filePath || '')
+  return /\.(md|markdown|mdown|mkd)$/i.test(filePath || '')
+}
+
+function workspaceIsSpreadsheetText(filePath: string) {
+  return isTextSpreadsheetExtension(filePath || '')
 }
 
 function workspaceIsSvg(filePath: string) {
@@ -344,7 +355,7 @@ function workspaceIsHtml(filePath: string) {
 }
 
 function workspaceCanPreviewSourceFile(filePath: string) {
-  return workspaceIsMarkdown(filePath) || workspaceIsSvg(filePath) || workspaceIsHtml(filePath)
+  return workspaceIsMarkdown(filePath) || workspaceIsSvg(filePath) || workspaceIsHtml(filePath) || workspaceIsSpreadsheetText(filePath)
 }
 
 function workspaceUsesReadonlySourcePreview(filePath: string) {
@@ -390,6 +401,7 @@ function workspaceDefaultViewMode(filePath: string): 'source' | 'preview' {
   // HTML 产物默认富预览：agent 产出的报告/原型/可视化页面，用户首要诉求是
   // 「看效果」而非读源码；源码视图一键可切。
   if (workspaceIsHtml(filePath)) return 'preview'
+  if (workspaceIsSpreadsheetText(filePath)) return 'preview'
   return 'source'
 }
 
@@ -486,8 +498,9 @@ function syncWorkspaceFileViewToggle() {
   const sourceActive = workspaceFileViewMode === 'source'
   workspaceFileViewPreviewBtn?.classList.toggle('is-active', previewActive)
   workspaceFileViewSourceBtn?.classList.toggle('is-active', sourceActive)
-  workspaceFileViewPreviewBtn?.setAttribute('aria-label', tt('artifacts_view_preview'))
-  workspaceFileViewSourceBtn?.setAttribute('aria-label', tt('artifacts_view_source'))
+  const spreadsheetText = workspaceIsSpreadsheetText(workspaceFileContentPath)
+  workspaceFileViewPreviewBtn?.setAttribute('aria-label', tt(spreadsheetText ? 'office_preview_view_grid' : 'artifacts_view_preview'))
+  workspaceFileViewSourceBtn?.setAttribute('aria-label', tt(spreadsheetText ? 'office_preview_view_source' : 'artifacts_view_source'))
   workspaceFileViewPreviewBtn?.setAttribute('aria-pressed', previewActive ? 'true' : 'false')
   workspaceFileViewSourceBtn?.setAttribute('aria-pressed', sourceActive ? 'true' : 'false')
   const markdown = workspaceIsMarkdown(workspaceFileContentPath)
@@ -740,7 +753,7 @@ function updateWorkspaceFileChromeForTab(tab: WorkspaceTab | null) {
   if (workspaceFileStatus) {
     let statusText = ''
     const document = workspaceDocuments.get(tab)?.snapshot
-    if (tab.office) statusText = ''
+    if (tab.office) statusText = tab.dirty ? tt('workspace_file_unsaved') : ''
     else if (document?.saving) statusText = tt('workspace_file_saving')
     else if (document?.error) statusText = tt('workspace_file_save_failed')
     else if (tab.dirty) statusText = tt('workspace_file_unsaved')
@@ -961,7 +974,7 @@ function workspaceTabIsEditable(tab: WorkspaceTab | null | undefined) {
     && tab.loaded
     && !tab.error
     && !tab.directKind
-    && !tab.office
+    && (!tab.office || workspaceIsSpreadsheetText(tab.path))
     && !tab.binary
     && !tab.truncated
     && !tab.readonly
@@ -974,8 +987,59 @@ function markWorkspaceTabDirty(tab: WorkspaceTab, value: string) {
   workspaceDocumentFor(tab).update(value)
 }
 
+async function saveOfficeTabInPlace(tab: WorkspaceTab, nextOffice?: OfficePreviewPayload) {
+  const payload = nextOffice ?? (workspaceMountedOffice?.tab === tab ? workspaceMountedOffice.handle.getPayload() : tab.office)
+  if (!payload) return { ok: false, error: tt('workspace_file_save_failed') }
+  tab.office = payload
+  if (workspaceIsSpreadsheetText(tab.path) && payload.kind === 'spreadsheet') {
+    const delim = workspaceFileExt(tab.path) === 'tsv' ? '\t' : ','
+    markWorkspaceTabDirty(tab, serializeDelimitedSpreadsheet(payload, delim))
+    const ok = await workspaceDocumentFor(tab).flush()
+    if (ok) tab.savedOfficeJson = JSON.stringify(payload)
+    return { ok, mtimeMs: tab.mtimeMs }
+  }
+  if (!tab.officeWritable) return { ok: false, error: tt('workspace_file_readonly') }
+  const owner = tab.ownerSessionId ?? currentSessionId()
+  const targetPath = tab.previewPath || tab.path
+  markWorkspaceSelfWrite(targetPath)
+  const res = await klausApi().artifacts.writeOffice(owner, targetPath, payload, { expectedMtimeMs: tab.mtimeMs })
+  if (!res?.ok) {
+    clearWorkspaceSelfWrite(targetPath)
+    return { ok: false, conflict: !!res?.conflict, error: res?.error || tt('workspace_file_save_failed') }
+  }
+  tab.mtimeMs = res.mtimeMs ?? tab.mtimeMs
+  tab.savedOfficeJson = JSON.stringify(payload)
+  tab.dirty = false
+  if (tab.ownerSessionId === currentSessionId()) {
+    if (getActiveWorkspaceTab() === tab) updateWorkspaceFileChromeForTab(tab)
+    renderWorkspaceTabs()
+  }
+  scheduleWorkspaceReload(owner)
+  return { ok: true, mtimeMs: tab.mtimeMs }
+}
+
+async function saveOfficeTabAs(tab: WorkspaceTab, nextOffice?: OfficePreviewPayload) {
+  const payload = nextOffice ?? (workspaceMountedOffice?.tab === tab ? workspaceMountedOffice.handle.getPayload() : tab.office)
+  if (!payload) return { ok: false, error: tt('workspace_file_save_failed') }
+  tab.office = payload
+  const owner = tab.ownerSessionId ?? currentSessionId()
+  const targetPath = tab.previewPath || tab.path
+  const res = await klausApi().artifacts.saveOfficeAs(owner, targetPath, payload)
+  if (res?.cancelled) return { ok: false, error: 'cancelled' }
+  if (!res?.ok) return { ok: false, error: res?.error || tt('workspace_file_save_failed') }
+  scheduleWorkspaceReload(owner)
+  return { ok: true, savedPath: res.savedPath, mtimeMs: res.mtimeMs }
+}
+
 async function saveWorkspaceTab(tab: WorkspaceTab | null = getActiveWorkspaceTab()) {
-  if (!tab || !workspaceTabIsEditable(tab)) return false
+  if (!tab) return false
+  if (tab.office && !workspaceIsSpreadsheetText(tab.path)) {
+    if (!tab.officeWritable) return false
+    const res = await saveOfficeTabInPlace(tab)
+    if (res.ok && workspaceMountedOffice?.tab === tab) workspaceMountedOffice.handle.markSaved()
+    return res.ok
+  }
+  if (!workspaceTabIsEditable(tab)) return false
   return workspaceDocumentFor(tab).flush()
 }
 
@@ -1180,10 +1244,11 @@ function renderWorkspaceFileContent() {
     return
   }
   const activeTab = getActiveWorkspaceTab()
-  if (activeTab?.office && workspaceFileBody) {
+  if (activeTab?.office && workspaceFileBody && (!workspaceIsSpreadsheetText(workspaceFileContentPath) || workspaceFileViewMode === 'preview')) {
     const payload = activeTab.office
+    const canSaveInPlace = workspaceIsSpreadsheetText(activeTab.path) ? workspaceTabIsEditable(activeTab) : Boolean(activeTab.officeWritable)
     if (workspaceMountedOffice?.tab === activeTab) {
-      workspaceMountedOffice.handle.update(payload)
+      workspaceMountedOffice.handle.update(payload, { canSaveInPlace, dirty: activeTab.dirty })
       return
     }
     revokeWorkspacePreviewObjectUrl()
@@ -1199,6 +1264,24 @@ function renderWorkspaceFileContent() {
       workspaceOfficeStates.set(activeTab, state)
       const handle = mountOfficeViewer(host, payload, {
         state, translate: tt,
+        editable: payload.kind !== 'pdf' && payload.kind !== 'error',
+        canSaveInPlace,
+        singleSheet: workspaceIsSpreadsheetText(activeTab.path),
+        dirty: activeTab.dirty,
+        onChange: nextPayload => {
+          activeTab.office = nextPayload
+          activeTab.preview = false
+          if (workspaceIsSpreadsheetText(activeTab.path) && nextPayload.kind === 'spreadsheet') {
+            const delim = workspaceFileExt(activeTab.path) === 'tsv' ? '\t' : ','
+            markWorkspaceTabDirty(activeTab, serializeDelimitedSpreadsheet(nextPayload, delim))
+          } else {
+            activeTab.dirty = JSON.stringify(nextPayload) !== (activeTab.savedOfficeJson || '')
+            if (getActiveWorkspaceTab() === activeTab) updateWorkspaceFileChromeForTab(activeTab)
+            renderWorkspaceTabs()
+          }
+        },
+        onSave: nextPayload => saveOfficeTabInPlace(activeTab, nextPayload),
+        onSaveAs: nextPayload => saveOfficeTabAs(activeTab, nextPayload),
         openExternal: url => { void (window as any).klaus?.app?.openExternal(url) },
         copyText: value => { void writeClipboardText(value).catch(() => {}) },
       })
@@ -1233,8 +1316,63 @@ function renderWorkspaceFileContent() {
   applyPendingWorkspaceLine(workspaceFileContentPath)
 }
 
+function renderWorkspaceUnsupportedMediaCard(filePath: string, tab: WorkspaceTab) {
+  if (!workspaceFileBody) return
+  revokeWorkspacePreviewObjectUrl()
+  clearWorkspaceImageZoom()
+  setWorkspaceFileBodyMode('message')
+  workspaceFileBody.innerHTML = ''
+  const outer = document.createElement('div')
+  outer.className = styles['workspace-file-message']
+  const card = document.createElement('div')
+  card.className = styles['workspace-media-unsupported-card']
+  const ext = workspaceFileExt(filePath) || 'media'
+  const title = document.createElement('div')
+  title.className = styles['workspace-media-unsupported-title']
+  title.textContent = tt('office_preview_media_unsupported_title').replace('{ext}', ext)
+  const desc = document.createElement('div')
+  desc.className = styles['workspace-media-unsupported-desc']
+  desc.textContent = tt('office_preview_media_unsupported_desc')
+  const actions = document.createElement('div')
+  actions.className = styles['workspace-media-unsupported-actions']
+
+  const openBtn = document.createElement('button')
+  openBtn.type = 'button'
+  openBtn.className = `${styles['workspace-media-unsupported-btn']} ${styles['workspace-media-unsupported-btn-primary']}`
+  openBtn.textContent = tt('office_preview_media_open_default')
+  openBtn.addEventListener('click', async () => {
+    const owner = tab.ownerSessionId ?? currentSessionId()
+    const target = tab.previewPath || filePath
+    const res = await klausApi().artifacts.openDefault(owner, target).catch((err: unknown) => ({ ok: false, error: String(err) }))
+    if (res?.error) await klausDialog().alert(res.error)
+  })
+
+  const revealBtn = document.createElement('button')
+  revealBtn.type = 'button'
+  revealBtn.className = styles['workspace-media-unsupported-btn']
+  revealBtn.textContent = tt('office_preview_media_reveal')
+  revealBtn.addEventListener('click', async () => {
+    const owner = tab.ownerSessionId ?? currentSessionId()
+    const target = tab.previewPath || filePath
+    const res = await klausApi().workspace.reveal(owner, target).catch((err: unknown) => ({ ok: false, error: String(err) }))
+    if (res?.error) await klausDialog().alert(res.error || tt('workspace_reveal_failed'))
+  })
+
+  actions.appendChild(openBtn)
+  actions.appendChild(revealBtn)
+  card.appendChild(title)
+  card.appendChild(desc)
+  card.appendChild(actions)
+  outer.appendChild(card)
+  workspaceFileBody.appendChild(outer)
+}
+
 function renderWorkspaceFileMedia(url: string, kind: string, filePath: string, tab: WorkspaceTab, reloadMedia: boolean) {
   if (!workspaceFileBody) return
+  if (kind === 'unsupported-media') {
+    renderWorkspaceUnsupportedMediaCard(filePath, tab)
+    return
+  }
   const mounted = workspaceMountedMedia
   if (!reloadMedia && tab && kind !== 'image' && mounted?.tab === tab && mounted.kind === kind
     && mounted.filePath === filePath && mounted.url === url && mounted.element.isConnected
@@ -1259,15 +1397,35 @@ function renderWorkspaceFileMedia(url: string, kind: string, filePath: string, t
     el.setAttribute('aria-label', workspaceBaseName(filePath))
     el.src = url
   } else if (kind === 'audio') {
-    el = document.createElement('audio')
-    el.controls = true
-    el.preload = 'metadata'
-    el.src = url
+    const audio = document.createElement('audio')
+    audio.controls = true
+    audio.preload = 'metadata'
+    audio.src = url
+    audio.onerror = () => { if (getActiveWorkspaceTab() === tab) renderWorkspaceUnsupportedMediaCard(filePath, tab) }
+    if (/\.ogg$/i.test(filePath)) {
+      const probe = document.createElement('video')
+      probe.preload = 'metadata'
+      probe.muted = true
+      probe.src = url
+      probe.onloadedmetadata = () => {
+        const hasVideo = probe.videoWidth > 0
+        probe.removeAttribute('src')
+        probe.load()
+        if (hasVideo && tab.directKind === 'audio') {
+          tab.directKind = 'video'
+          if (getActiveWorkspaceTab() === tab) renderWorkspaceFileMedia(url, 'video', filePath, tab, true)
+        }
+      }
+      probe.onerror = () => { probe.removeAttribute('src') }
+    }
+    el = audio
   } else if (kind === 'video') {
-    el = document.createElement('video')
-    el.controls = true
-    el.preload = 'metadata'
-    el.src = url
+    const video = document.createElement('video')
+    video.controls = true
+    video.preload = 'metadata'
+    video.src = url
+    video.onerror = () => { if (getActiveWorkspaceTab() === tab) renderWorkspaceUnsupportedMediaCard(filePath, tab) }
+    el = video
   }
   if (!el) {
     renderWorkspaceFileMessage(tt('artifacts_load_failed'))
@@ -1344,6 +1502,20 @@ export async function loadWorkspaceFile(filePath: string, { force = false, reloa
     if (authorization?.ok !== true || !authorization.filePath) throw new Error(authorization?.error || tt('artifacts_load_failed'))
     const previewPath = authorization.filePath
     tab.previewPath = previewPath
+    if (directKind === 'unsupported-media') {
+      tab.loading = false
+      tab.office = null
+      tab.directKind = 'unsupported-media'
+      tab.mediaUrl = ''
+      tab.binary = false
+      tab.readonly = true
+      tab.encoding = ''
+      tab.loaded = true
+      syncWorkspaceActiveTabGlobals(tab)
+      updateWorkspaceFileChromeForTab(tab)
+      renderWorkspaceFileMedia('', 'unsupported-media', tab.path, tab, false)
+      return
+    }
     if (directKind) {
       const data = await klausApi().artifacts.fileUrl(requestSessionId, previewPath)
       if (seq !== workspaceFileLoadSeq || requestSessionId !== currentSessionId()) return
@@ -1390,7 +1562,11 @@ export async function loadWorkspaceFile(filePath: string, { force = false, reloa
     }
     tab.binary = !!data?.binary
     tab.office = data?.office && typeof data.office === 'object' ? data.office as OfficePreviewPayload : null
-    tab.readonly = Boolean(data?.readonly) || Boolean(tab.office)
+    tab.officeWritable = typeof data?.officeWritable === 'boolean'
+      ? data.officeWritable
+      : Boolean(tab.office && isInPlaceWritableOfficeExtension(filePath))
+    tab.savedOfficeJson = tab.office ? JSON.stringify(tab.office) : ''
+    tab.readonly = Boolean(data?.readonly) || (Boolean(tab.office) && !workspaceIsSpreadsheetText(filePath))
     tab.encoding = data?.encoding || ''
     const savedContent = tab.binary ? '' : (data?.content || '')
     tab.truncated = !!data?.truncated
@@ -1592,6 +1768,10 @@ async function setWorkspaceFileView(next: 'source' | 'preview') {
   if (tab?.dirty && !await saveWorkspaceTab(tab)) return
   if (owner !== currentSessionId() || tab !== getActiveWorkspaceTab()) return
   releaseWorkspaceEditor()
+  if (tab && workspaceIsSpreadsheetText(tab.path) && target === 'preview') {
+    const delim = workspaceFileExt(tab.path) === 'tsv' ? '\t' : ','
+    tab.office = parseDelimitedSpreadsheet(tab.draftContent, delim).preview
+  }
   if (tab) tab.viewMode = target
   workspaceFileViewMode = target
   syncWorkspaceFileViewToggle()
@@ -1616,7 +1796,12 @@ workspaceFileZoomFitBtn?.addEventListener('click', (ev: MouseEvent) => { ev.stop
 function registerWorkspaceKeybindingCommands() {
   bindCommandHandler('workspaceSave', () => {
     if (!workspaceMainActive) return false
-    saveWorkspaceTab()
+    const active = getActiveWorkspaceTab()
+    if (active?.office && !workspaceIsSpreadsheetText(active.path) && !active.officeWritable) {
+      void saveOfficeTabAs(active)
+      return true
+    }
+    void saveWorkspaceTab(active)
     return true
   }, { priority: 'fallback' })
   bindCommandHandler('workspaceCloseTab', () => {

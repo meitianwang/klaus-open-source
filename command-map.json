@@ -1,7 +1,7 @@
 {
   "summary": {
-    "invokeDeclared": 791,
-    "pushDeclared": 85
+    "invokeDeclared": 794,
+    "pushDeclared": 86
   },
   "rows": [
     {
@@ -165,6 +165,10 @@
       "kind": "invoke"
     },
     {
+      "channel": "artifacts:open-default",
+      "kind": "invoke"
+    },
+    {
       "channel": "artifacts:open-window",
       "kind": "invoke"
     },
@@ -185,7 +189,15 @@
       "kind": "invoke"
     },
     {
+      "channel": "artifacts:save-office-as",
+      "kind": "invoke"
+    },
+    {
       "channel": "artifacts:widget-url",
+      "kind": "invoke"
+    },
+    {
+      "channel": "artifacts:write-office",
       "kind": "invoke"
     },
     {
@@ -3242,6 +3254,10 @@
     },
     {
       "channel": "deep-link:friend-task",
+      "kind": "push"
+    },
+    {
+      "channel": "deep-link:open-folder",
       "kind": "push"
     },
     {

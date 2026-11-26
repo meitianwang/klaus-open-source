@@ -1,5 +1,21 @@
-import { isPdfPreviewExtension, isOfficePreviewExtension, officePreviewFamily, OFFICE_PREVIEW_MAX_BYTES, REMOTE_OFFICE_PREVIEW_MAX_BYTES } from '../../contracts/office-preview';
-import { inspectPdfHeader, parsePdfBuffer, parseOfficeBuffer } from './office';
+import {
+  defaultOfficeSaveAsExtension,
+  extOfPath,
+  isInPlaceWritableOfficeExtension,
+  isOfficePreviewExtension,
+  isPdfPreviewExtension,
+  isTextSpreadsheetExtension,
+  OFFICE_PREVIEW_MAX_BYTES,
+  officePreviewFamily,
+  PLAYABLE_AUDIO_EXTENSIONS,
+  PLAYABLE_VIDEO_EXTENSIONS,
+  REMOTE_OFFICE_PREVIEW_MAX_BYTES,
+  saveAsFiltersForOfficeKind,
+  UNSUPPORTED_AUDIO_EXTENSIONS,
+  UNSUPPORTED_VIDEO_EXTENSIONS,
+  type OfficeEditablePayload,
+} from '../../contracts/office-preview';
+import { inspectPdfHeader, parseCsvTsvBuffer, parseOfficeBuffer, parsePdfBuffer, writeOfficeBuffer } from './office';
 import { createHash } from 'node:crypto';
 import { constants, watch } from 'node:fs';
 import { copyFile, lstat, mkdir, open, opendir, realpath, rename, stat, writeFile } from 'node:fs/promises';
@@ -30,7 +46,14 @@ export const BASE_WORKSPACE_EXCLUDES = [
   '**/.next', '**/.next/**', '**/.turbo', '**/.turbo/**', '**/__pycache__', '**/__pycache__/**',
   '**/.pytest_cache', '**/.pytest_cache/**', '**/target', '**/target/**',
 ] as const;
-const READONLY_EXTENSIONS = new Set('svg png jpg jpeg gif webp bmp ico avif pdf mp3 wav m4a aac flac ogg oga opus mp4 webm mov m4v ogv'.split(' '));
+export const EXTERNAL_FILE_SESSION_ID = '__external__';
+const READONLY_EXTENSIONS = new Set([
+  ...'svg png jpg jpeg gif webp bmp ico avif pdf'.split(' '),
+  ...PLAYABLE_AUDIO_EXTENSIONS,
+  ...PLAYABLE_VIDEO_EXTENSIONS,
+  ...UNSUPPORTED_AUDIO_EXTENSIONS,
+  ...UNSUPPORTED_VIDEO_EXTENSIONS,
+]);
 const WRITE_LIMIT = 10 * 1024 * 1024, PREVIEW_LIMIT = 10 * 1024 * 1024, REMOTE_PREVIEW_LIMIT = 1024 * 1024;
 class FileRefusal extends Error {}
 interface WorkspaceWatcher { close(): void; on(event: 'error', listener: (error: Error) => void): unknown }
@@ -44,6 +67,8 @@ export interface FileDeps {
   openPreviewWindow: (options: { kind: 'artifact'; filePath: string; sessionId: string; displayName?: string }) => Promise<void>;
   /** Native save dialog for `artifacts:save-copy`; resolves undefined when cancelled. */
   saveCopyDialog?: (senderId: number, defaultName: string) => Promise<string | undefined>;
+  /** Native filtered save dialog for `artifacts:save-office-as`; resolves undefined when cancelled. */
+  saveOfficeDialog?: (senderId: number, defaultPath: string, filters: Array<{ name: string; extensions: string[] }>) => Promise<string | undefined>;
   requestSession: (sessionId: string, method: 'session/fileChanges', params: JsonObject) => Promise<unknown>;
   toFileUrl?: (path: string, sessionId: string, displayName?: string) => string | Promise<string>;
   toHtmlPreviewUrl?: (path: string, sessionId: string, scopeRoot: string) => string | Promise<string>;
@@ -272,7 +297,12 @@ export class FileService {
     if (!info?.isFile) return { error: 'not a file' };
     const family = isPdfPreviewExtension(checked) ? 'pdf' : officePreviewFamily(checked);
     if (family) {
-      const base = { filePath: checked, fileName: basename(checked), mtimeMs: info.mtimeMs, readonly: true, remote: true, binary: false, encoding: family === 'pdf' ? 'pdf' : 'office' };
+      const base = {
+        filePath: checked, fileName: basename(checked), mtimeMs: info.mtimeMs,
+        readonly: true, remote: true, binary: false, encoding: family === 'pdf' ? 'pdf' : 'office',
+        officeWritable: false,
+        saveAsExt: family === 'pdf' ? 'pdf' : defaultOfficeSaveAsExtension(checked, family),
+      };
       const tooLarge = (size: number): Json => ({ ...base, size, truncated: false, content: '', office: { kind: 'error', family, code: 'too_large', maxBytes: REMOTE_OFFICE_PREVIEW_MAX_BYTES } });
       if (info.size > REMOTE_OFFICE_PREVIEW_MAX_BYTES) return tooLarge(info.size);
       const chunks: Buffer[] = [];
@@ -290,6 +320,17 @@ export class FileService {
       return { ...base, size, truncated: parsed.truncated, content: parsed.plainText, office: parsed.office as unknown as JsonObject };
     }
     const { content, size, complete } = await this.deps.sshFiles!.read(remote.senderId, remote.workdir, checked, 0, REMOTE_PREVIEW_LIMIT);
+    if (isTextSpreadsheetExtension(checked)) {
+      const csvParsed = parseCsvTsvBuffer(checked, content);
+      return {
+        filePath: checked, fileName: basename(checked), size, mtimeMs: info.mtimeMs,
+        truncated: !complete || csvParsed.truncated, readonly: false, remote: true,
+        content: csvParsed.text, binary: false, encoding: 'utf8',
+        office: csvParsed.office as unknown as JsonObject,
+        officeWritable: complete,
+        saveAsExt: extOfPath(checked),
+      };
+    }
     const preview = decodeWorkspacePreview(content);
     return { filePath: checked, fileName: basename(checked), size, mtimeMs: info.mtimeMs, truncated: !complete, readonly: false, remote: true, ...preview };
   }
@@ -626,13 +667,37 @@ export class FileService {
       const family = isPdfPreviewExtension(checked.path) ? 'pdf' : officePreviewFamily(checked.path);
       if (family) {
         this.watchPreviewFile(checked.sessionId, checked.realPath, checked.path);
-        const base = { filePath: checked.path, fileName: basename(checked.path), size: info.size, mtimeMs: info.mtimeMs, readonly: true, binary: false, encoding: family === 'pdf' ? 'pdf' : 'office' };
-        if (info.size > OFFICE_PREVIEW_MAX_BYTES) return { ...base, truncated: false, content: '', office: { kind: 'error', family, code: 'too_large', maxBytes: OFFICE_PREVIEW_MAX_BYTES } };
+        const officeWritable = family !== 'pdf' && isInPlaceWritableOfficeExtension(checked.path);
+        const saveAsExt = family === 'pdf' ? 'pdf' : defaultOfficeSaveAsExtension(checked.path, family);
+        const base = {
+          filePath: checked.path, fileName: basename(checked.path), size: info.size, mtimeMs: info.mtimeMs,
+          readonly: true, binary: false, encoding: family === 'pdf' ? 'pdf' : 'office',
+          officeWritable, saveAsExt,
+        };
+        if (info.size > OFFICE_PREVIEW_MAX_BYTES) return { ...base, officeWritable: false, truncated: false, content: '', office: { kind: 'error', family, code: 'too_large', maxBytes: OFFICE_PREVIEW_MAX_BYTES } };
         const bytes = await readHead(checked.realPath, info.size);
         const parsed = family === 'pdf' ? await parsePdfBuffer(bytes) : await parseOfficeBuffer(checked.path, bytes);
-        return { ...base, truncated: parsed.truncated, content: parsed.plainText, office: parsed.office as unknown as JsonObject };
+        const isErr = (parsed.office as { kind?: string }).kind === 'error';
+        return { ...base, officeWritable: officeWritable && !isErr && !parsed.truncated, truncated: parsed.truncated, content: parsed.plainText, office: parsed.office as unknown as JsonObject };
       }
-      const preview = decodeWorkspacePreview(await readHead(checked.realPath, Math.min(info.size, PREVIEW_LIMIT)));
+      const rawBytes = await readHead(checked.realPath, Math.min(info.size, PREVIEW_LIMIT));
+      if (isTextSpreadsheetExtension(checked.path)) {
+        this.watchPreviewFile(checked.sessionId, checked.realPath, checked.path);
+        const csvParsed = parseCsvTsvBuffer(checked.path, rawBytes);
+        const sizeTruncated = info.size > PREVIEW_LIMIT;
+        return {
+          filePath: checked.path, fileName: basename(checked.path), size: info.size, mtimeMs: info.mtimeMs,
+          truncated: sizeTruncated || csvParsed.truncated,
+          readonly: sizeTruncated,
+          content: csvParsed.text,
+          binary: false,
+          encoding: 'utf8',
+          office: csvParsed.office as unknown as JsonObject,
+          officeWritable: !sizeTruncated && !csvParsed.truncated,
+          saveAsExt: extOfPath(checked.path),
+        };
+      }
+      const preview = decodeWorkspacePreview(rawBytes);
       this.watchPreviewFile(checked.sessionId, checked.realPath, checked.path);
       return { filePath: checked.path, fileName: basename(checked.path), size: info.size, mtimeMs: info.mtimeMs, truncated: info.size > PREVIEW_LIMIT,
         readonly: info.size > PREVIEW_LIMIT, ...preview };
@@ -831,6 +896,133 @@ export class FileService {
     const value = result as { ok?: boolean; filePath?: string; error?: string };
     if (value.ok !== true || !value.filePath) throw new IpcHandlerError('FILE_REFUSED', value.error || 'file refused');
     return value.filePath;
+  }
+  openArtifactDefaultApp(payload: JsonObject): Promise<Json> {
+    return this.run(payload, async (): Promise<Json> => {
+      if (this.remoteOf(payload)) throw new IpcHandlerError('REMOTE_WORKSPACE', 'This file lives on another computer; it cannot be opened by this one’s Finder.');
+      const checked = await this.checked(payload, true);
+      if (!(await stat(checked.realPath)).isFile()) return { error: 'not a file' };
+      await this.deps.openPath(checked.realPath);
+      return { ok: true, path: checked.realPath };
+    });
+  }
+  private parseEditableOfficePayload(raw: unknown): OfficeEditablePayload | null {
+    if (!raw || typeof raw !== 'object') return null;
+    const kind = (raw as { kind?: unknown }).kind;
+    if (kind === 'spreadsheet' && Array.isArray((raw as { sheets?: unknown }).sheets)) return raw as OfficeEditablePayload;
+    if (kind === 'document' && Array.isArray((raw as { blocks?: unknown }).blocks)) return raw as OfficeEditablePayload;
+    if (kind === 'presentation' && Array.isArray((raw as { slides?: unknown }).slides)) return raw as OfficeEditablePayload;
+    if (kind === 'mindmap' && Array.isArray((raw as { sheets?: unknown }).sheets)) return raw as OfficeEditablePayload;
+    return null;
+  }
+  writeOfficeArtifact(payload: JsonObject): Promise<Json> {
+    return this.run(payload, async (): Promise<Json> => {
+      const office = this.parseEditableOfficePayload(payload.office);
+      if (!office) return { error: 'invalid office payload' };
+      if (!this.validWriteOptions(payload)) return { error: 'invalid write options' };
+      const remote = this.remoteOf(payload);
+      if (remote) {
+        const target = string(payload.filePath);
+        if (office.kind === 'spreadsheet' && isTextSpreadsheetExtension(target)) {
+          const textBytes = await writeOfficeBuffer(target, office);
+          return this.remoteWrite(remote, { ...payload, content: textBytes.toString('utf8') });
+        }
+        return { error: 'remote Office archives are read-only; use Save As to save a local copy' };
+      }
+      const checked = await this.checked(payload, true);
+      if (!isInPlaceWritableOfficeExtension(checked.path)) {
+        return { error: 'format requires Save As' };
+      }
+      return this.serializeWrite(`local:${checked.realPath}`, async (): Promise<Json> => {
+        const file = await open(checked.realPath, constants.O_RDWR | (constants.O_NOFOLLOW ?? 0));
+        let mtimeMs: number;
+        try {
+          const info = await file.stat();
+          if (!info.isFile()) return { error: 'not a file' };
+          if (info.size > OFFICE_PREVIEW_MAX_BYTES) return { error: 'file too large' };
+          if (this.writeRevisionMismatch(payload, info.mtimeMs)) {
+            return { ok: false, error: 'file changed on disk', conflict: true, mtimeMs: info.mtimeMs };
+          }
+          const existing = Buffer.alloc(info.size);
+          let readOffset = 0;
+          while (readOffset < existing.length) {
+            const res = await file.read(existing, readOffset, existing.length - readOffset, readOffset);
+            if (!res.bytesRead) break;
+            readOffset += res.bytesRead;
+          }
+          const buffer = await writeOfficeBuffer(checked.path, office, existing.subarray(0, readOffset));
+          if (buffer.length > OFFICE_PREVIEW_MAX_BYTES) return { error: 'file too large' };
+          let writeOffset = 0;
+          while (writeOffset < buffer.length) {
+            const res = await file.write(buffer, writeOffset, buffer.length - writeOffset, writeOffset);
+            writeOffset += res.bytesWritten;
+          }
+          await file.truncate(buffer.length);
+          mtimeMs = (await file.stat()).mtimeMs;
+        } finally {
+          await file.close();
+        }
+        this.changed(checked.sessionId, [{ kind: 'change', path: checked.path, isDir: false }]);
+        return { ok: true, path: checked.path, mtimeMs };
+      });
+    });
+  }
+  saveOfficeArtifactAs(payload: JsonObject, senderId: number): Promise<Json> {
+    return this.run(payload, async (): Promise<Json> => {
+      const office = this.parseEditableOfficePayload(payload.office);
+      if (!office) return { error: 'invalid office payload' };
+      const dialogFn = this.deps.saveOfficeDialog ?? (this.deps.saveCopyDialog ? (id: number, defaultPath: string) => this.deps.saveCopyDialog!(id, basename(defaultPath)) : undefined);
+      if (!dialogFn) return { error: 'save dialog unavailable' };
+
+      const remote = this.remoteOf(payload);
+      let sourcePath: string;
+      let existingBytes: Buffer | undefined;
+      const sessionId = string(payload.sessionId);
+      if (remote) {
+        sourcePath = await this.remoteChecked(remote, payload, true);
+      } else {
+        const checked = await this.checked(payload, true);
+        sourcePath = checked.path;
+        try {
+          const info = await stat(checked.realPath);
+          if (info.isFile() && info.size <= OFFICE_PREVIEW_MAX_BYTES) {
+            existingBytes = await readHead(checked.realPath, info.size);
+          }
+        } catch { existingBytes = undefined; }
+      }
+
+      const sourceExt = extOfPath(sourcePath);
+      const targetExt = defaultOfficeSaveAsExtension(sourcePath, office.kind);
+      const stem = basename(sourcePath, sourceExt ? `.${basename(sourcePath).slice(basename(sourcePath).lastIndexOf('.') + 1)}` : '');
+      const defaultDir = remote ? '' : dirname(sourcePath);
+      const defaultTarget = defaultDir ? join(defaultDir, `${stem}.${targetExt}`) : `${stem}.${targetExt}`;
+      const filters = saveAsFiltersForOfficeKind(office.kind, sourceExt);
+      const chosen = await dialogFn(senderId, defaultTarget, filters);
+      if (!chosen) return { ok: false, cancelled: true };
+
+      const allowedExts = new Set(filters.flatMap(f => f.extensions.map(e => e.toLowerCase())));
+      const chosenExt = extOfPath(chosen);
+      const finalPath = allowedExts.has(chosenExt) ? chosen : `${chosen}.${targetExt}`;
+      const finalExt = extOfPath(finalPath);
+      const seedBytes = existingBytes && finalExt === sourceExt ? existingBytes : undefined;
+      const buffer = await writeOfficeBuffer(finalPath, office, seedBytes);
+      await writeFile(finalPath, buffer);
+      const savedInfo = await stat(finalPath);
+      try {
+        const canonicalSaved = await realpath(finalPath);
+        if (sessionId) this.deps.authorizePreviewPath?.(canonicalSaved, sessionId);
+      } catch { /* ignore */ }
+      if (!remote && sessionId) {
+        this.changed(sessionId, [{ kind: 'add', path: finalPath, isDir: false }]);
+      }
+      return {
+        ok: true,
+        filePath: finalPath,
+        fileName: basename(finalPath),
+        mtimeMs: savedInfo.mtimeMs,
+        officeWritable: isInPlaceWritableOfficeExtension(finalPath),
+      };
+    });
   }
   saveArtifactCopy(payload: JsonObject, senderId: number): Promise<Json> {
     return this.run(payload, async (): Promise<Json> => {

@@ -255,9 +255,14 @@ body { display: flex; flex-direction: column; }
   width: 100%;
   height: calc(100vh - 150px);
 }
-.aw-body:has(.aw-media-preview-pdf) { padding: 0; overflow: hidden; }
-.aw-media-preview-pdf { width: 100%; height: 100%; }
-.aw-media-preview-pdf iframe { height: 100%; border: 0; border-radius: 0; }
+.aw-body:has(.aw-media-preview-pdf),
+.aw-body:has(.aw-html-preview),
+.aw-body.is-office-mode { padding: 0; overflow: hidden; }
+.aw-body.is-office-mode { display: flex; flex-direction: column; }
+.aw-media-preview-pdf,
+.aw-html-preview { width: 100%; height: 100%; }
+.aw-media-preview-pdf iframe,
+.aw-html-preview iframe { width: 100%; height: 100%; border: 0; border-radius: 0; background: #ffffff; display: block; }
 .aw-preview-message {
   min-height: 180px;
   display: flex;
@@ -265,6 +270,52 @@ body { display: flex; flex-direction: column; }
   justify-content: center;
   color: var(--fg-tertiary);
   text-align: center;
+}
+.aw-unsupported-card {
+  max-width: 440px;
+  margin: 40px auto;
+  padding: 24px 28px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  text-align: center;
+}
+.aw-unsupported-title {
+  color: var(--fg);
+  font-size: var(--text-body);
+  font-weight: var(--weight-semibold);
+}
+.aw-unsupported-desc {
+  color: var(--fg-secondary);
+  font-size: var(--text-body-sm);
+  line-height: 1.55;
+}
+.aw-unsupported-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+.aw-unsupported-btn {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xs);
+  background: var(--bg);
+  color: var(--fg);
+  padding: 6px 12px;
+  font-size: var(--text-caption);
+  font-weight: var(--weight-medium);
+  cursor: pointer;
+}
+.aw-unsupported-btn-primary {
+  background: var(--theme-accent);
+  border-color: var(--theme-accent);
+  color: #ffffff;
 }
 .aw-body img {
   max-width: 100%;

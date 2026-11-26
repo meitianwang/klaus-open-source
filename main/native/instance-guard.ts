@@ -1,8 +1,10 @@
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { parseDeepLink, teamIssueDeepLink } from '../app/deep-links';
 import { loadNativeAddon, type NativeInstanceGuardBinding } from './binding';
 import { isDesktopProtocol } from '../../shared/desktop-edition';
 
-export interface InstanceActivation { deepLink?: string }
+export interface InstanceActivation { deepLink?: string; openPaths?: string[] }
 export interface InstanceGuardOptions {
   /** The trusted application identity is independent of data-profile overrides. */
   identity: string;
@@ -22,6 +24,22 @@ export interface InstanceReport { acquired: boolean; held: boolean; complete: bo
 export type InstanceAcquisition = { acquired: true; guard: DesktopInstanceGuard }
   | { acquired: false; forwarded: boolean; acknowledged: boolean };
 
+function isLocalAbsolutePath(value: string): boolean {
+  return value.startsWith('/') || /^[a-zA-Z]:[\\/]/.test(value);
+}
+
+function isLauncherArgument(raw: string, index: number, argv: readonly string[]): boolean {
+  if (raw === 'Klaus' || raw === process.execPath) return true;
+  if (index === 0 && (/[/\\](?:electron|node|bun|Klaus)[^/\\]*(?:\.exe)?$/i.test(raw) || /\.app\/Contents\/MacOS\//i.test(raw))) {
+    return true;
+  }
+  if (/[/\\]dist[/\\]main[/\\]index\.js$/i.test(raw)) return true;
+  if ((process as { defaultApp?: boolean }).defaultApp && argv === process.argv && (index === 0 || index === 1)) {
+    return true;
+  }
+  return false;
+}
+
 /** Activation only: arguments cannot select a profile, read a cwd, or execute a command. */
 export function instanceActivation(argv: unknown, protocol = 'klaus'): InstanceActivation {
   if (!isDesktopProtocol(protocol)) throw new Error('INSTANCE_INVALID_PROTOCOL');
@@ -29,19 +47,40 @@ export function instanceActivation(argv: unknown, protocol = 'klaus'): InstanceA
   for (const raw of argv) {
     if (typeof raw !== 'string' || Buffer.byteLength(raw) > 4096 || raw.includes('\0')) throw new Error('INSTANCE_INVALID_MESSAGE');
   }
-  for (const raw of argv as string[]) {
+  const list = argv as string[];
+  let deepLink: string | undefined;
+  for (const raw of list) {
     const action = parseDeepLink(raw, protocol);
     if (!action) continue;
     if (action.kind === 'open') {
       if (!/^[a-zA-Z0-9][a-zA-Z0-9_.:-]{0,199}$/.test(action.sessionId)) continue;
-      return { deepLink: `${protocol}://open/${encodeURIComponent(action.sessionId)}` };
+      deepLink = `${protocol}://open/${encodeURIComponent(action.sessionId)}`;
+      break;
     }
     // A friend invite carries its payload in the query string, so forwarding
     // the canonical verb-only form would drop the email the link exists for.
-    if (action.kind === 'friend') return { deepLink: raw };
-    if (action.kind === 'issue') return { deepLink: teamIssueDeepLink(action.projectId, action.issueId, protocol) };
-    return { deepLink: `${protocol}://${action.kind}` };
+    if (action.kind === 'friend') { deepLink = raw; break; }
+    if (action.kind === 'issue') { deepLink = teamIssueDeepLink(action.projectId, action.issueId, protocol); break; }
+    deepLink = `${protocol}://${action.kind}`;
+    break;
   }
+  const openPaths: string[] = [];
+  for (let i = 0; i < list.length && openPaths.length < 16; i += 1) {
+    const raw = list[i]!;
+    if (!raw || raw.startsWith('-') || isLauncherArgument(raw, i, list)) continue;
+    if (!isLocalAbsolutePath(raw)) continue;
+    try {
+      if (existsSync(raw)) {
+        const normalized = /^[a-zA-Z]:[\\/]/.test(raw) ? raw : resolve(raw);
+        if (!openPaths.includes(normalized)) openPaths.push(normalized);
+      }
+    } catch {
+      // Unreadable paths are ignored.
+    }
+  }
+  if (deepLink && openPaths.length > 0) return { deepLink, openPaths };
+  if (deepLink) return { deepLink };
+  if (openPaths.length > 0) return { openPaths };
   return {};
 }
 
@@ -76,9 +115,14 @@ export class DesktopInstanceGuard {
   static acquireWithBinding(options: InstanceGuardOptions, create: (raw: string) => NativeInstanceGuardBinding): InstanceAcquisition {
     if (!/^[a-zA-Z0-9._-]{1,72}$/.test(options.identity)) throw new Error('INSTANCE_INVALID_IDENTITY');
     const activation = instanceActivation(options.argv, options.protocol);
-    // cwd is intentionally empty. The legacy callback only receives a focus /
-    // deep-link request, never a new working directory or arbitrary CLI flags.
-    const binding = create(JSON.stringify({ identity: options.identity, cwd: '', args: ['Klaus', ...(activation.deepLink ? [activation.deepLink] : [])], timeoutMs: options.timeoutMs ?? 2000 }));
+    // cwd is intentionally empty. The legacy callback only receives a focus,
+    // deep-link, or validated local Open-With path, never a new working directory or arbitrary CLI flags.
+    const forwardedArgs = [
+      'Klaus',
+      ...(activation.deepLink ? [activation.deepLink] : []),
+      ...(activation.openPaths ?? []),
+    ];
+    const binding = create(JSON.stringify({ identity: options.identity, cwd: '', args: forwardedArgs, timeoutMs: options.timeoutMs ?? 2000 }));
     try {
       const result = object(binding.acquisition());
       if (typeof result.acquired !== 'boolean' || typeof result.forwarded !== 'boolean' || typeof result.acknowledged !== 'boolean') throw new Error('INSTANCE_INVALID_RESPONSE');

@@ -13,13 +13,16 @@ const TYPES: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
   svg: 'image/svg+xml', bmp: 'image/bmp', avif: 'image/avif', ico: 'image/x-icon', pdf: 'application/pdf',
   mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac',
-  ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', mp4: 'video/mp4', webm: 'video/webm',
-  mov: 'video/quicktime', m4v: 'video/mp4', ogv: 'video/ogg',
+  ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', wma: 'audio/x-ms-wma',
+  mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', m4v: 'video/mp4', ogv: 'video/ogg', '3gp': 'video/3gpp',
+  mkv: 'video/x-matroska', avi: 'video/x-msvideo', wmv: 'video/x-ms-wmv', flv: 'video/x-flv', f4v: 'video/mp4',
+  mts: 'video/mp2t', m2ts: 'video/mp2t', mpg: 'video/mpeg', mpeg: 'video/mpeg', '3g2': 'video/3gpp2',
+  vob: 'video/mpeg', asf: 'video/x-ms-asf', rm: 'application/vnd.rn-realmedia', rmvb: 'application/vnd.rn-realmedia-vbr',
 };
 const HTML_TYPES: Record<string, string> = { html: 'text/html', htm: 'text/html', xhtml: 'application/xhtml+xml' };
 const PREVIEW_TYPES: Record<string, string> = {
   ...TYPES, ...HTML_TYPES, css: 'text/css', js: 'text/javascript', mjs: 'text/javascript',
-  json: 'application/json', txt: 'text/plain', csv: 'text/csv',
+  json: 'application/json', txt: 'text/plain', csv: 'text/csv', tsv: 'text/tab-separated-values', xml: 'application/xml',
   woff: 'font/woff', woff2: 'font/woff2', ttf: 'font/ttf', otf: 'font/otf',
 };
 interface Grant { path: string; sessionId: string; displayName?: string; preview?: { root: string; originalRoot: string; widget?: boolean } }
