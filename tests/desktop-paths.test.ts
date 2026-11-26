@@ -1,5 +1,5 @@
 import { resolveDesktopPaths } from '../main/app/paths';
-import { computerUseHelperPath } from '../main/paths';
+import { computerUseHelperPath, recordingHelperPath } from '../main/paths';
 import { equal as assertEqual } from 'node:assert/strict';
 import { join } from 'node:path';
 import { assertRejects, Harness } from './harness';
@@ -38,7 +38,7 @@ void (async () => {
     assertEqual(value.manualPath, `${root}\\manual\\klaus-manual.md`);
     assertEqual(value.frontendRoot, `${root}\\frontend`);
     assertEqual(value.speechHelperPath, undefined);
-    assertEqual(value.recordingHelperPath, undefined);
+    assertEqual(value.recordingHelperPath, `${root}\\recording\\win32-x64\\klaus-recording-helper.exe`);
     assertEqual(value.pipProducerPath, undefined);
     assertEqual(value.computerUseHelperPath, `${root}\\computer-use\\win32-x64\\klaus-computer-use-helper.exe`);
   });
@@ -49,6 +49,8 @@ void (async () => {
     const value = computerUseHelperPath('win32', 'x64');
     assertEqual(typeof value, 'string');
     assertEqual(value!.replaceAll('\\', '/').endsWith('/computer-use/win32-x64/klaus-computer-use-helper.exe'), true);
+    assertEqual(recordingHelperPath('win32', 'x64')?.replaceAll('\\', '/').endsWith('/recording/win32-x64/klaus-recording-helper.exe'), true);
+    assertEqual(recordingHelperPath('linux', 'x64'), undefined);
     assertEqual(computerUseHelperPath('linux', 'x64'), undefined);
   });
   process.exitCode = await h.finish(join(__dirname, 'desktop-paths.result.json'), 'desktop-paths');

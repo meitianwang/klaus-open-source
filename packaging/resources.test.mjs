@@ -4,9 +4,9 @@ import { chmodSync, existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, sy
 import { createPackage } from '@electron/asar';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { computerUseArtifactName, computerUseSourceFingerprint, copyTree, electronDownloadOptions, egressRelayArtifactName, egressRelaySourceFingerprint, inventory, nativeFingerprint, pipSourceFingerprint, recordingSourceFingerprint, requireTarget, sha256, specification, speechSourceFingerprint, validateBinaryTarget, validateComputerUse, validateEgressRelay, validateEngine, validateNative, validatePip, validateRecording, validateSpeech, verifiedElectronArchiveDirectory } from './resources.mjs';
+import { recordingArtifactName, computerUseArtifactName, computerUseSourceFingerprint, copyTree, electronDownloadOptions, egressRelayArtifactName, egressRelaySourceFingerprint, inventory, nativeFingerprint, pipSourceFingerprint, recordingSourceFingerprint, requireTarget, sha256, specification, speechSourceFingerprint, validateBinaryTarget, validateComputerUse, validateEgressRelay, validateEngine, validateNative, validatePip, validateRecording, validateSpeech, verifiedElectronArchiveDirectory } from './resources.mjs';
 import { macSigningOptions } from './macos-signing.mjs';
-import { verifyComputerUseResource, verifyPackage, verifyPipResource, verifyRuntimeModuleClosure } from './verify.mjs';
+import { verifyRecordingResource, verifyComputerUseResource, verifyPackage, verifyPipResource, verifyRuntimeModuleClosure } from './verify.mjs';
 import { desktopEdition } from './desktop-edition.mjs';
 import { stagePolicyNotices } from '../engine/scripts/policy-notices.mjs';
 
@@ -171,7 +171,7 @@ test('macOS recording validation rejects foreign targets, stale sources and modi
   const save = value => writeFileSync(`${binary}.json`, JSON.stringify(value));
   const validate = () => validateRecording(root, { platform, arch, sourceRoot });
   save(manifest); assert.equal(validate().sha256, manifest.sha256);
-  assert.throws(() => validateRecording(root, { platform: 'win32', arch: 'x64', sourceRoot }), /only a macOS resource/);
+  assert.throws(() => validateRecording(root, { platform: 'win32', arch: 'x64', sourceRoot }), /ENOENT/);
   for (const change of [{ sourceTreeDirty: true }, { sourceSha256: '' }, { compiler: '' }]) {
     save({ ...manifest, ...change }); assert.throws(validate, /clean, identified/);
   }
@@ -277,6 +277,25 @@ test('PiP resource validation rejects linked binaries, manifests and target dire
   assert.throws(() => verifyPipResource(resources, identity), /regular files/);
   rmSync(directory, { recursive: true }); symlinkSync(foreign, directory, 'junction');
   assert.throws(() => verifyPipResource(resources, identity), /regular directory/);
+}));
+
+function windowsRecordingFixture(resources) {
+  const platform = 'win32', arch = 'x64';
+  const directory = join(resources, 'recording/win32-x64');
+  mkdirSync(directory, { recursive: true });
+  const binary = join(directory, recordingArtifactName(platform)), bytes = pe();
+  writeFileSync(binary, bytes, { mode: 0o644 });
+  const manifest = { platform, arch, sourceCommit: commit, sourceTreeDirty: false, sourceSha256: 'a'.repeat(64), compiler: 'MSVC fixture', sha256: sha256(bytes) };
+  writeFileSync(binary + '.json', JSON.stringify(manifest));
+  return { directory, manifest };
+}
+
+test('Windows recording accepts a PE without POSIX execute bits and verifies the packaged identity', () => fixture(resources => {
+  const { directory, manifest } = windowsRecordingFixture(resources);
+  assert.deepEqual(validateRecording(directory, manifest), manifest);
+  const identity = { platform: 'win32', arch: 'x64', recording: manifest };
+  assert.deepEqual(verifyRecordingResource(resources, identity), manifest);
+  assert.throws(() => verifyRecordingResource(resources, { ...identity, recording: null }), /resource identity/);
 }));
 
 function computerUseFixture(root, targetPlatform = platform, targetArch = arch) {
@@ -418,6 +437,7 @@ for (const id of [undefined, 'domestic', 'international']) test(`Windows ${id ??
   try {
     const resources = join(root, 'resources'), appSource = join(root, 'app-source');
     const { binary, manifest: computerUse } = computerUseFixture(root, 'win32', 'x64');
+    const { manifest: recording } = windowsRecordingFixture(resources);
     const write = (path, bytes) => { mkdirSync(dirname(path), { recursive: true }); writeFileSync(path, bytes); };
     for (const file of specification.requiredAppFiles) write(join(appSource, file), '{}');
     for (const file of specification.requiredResourceFiles) write(join(resources, file), '{}');
@@ -441,7 +461,7 @@ for (const id of [undefined, 'domestic', 'international']) test(`Windows ${id ??
     const egressRelay = { platform: 'win32', arch: 'x64', sourceCommit: commit, sourceTreeDirty: false, sourceSha256: egressRelaySourceFingerprint(egressSourceRoot), compiler: 'go1.27.4 fixture', sha256: sha256(egressBytes) };
     write(join(resources, 'bin/win32-x64/antigravity-egress.exe.json'), JSON.stringify(egressRelay));
     const manifest = { layoutVersion: 1, application: edition.productName, ...(id ? { edition: id, applicationId: edition.application } : {}),
-      buildKind: 'local-unsigned', platform: 'win32', arch: 'x64', version: '1.2.3', electronVersion: '44.2.0', engine, native, computerUse, egressRelay,
+      buildKind: 'local-unsigned', platform: 'win32', arch: 'x64', version: '1.2.3', electronVersion: '44.2.0', engine, native, computerUse, recording, egressRelay,
       appFiles: inventory(appSource), resourceFiles: inventory(resources) };
     write(join(resources, 'desktop-resources.json'), JSON.stringify(manifest));
     write(join(root, `${edition.executableName}.exe`), pe());
@@ -451,6 +471,7 @@ for (const id of [undefined, 'domestic', 'international']) test(`Windows ${id ??
     assert.equal(report.edition, id ?? 'domestic');
     assert.equal(report.application, edition.application);
     assert.equal(report.computerUseSha256, computerUse.sha256);
+    assert.equal(report.recordingSha256, recording.sha256);
     assert.equal(report.egressRelaySha256, egressRelay.sha256);
     assert.equal(report.resourceFiles, manifest.resourceFiles.length);
     const egressPath = join(resources, 'bin/win32-x64/antigravity-egress.exe');

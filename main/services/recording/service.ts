@@ -56,7 +56,8 @@ export class RecordingService {
   status(recordingId?: string): RecordingRow {
     const resource = this.active;
     if (recordingId && resource?.id !== recordingId) throw new Error('recording-owner-not-active');
-    if (!resource) return { recording: false, supported: (this.deps.platform ?? process.platform) === 'darwin' && !!this.deps.command };
+    const platform = this.deps.platform ?? process.platform;
+    if (!resource) return { recording: false, supported: (platform === 'darwin' || platform === 'win32') && !!this.deps.command };
     return { recording: !resource.finished && resource.state?.state === 'recording', id: resource.id, recordingId: resource.id,
       sessionId: resource.sessionId, startedAt: resource.state?.startedAt ?? null, state: resource.state?.state ?? 'approving',
       ...(resource.state?.error ? { error: resource.state.error } : {}), ...(resource.startupError ? { error: resource.startupError } : {}) };
@@ -80,9 +81,11 @@ export class RecordingService {
     try {
       const capabilities = await this.capabilities(); this.check(resource);
       if (!capabilities.supported) throw new Error(capabilities.error ?? 'recording-unavailable');
-      if (!capabilities.permissions?.accessibility || !capabilities.permissions.inputMonitoring) throw new Error('macos-input-monitoring-or-accessibility-permission-required');
+      if (!capabilities.permissions?.accessibility || !capabilities.permissions.inputMonitoring) throw new Error((this.deps.platform ?? process.platform) === 'win32' ? 'windows-input-or-ui-automation-permission-required' : 'macos-input-monitoring-or-accessibility-permission-required');
       const consent = object(await context.elicit({ _meta: { klaus: { recordAndReplay: true } },
-        message: 'Record your actions on this Mac for up to 30 minutes? Mouse clicks, typed text, and window switches are captured until you press Stop. Apps on your blocked list and password fields are excluded.',
+        message: (this.deps.platform ?? process.platform) === 'win32'
+          ? 'Record your actions on this PC for up to 30 minutes? Mouse clicks, shortcuts, and window switches are captured until you press Stop. Typed character text, apps on your blocked list, and password fields are excluded.'
+          : 'Record your actions on this Mac for up to 30 minutes? Mouse clicks, typed text, and window switches are captured until you press Stop. Apps on your blocked list and password fields are excluded.',
         requestedSchema: { properties: {}, type: 'object' } }, resource.abort.signal));
       this.check(resource);
       if (consent.action !== 'accept') throw new Error('Record & Replay approval was not granted via MCP elicitation.');

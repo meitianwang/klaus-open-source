@@ -54,7 +54,7 @@ describe('curated extension logos', () => {
 
   test('every mapped plugin tile exists on disk under public/', () => {
     for (const id of ['browser@builtin', 'digram@klaus-official', 'model3d@klaus-official',
-      'prototype-studio@klaus-official', 'iphoneuse@klaus-official']) {
+      'prototype-studio@klaus-official', 'iphoneuse@klaus-official', 'latex@klaus-official', 'office-bridge@klaus-official']) {
       const src = getPluginLogoSrc({ id })
       expect(src).not.toBe('')
       expect(existsSync(new URL(`../../public/${src}`, import.meta.url))).toBe(true)

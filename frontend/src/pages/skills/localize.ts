@@ -245,6 +245,7 @@ const SKILL_LOGO_BY_DIR: Record<string, string> = {
   'klaus-docs': 'skill-logos/klaus-docs.png',
   'pdf': 'skill-logos/pdf.png',
   'product-feature-video': 'skill-logos/product-feature-video.png',
+  'record-and-replay': 'skill-logos/record-and-replay.png',
   'skill-creator': 'skill-logos/skill-creator.png',
   'slash-command-creator': 'skill-logos/slash-command-creator.png',
 }

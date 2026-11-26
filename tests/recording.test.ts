@@ -34,7 +34,8 @@ h.test('recording tools preserve order and effect annotations from the released 
   assert.ok(RECORDING_TOOLS.every(tool => tool.annotations.destructiveHint === false && tool.annotations.openWorldHint === false));
 });
 h.test('capability checks refuse unsupported platforms and denied permission without calling consent', async () => {
-  assert.equal((await recordingCapabilities(command(), 'win32')).supported, false);
+  assert.equal((await recordingCapabilities(command(), 'linux')).supported, false);
+  assert.equal((await recordingCapabilities(command(), 'win32')).supported, true);
   const f = service({}, 'permission-denied'); let consent = 0;
   await assert.rejects(f.recorder.start(context('denied', async () => { consent++; return { action: 'accept' }; })), /permission-required/);
   assert.equal(consent, 0); assert.equal(f.displayed.length, 0); assert.equal((await f.recorder.close()).complete, true);

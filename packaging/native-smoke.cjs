@@ -47,6 +47,8 @@ void (async () => {
     speechProbe = JSON.parse(result.stdout.trim());
     assert.equal(speechProbe.type, 'capabilities'); assert.equal(speechProbe.sampleRate, 16000);
     assert.equal(speechProbe.channels, 1); assert.equal(speechProbe.format, 's16le');
+  }
+  if (process.platform === 'darwin' || process.platform === 'win32') {
     const recording = spawnSync(paths.recordingHelperPath, ['--capabilities'], { encoding: 'utf8', timeout: 10000 });
     progress('recording-probe-returned');
     if (recording.error) throw recording.error;

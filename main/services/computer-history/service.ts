@@ -10,7 +10,7 @@ import type { ComputerHistoryFrame, ComputerHistoryStatus } from './types';
 
 /** Organization-policy refusal wording; pinned by the computer-history vectors. */
 export const COMPUTER_HISTORY_ORGANIZATION_BLOCKED = "Computer History is blocked by your organization's policy.";
-export const COMPUTER_HISTORY_UNAVAILABLE_PLATFORM = 'Computer History is available only on macOS';
+export const COMPUTER_HISTORY_UNAVAILABLE_PLATFORM = 'Computer History is available only on macOS and Windows';
 const RESTART_BASE_MS = 1_000;
 const RESTART_MAX_MS = 60_000;
 
@@ -62,7 +62,7 @@ export class ComputerHistoryService {
     } catch (error) { this.policy = []; deps.log(`observation policy reset: ${String(error)}`); }
   }
 
-  private available(): boolean { return this.deps.available?.() ?? process.platform === 'darwin'; }
+  private available(): boolean { return this.deps.available?.() ?? (process.platform === 'darwin' || process.platform === 'win32'); }
   private managedRefusal(): string | undefined {
     let snapshot: ManagedPolicySnapshot | undefined;
     try { snapshot = this.deps.managedPolicy?.(); } catch { return MANAGED_COMPUTER_USE_UNREADABLE; }

@@ -32,7 +32,7 @@ export function resolveDesktopPaths(context: DesktopPathContext) {
     chromeHostScript: path.join(context.appRoot, 'dist', 'main', 'browser', 'chrome-native-host.js'),
     chromeExtensionRoot: path.join(resourcesRoot, 'plugins-builtin', 'browser', 'chrome-extension'),
     speechHelperPath: platform === 'darwin' ? path.join(resourcesRoot, 'speech', platformKey, 'klaus-speech-helper') : undefined,
-    recordingHelperPath: platform === 'darwin' ? path.join(resourcesRoot, 'recording', platformKey, 'klaus-recording-helper') : undefined,
+    recordingHelperPath: platform === 'darwin' || platform === 'win32' ? path.join(resourcesRoot, 'recording', platformKey, 'klaus-recording-helper' + (platform === 'win32' ? '.exe' : '')) : undefined,
     pipProducerPath: platform === 'darwin' ? path.join(resourcesRoot, 'pip', platformKey, 'klaus-pip-producer') : undefined,
     computerUseHelperPath: platform === 'darwin' || platform === 'win32'
       ? path.join(resourcesRoot, 'computer-use', platformKey, 'klaus-computer-use-helper' + (platform === 'win32' ? '.exe' : '')) : undefined,

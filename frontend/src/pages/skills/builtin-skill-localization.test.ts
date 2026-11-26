@@ -27,6 +27,7 @@ const BUILTIN_SKILL_DIR_NAMES = [
   'klaus-docs',
   'pdf',
   'skill-creator',
+  'record-and-replay',
   'slash-command-creator',
 ]
 

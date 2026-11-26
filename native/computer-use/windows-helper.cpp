@@ -688,6 +688,83 @@ static void WatchEscape() {
     UnhookWindowsHookEx(EscapeHook);EscapeHook=nullptr;
     EmitWatchFrame("{\"event\":\"stopped\"}");
 }
+static constexpr UINT HistoryWake = WM_APP + 1;
+static std::atomic<DWORD> HistoryPump{0};
+static std::atomic<bool> HistoryDirty{true}, HistoryStop{false};
+static void CALLBACK HistoryChanged(HWINEVENTHOOK, DWORD event, HWND window, LONG object, LONG child, DWORD, DWORD) {
+    if (event != EVENT_SYSTEM_FOREGROUND && (object != OBJID_WINDOW || child != 0 || window != GetForegroundWindow())) return;
+    if (!HistoryDirty.exchange(true)) PostThreadMessageW(HistoryPump.load(), HistoryWake, 0, 0);
+}
+static void WatchHistory() {
+    try { InteractiveSession(); auto automation = create_instance<IUIAutomation>(CLSID_CUIAutomation); if (!automation) Fail("UI Automation unavailable"); }
+    catch (...) { EmitWatchFrame("{\"event\":\"unavailable\",\"reason\":\"windows-ui-automation-unavailable\"}"); return; }
+    MSG message{};
+    PeekMessageW(&message, nullptr, 0, 0, PM_NOREMOVE);
+    HistoryPump.store(GetCurrentThreadId());
+    const auto foregroundHook = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, HistoryChanged, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    const auto titleHook = SetWinEventHook(EVENT_OBJECT_NAMECHANGE, EVENT_OBJECT_NAMECHANGE, nullptr, HistoryChanged, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    const auto timer = SetTimer(nullptr, 0, 250, nullptr);
+    if (!timer) {
+        if (foregroundHook) UnhookWinEvent(foregroundHook);
+        if (titleHook) UnhookWinEvent(titleHook);
+        EmitWatchFrame("{\"event\":\"unavailable\",\"reason\":\"windows-history-timer-unavailable\"}");
+        return;
+    }
+    std::thread([] {
+        try { for (;;) { auto frame = Line(1024); if (frame.find("\"stop\":true") != std::string::npos || std::cin.eof()) break; } } catch (...) {}
+        HistoryStop.store(true);
+        PostThreadMessageW(HistoryPump.load(), WM_QUIT, 0, 0);
+    }).detach();
+    DWORD lastPid = 0;
+    std::wstring bundle, lastTitle;
+    auto sample = [&] {
+        const HWND window = GetForegroundWindow();
+        DWORD pid = 0;
+        if (window) GetWindowThreadProcessId(window, &pid);
+        if (!pid || pid == GetCurrentProcessId()) return;
+        if (pid != lastPid) {
+            lastPid = pid;
+            lastTitle.clear();
+            const auto path = ProcessPath(pid);
+            bundle = Lower(path.substr(path.find_last_of(L"\\/") + 1));
+            auto name = BaseName(path);
+            if (name.empty()) name = L"Application";
+            JsonObject frame;
+            frame.Insert(L"event", S(L"appActivated")); frame.Insert(L"at", N(Now()));
+            if (!bundle.empty()) frame.Insert(L"bundleId", S(bundle));
+            frame.Insert(L"name", S(name)); frame.Insert(L"pid", N(pid));
+            EmitWatchFrame(to_string(frame.Stringify()).c_str());
+        }
+        wchar_t buffer[513]{};
+        const int length = GetWindowTextW(window, buffer, 513);
+        const std::wstring title(buffer, static_cast<size_t>(length));
+        const auto lower = Lower(title);
+        bool privateWindow = bundle == L"tor.exe";
+        for (const auto* marker : {L"private browsing", L"incognito", L"inprivate", L"private window", L"プライベート", L"シークレット", L"无痕", L"無痕", L"隐私", L"隱私"})
+            privateWindow = privateWindow || lower.find(marker) != std::wstring::npos;
+        if (privateWindow || title.empty()) { lastTitle.clear(); return; }
+        if (title == lastTitle) return;
+        lastTitle = title;
+        JsonObject frame;
+        frame.Insert(L"event", S(L"windowTitle")); frame.Insert(L"at", N(Now()));
+        if (!bundle.empty()) frame.Insert(L"bundleId", S(bundle));
+        frame.Insert(L"title", S(title));
+        EmitWatchFrame(to_string(frame.Stringify()).c_str());
+    };
+    fputs("klaus-history-watch-started\n", stderr); fflush(stderr);
+    const auto deadline = Clock::now() + std::chrono::hours(24);
+    sample();
+    while (!HistoryStop.load() && Clock::now() < deadline && GetMessageW(&message, nullptr, 0, 0) > 0) {
+        if (message.message == WM_TIMER || (message.message == HistoryWake && HistoryDirty.load())) {
+            HistoryDirty.store(false);
+            sample();
+        }
+    }
+    KillTimer(nullptr, timer);
+    if (foregroundHook) UnhookWinEvent(foregroundHook);
+    if (titleHook) UnhookWinEvent(titleHook);
+    EmitWatchFrame("{\"event\":\"stopped\"}");
+}
 static RECT VirtualScreenRect() {
     RECT rect{GetSystemMetrics(SM_XVIRTUALSCREEN),GetSystemMetrics(SM_YVIRTUALSCREEN),0,0};
     rect.right=rect.left+GetSystemMetrics(SM_CXVIRTUALSCREEN);rect.bottom=rect.top+GetSystemMetrics(SM_CYVIRTUALSCREEN);
@@ -830,6 +907,7 @@ int main() {
         // The escape watch is long-lived, answers in framed stdout events and
         // owns stdin itself, so the one-shot cancel reader must not start.
         if(method==L"watchEscape"){WatchEscape();return 0;}
+        if(method==L"watchHistory"){WatchHistory();return 0;}
         // EOF or any later control frame cancels this one private operation. The
         // host keeps stdin open and waits for the actual process/stdio close.
         std::thread([]{try{Line(1024);}catch(...){}cancelled.store(true);}).detach();

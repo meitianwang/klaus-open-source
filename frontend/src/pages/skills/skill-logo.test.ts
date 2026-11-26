@@ -22,6 +22,7 @@ const LOGO_SKILLS = [
   'pdf',
   'product-feature-video',
   'skill-creator',
+  'record-and-replay',
   'slash-command-creator',
 ]
 

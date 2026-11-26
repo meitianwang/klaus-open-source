@@ -4,7 +4,7 @@ import { join, normalize, posix, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import ts from 'typescript';
 import plist from 'plist';
-import { computerUseArtifactName, egressRelayArtifactName, engineArtifactRecords, inventory, readJson, requireTarget, sha256, specification, validateComputerUse, validateEgressRelay, validateEngine, validatePip, validateRecording, validateSpeech } from './resources.mjs';
+import { recordingArtifactName, computerUseArtifactName, egressRelayArtifactName, engineArtifactRecords, inventory, readJson, requireTarget, sha256, specification, validateComputerUse, validateEgressRelay, validateEngine, validatePip, validateRecording, validateSpeech } from './resources.mjs';
 import { officialPluginRequiredFiles, parseOfficialPluginRecords } from './official-plugins.mjs';
 import { verifyBrowserImportResource } from './browser-import.mjs';
 import { POLICY_NOTICE_CATALOG, POLICY_NOTICE_DIRECTORY } from '../engine/scripts/policy-notices.mjs';
@@ -110,6 +110,18 @@ export function verifyComputerUseResource(resources, manifest) {
   return computerUse;
 }
 
+export function verifyRecordingResource(resources, manifest) {
+  const target = requireTarget(manifest.platform, manifest.arch), root = join(resources, 'recording');
+  const rootStat = lstatSync(root, { throwIfNoEntry: false });
+  if (!rootStat?.isDirectory() || readdirSync(root).join(',') !== target) throw new Error('Unexpected recording helper target');
+  const directory = join(root, target);
+  if (!lstatSync(directory).isDirectory()) throw new Error('Recording helper target must be a regular directory');
+  const recording = validateRecording(directory, { platform: manifest.platform, arch: manifest.arch });
+  const filename = recordingArtifactName(manifest.platform);
+  if (!isDeepStrictEqual(recording, manifest.recording) || readdirSync(directory).sort().join(',') !== [filename, filename + '.json'].sort().join(',')) throw new Error('Packaged recording helper differs from its resource identity');
+  return recording;
+}
+
 /** Validate the actual package, not a staging directory that could hide a copy error. */
 export function verifyPackage(bundle) {
   const manifest = readJson(join(packageLocations(bundle, DEFAULT_DESKTOP_EDITION).resources, 'desktop-resources.json'));
@@ -151,7 +163,7 @@ export function verifyPackage(bundle) {
   const browserImportRoot = join(locations.resources, 'browser-import');
   const hasBrowserImport = manifest.browserImport !== undefined || existsSync(browserImportRoot);
   const actualResourceFiles = [];
-  for (const name of ['frontend', 'manual', 'bin', 'native', 'computer-use', ...(hasBrowserImport ? ['browser-import'] : []), ...specification.sharedRoots, ...specification.generatedRoots, ...(officialPlugins.length ? specification.optionalGeneratedRoots : []), ...(manifest.platform === 'darwin' ? ['app-icon.icns', 'speech', 'recording', 'pip'] : [])]) {
+  for (const name of ['frontend', 'manual', 'bin', 'native', 'computer-use', 'recording', ...(hasBrowserImport ? ['browser-import'] : []), ...specification.sharedRoots, ...specification.generatedRoots, ...(officialPlugins.length ? specification.optionalGeneratedRoots : []), ...(manifest.platform === 'darwin' ? ['app-icon.icns', 'speech', 'pip'] : [])]) {
     const root = join(locations.resources, name), stat = statSync(root);
     if (stat.isDirectory()) actualResourceFiles.push(...inventory(root).map(file => ({ ...file, path: `${name}/${file.path}` })));
     else actualResourceFiles.push({ path: name, size: stat.size, sha256: sha256(readFileSync(root)) });
@@ -182,14 +194,7 @@ export function verifyPackage(bundle) {
     speech = validateSpeech(directory, { platform: manifest.platform, arch: manifest.arch });
     if (!isDeepStrictEqual(speech, manifest.speech) || readdirSync(directory).sort().join(',') !== 'klaus-speech-helper,klaus-speech-helper.json') throw new Error('Packaged speech helper differs from its resource identity');
   } else if (manifest.speech || existsSync(join(locations.resources, 'speech'))) throw new Error('The macOS speech helper leaked into a Windows package');
-  let recording;
-  if (manifest.platform === 'darwin') {
-    const recordingRoot = join(locations.resources, 'recording');
-    if (readdirSync(recordingRoot).join(',') !== target) throw new Error('Unexpected recording helper target');
-    const directory = join(recordingRoot, target);
-    recording = validateRecording(directory, { platform: manifest.platform, arch: manifest.arch });
-    if (!isDeepStrictEqual(recording, manifest.recording) || readdirSync(directory).sort().join(',') !== 'klaus-recording-helper,klaus-recording-helper.json') throw new Error('Packaged recording helper differs from its resource identity');
-  } else if (manifest.recording || existsSync(join(locations.resources, 'recording'))) throw new Error('The macOS recording helper leaked into a Windows package');
+  const recording = verifyRecordingResource(locations.resources, manifest);
   const pip = verifyPipResource(locations.resources, manifest);
   const computerUse = verifyComputerUseResource(locations.resources, manifest);
   const egressRelay = validateEgressRelay(engineDirectory, { platform: manifest.platform, arch: manifest.arch });

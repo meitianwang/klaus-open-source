@@ -190,7 +190,7 @@ export function manualPath(): string { return desktopPaths().manualPath; }
 export function nativeAddonPath(): string { return desktopPaths().nativeAddonPath; }
 
 export function pipProducerPath(): string | undefined { return desktopPaths().pipProducerPath; }
-export function recordingHelperPath(): string | undefined { return desktopPaths().recordingHelperPath; }
+export function recordingHelperPath(platform = process.platform, arch = process.arch): string | undefined { return desktopPaths(platform, arch).recordingHelperPath; }
 export function computerUseHelperPath(platform = process.platform, arch = process.arch): string | undefined {
   return desktopPaths(platform, arch).computerUseHelperPath;
 }

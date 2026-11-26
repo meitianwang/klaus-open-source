@@ -12,6 +12,8 @@ const OFFICIAL_SLUGS = [
   'audio-separator',
   'browser',
   'design',
+  'latex',
+  'office-bridge',
   'digram',
   'iphoneuse',
   'model3d',

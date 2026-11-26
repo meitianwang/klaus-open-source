@@ -14,9 +14,6 @@ describe('settings nav keyboard entry', () => {
   const keyboardEntry = NAV_ENTRIES.find(entry => entry.stab === 'keyboard')
 
   test('the keyboard shortcuts tab exists on every platform', () => {
-    // Codex gates its entry with `case 'keyboard-shortcuts': return !0` — always
-    // visible, never loading, no capability requirement. A platform-gated entry
-    // would leave Windows/Linux users with no way to see or change their keys.
     expect(keyboardEntry).toBeDefined()
     expect(keyboardEntry!.kind).toBe('tab')
     expect(keyboardEntry!.macOnly).toBeUndefined()
@@ -24,9 +21,6 @@ describe('settings nav keyboard entry', () => {
   })
 
   test('it sits in the General group, after preferences and before voice input', () => {
-    // Codex lists it in its Personal group between the appearance rows and the
-    // usage rows; Klaus's equivalent of "personal" is General, and the ordering
-    // matters because the nav is the only entry point to the editor.
     const general = stabs(true)
     expect(general.indexOf('keyboard')).toBe(general.indexOf('preferences') + 1)
     expect(general.indexOf('keyboard')).toBeLessThan(general.indexOf('voiceInput'))
@@ -101,7 +95,7 @@ describe('settings nav platform trimming', () => {
     // mac-only entry must update this pin deliberately, and everything else on
     // the two platforms must stay identical.
     const macOnly = new Set(NAV_ENTRIES.filter(entry => entry.kind === 'tab' && entry.macOnly === true).map(entry => entry.stab))
-    expect(macOnly).toEqual(new Set(['systemAuth', 'computerHistory']))
+    expect(macOnly).toEqual(new Set(['systemAuth']))
     expect(stabs(false)).toEqual(stabs(true).filter(stab => !macOnly.has(stab)))
   })
 

@@ -84,16 +84,16 @@ if (options.has('--reuse-native')) {
   validateNative(nativeDirectory, nativeRoot, validation);
   if (process.platform === 'darwin') {
     validateSpeech(helperDirectory('speech'), { ...validation, sourceRoot: join(nativeRoot, 'speech') });
-    validateRecording(helperDirectory('recording'), { ...validation, sourceRoot: join(nativeRoot, 'recording') });
     validatePip(helperDirectory('pip'), { ...validation, sourceRoot: join(nativeRoot, 'pip') });
   }
+  validateRecording(helperDirectory('recording'), { ...validation, sourceRoot: join(nativeRoot, 'recording') });
   validateComputerUse(helperDirectory('computer-use'), { ...validation, sourceRoot: join(nativeRoot, 'computer-use') });
   validateEgressRelay(helperDirectory('antigravity-egress'), { ...validation, sourceRoot: join(nativeRoot, 'antigravity-egress') });
   console.log('Verified existing native artifacts against this checkout.');
 } else {
   run(['native/scripts/build.mjs']);
-  if (process.platform === 'darwin') for (const kind of ['speech', 'recording', 'pip']) run([`native/${kind}/build.mjs`, helperDirectory(kind)]);
-  run([`native/computer-use/${process.platform === 'win32' ? 'build-windows.mjs' : 'build.mjs'}`, helperDirectory('computer-use')]);
+  if (process.platform === 'darwin') for (const kind of ['speech', 'pip']) run([`native/${kind}/build.mjs`, helperDirectory(kind)]);
+  for (const kind of ['computer-use', 'recording']) run([`native/${kind}/${process.platform === 'win32' ? 'build-windows.mjs' : 'build.mjs'}`, helperDirectory(kind)]);
   // The relay needs a Go toolchain. Development continues without it and the
   // engine connects to the service directly; release packaging enforces the
   // staged artifact, so a missing toolchain can never ship silently.

@@ -7,7 +7,7 @@ export interface RecordingPolicy { blockedApps: string[]; allowedProcessIds?: nu
 export interface RecordingEnd { mode: 'stop' | 'discard' | 'error'; reason: string; suppressedEventCount: number }
 export interface RecordingCapabilities { supported: boolean; permissions?: { accessibility: boolean; inputMonitoring: boolean }; error?: string }
 export async function recordingCapabilities(command: RecordingCommand | undefined, platform: NodeJS.Platform = process.platform): Promise<RecordingCapabilities> {
-  if (platform !== 'darwin') return { supported: false, error: 'Record & Replay is macOS-only for now.' };
+  if (platform !== 'darwin' && platform !== 'win32') return { supported: false, error: 'Record & Replay is available only on macOS and Windows.' };
   if (!command) return { supported: false, error: 'recording-helper-unavailable' };
   try {
     const output = await new Promise<string>((resolve, reject) => execFile(command.executable, [...(command.args ?? []), '--capabilities'],

@@ -143,22 +143,27 @@ export function validateSpeech(directory, { platform, arch, sourceRoot }) {
   return manifest;
 }
 
-export function recordingSourceFingerprint(sourceRoot) {
-  return sha256(Buffer.concat(['klaus-recording-helper.m', 'helper-info.plist', 'build.mjs'].map(file => readFileSync(join(sourceRoot, file)))));
+export function recordingArtifactName(platform) {
+  if (platform !== 'darwin' && platform !== 'win32') throw new Error('Unsupported recording helper platform');
+  return 'klaus-recording-helper' + (platform === 'win32' ? '.exe' : '');
 }
 
-/** Native recording is macOS-only and has its own immutable source/build proof. */
+export function recordingSourceFingerprint(sourceRoot, platform = 'darwin') {
+  recordingArtifactName(platform);
+  return sha256(Buffer.concat((platform === 'win32' ? ['windows-recording-helper.cpp', 'windows-recording-helper.manifest', 'build-windows.mjs'] : ['klaus-recording-helper.m', 'helper-info.plist', 'build.mjs']).map(file => readFileSync(join(sourceRoot, file)))));
+}
+
+/** Native recording has its own immutable source/build proof. */
 export function validateRecording(directory, { platform, arch, sourceRoot }) {
   requireTarget(platform, arch);
-  if (platform !== 'darwin') throw new Error('The native recording helper is only a macOS resource');
-  const filename = 'klaus-recording-helper', manifest = readJson(join(directory, `${filename}.json`));
+  const filename = recordingArtifactName(platform), manifest = readJson(join(directory, `${filename}.json`));
   if (manifest.platform !== platform || manifest.arch !== arch) throw new Error('Recording helper target mismatch');
   if (manifest.sourceTreeDirty !== false || !/^[a-f0-9]{40}$/.test(manifest.sourceCommit ?? '') || !/^[a-f0-9]{64}$/.test(manifest.sourceSha256 ?? '') || typeof manifest.compiler !== 'string' || !manifest.compiler.trim()) throw new Error('Only clean, identified recording helper artifacts can be packaged');
-  if (sourceRoot && manifest.sourceSha256 !== recordingSourceFingerprint(sourceRoot)) throw new Error('Recording helper source fingerprint differs from this checkout');
+  if (sourceRoot && manifest.sourceSha256 !== recordingSourceFingerprint(sourceRoot, platform)) throw new Error('Recording helper source fingerprint differs from this checkout');
   const file = join(directory, filename), bytes = readFileSync(file);
   if (sha256(bytes) !== manifest.sha256) throw new Error('Recording helper SHA-256 mismatch');
   validateBinaryTarget(bytes, platform, arch);
-  if (process.platform !== 'win32' && (statSync(file).mode & 0o111) === 0) throw new Error('Recording helper is not executable');
+  if (platform === 'darwin' && process.platform !== 'win32' && (statSync(file).mode & 0o111) === 0) throw new Error('Recording helper is not executable');
   return manifest;
 }
 

@@ -39,9 +39,9 @@ process.stdin.on('data', chunk => {
       process.exit(0);
     }
     process.stderr.write(${JSON.stringify(COMPUTER_HISTORY_STARTED_MARKER + '\\n')});
-    console.log(JSON.stringify({ event: 'appActivated', bundleId: 'test.fixture', name: 'Fixture', pid: 7, at: Date.now() }));
-    console.log(JSON.stringify({ event: 'windowTitle', bundleId: 'test.fixture', title: 'Fixture — Incognito', at: Date.now() }));
-    console.log(JSON.stringify({ event: 'windowTitle', bundleId: 'test.fixture', title: 'Plain Window', url: 'https://example.com/page', at: Date.now() }));
+    console.log(JSON.stringify({ event: 'appActivated', bundleId: 'code.exe', name: 'Fixture', pid: 7, at: Date.now() }));
+    console.log(JSON.stringify({ event: 'windowTitle', bundleId: 'code.exe', title: 'Fixture — Incognito', at: Date.now() }));
+    console.log(JSON.stringify({ event: 'windowTitle', bundleId: 'code.exe', title: 'Plain Window', url: 'https://example.com/page', at: Date.now() }));
     console.log(JSON.stringify({ event: 'windowTitle', bundleId: 'other.fixture', title: 'Other Window', url: 'https://other.invalid/x', at: Date.now() }));
   }
 });
@@ -186,7 +186,7 @@ h.test('enabling records observed frames while private windows never reach the l
   strict.equal(f.stored()[COMPUTER_HISTORY_ENABLED_KEY], '1');
   await waitFor(() => f.ledger().length >= 3, 5000, 'frames are recorded');
   const entries = f.ledger();
-  strict.equal(entries.some((entry: Record<string, unknown>) => entry.kind === 'app' && entry.name === 'Fixture'), true);
+  strict.equal(entries.some((entry: Record<string, unknown>) => entry.kind === 'app' && entry.bundleId === 'code.exe' && entry.name === 'Fixture'), true);
   strict.equal(entries.some((entry: Record<string, unknown>) => entry.title === 'Plain Window' && entry.url === 'https://example.com/page'), true);
   strict.equal(entries.some((entry: Record<string, unknown>) => entry.title === 'Other Window'), true);
   strict.equal(entries.some((entry: Record<string, unknown>) => String(entry.title ?? '').includes('Incognito')), false,

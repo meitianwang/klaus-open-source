@@ -346,9 +346,69 @@ const SKILL_TEXT_I18N = {
     en: ['Simplify', 'Condense complex context or plans into a simpler, clearer working form.'],
     zh: ['简化', '将复杂上下文或计划压缩成更简单清晰的工作版本。'],
   },
+  'record-and-replay': {
+    en: ['Record & Replay', 'Record a live UI demonstration on your computer and turn the captured action stream into a reusable SKILL.md workflow.'],
+    zh: ['操作录制转技能', '录制本机界面的真实操作示范，将捕获的动作流自动提炼为可复用的 SKILL.md 工作流。'],
+  },
+  'latex': {
+    en: ['LaTeX Typesetting', 'Author, compile, debug, and visually verify LaTeX manuscripts, papers, resumes, and Beamer slides into publication-ready PDFs.'],
+    zh: ['LaTeX 排版编译', '编写、编译、排错并逐页核验 LaTeX 论文、简历、技术报告与 Beamer 幻灯片，输出出版级 PDF。'],
+  },
+  'template-creator': {
+    en: ['Office Template Extractor', 'Inspect reference Word, Excel, or PowerPoint files and extract reusable theme palettes, typography, page geometry, and layout specs.'],
+    zh: ['办公样式模板提取', '解析参考 Word、Excel、PPT 文档，抽取配色、字体、版芯尺寸与版式规范并生成可复用的模板脚手架。'],
+  },
+  'excel-live-control': {
+    en: ['Excel Live Control', 'Inspect and edit open desktop Excel workbooks in real time on macOS and Windows: sheets, cell ranges, formulas, formatting, and PDF export.'],
+    zh: ['桌面表格实时操控', '实时读取与操控 macOS 和 Windows 上已打开的桌面 Excel 工作簿：工作表、单元格区域、公式计算、样式与导出 PDF。'],
+  },
+  'security-best-practices': {
+    en: ['Security Best Practices', 'Perform language- and framework-specific security best-practice reviews, secure-by-default guidance, and prioritized vulnerability remediation for Python, JS/TS, and Go.'],
+    zh: ['代码安全审查', '面向 Python、JavaScript/TypeScript 与 Go 主流前后端框架执行安全基线审查、默认安全编码指导与分级漏洞修复。'],
+  },
+  'security-threat-model': {
+    en: ['Security Threat Model', 'Produce repository-grounded AppSec threat models covering system boundaries, assets, attacker capabilities, abuse paths, risk ranking, and concrete mitigations.'],
+    zh: ['威胁建模分析', '基于代码仓真实架构梳理信任边界、核心资产、攻击者能力与滥用路径，输出分级威胁模型报告与具体缓解措施。'],
+  },
+  'security-ownership-map': {
+    en: ['Security Ownership Map', 'Analyze git history to build people-to-file and co-change graphs, compute bus-factor hotspots and orphaned sensitive code, and export CSV/JSON/GraphML slices.'],
+    zh: ['代码安全归属图谱', '基于 Git 历史构建维护者与文件共变拓扑图，计算敏感代码单点维护风险（Bus Factor）与孤儿模块，支持查询切片与图数据库导出。'],
+  },
+  'playwright-interactive': {
+    en: ['Playwright Interactive QA', 'Keep persistent Playwright browser and Electron handles alive across turns for iterative UI debugging, functional QA, viewport-fit checks, and CSS-normalized visual QA.'],
+    zh: ['交互式浏览器联调', '跨轮次保持常驻 Playwright 浏览器与 Electron 窗口句柄，边改代码边做热重载、真实交互回归、视口裁剪检测与视觉验收。'],
+  },
+  'cli-creator': {
+    en: ['CLI Creator', 'Build a composable CLI from API docs, OpenAPI specs, curl examples, SDKs, or local scripts with stable JSON output, auth handling, and a companion skill.'],
+    zh: ['API 命令行封装器', '从 API 文档、OpenAPI 规范、curl 示例、SDK 或本地脚本构建可跨仓库复用的组合式命令行工具，支持稳定 JSON 输出、鉴权管理与配套技能。'],
+  },
+  'jupyter-notebook': {
+    en: ['Jupyter Notebooks', 'Create, scaffold, or refactor reproducible Jupyter notebooks (.ipynb) for experiments and tutorials using bundled templates and new_notebook.py.'],
+    zh: ['Jupyter 代码本', '使用内置模板与辅助脚本创建、搭建脚手架或重构可复现的 Jupyter 交互式代码本（.ipynb），覆盖实验分析与教学演示。'],
+  },
+  'yeet': {
+    en: ['Quick Commit & PR', 'Create a branch, stage changes, run checks, push, and open or update a template-aware GitHub pull request in one flow using gh.'],
+    zh: ['一键提交与 PR', '一站式完成切分支、暂存提交、运行检查、推送分支，并使用 GitHub CLI（gh）按仓库模板创建或原地更新 Pull Request。'],
+  },
+  'netlify-deploy': {
+    en: ['Netlify Deploy', 'Deploy web projects to Netlify with the Netlify CLI (npx netlify), including site linking, netlify.toml configuration, preview URLs, and production deploys.'],
+    zh: ['Netlify 部署', '使用 Netlify CLI（npx netlify）检测项目构建配置、关联或新建站点，执行预览部署与生产环境发布。'],
+  },
+  'render-deploy': {
+    en: ['Render Deploy', 'Analyze codebases, generate and validate render.yaml Blueprints, or provision web services, workers, cron jobs, and databases on Render via MCP and CLI.'],
+    zh: ['Render 部署', '分析代码仓运行时与依赖，生成校验 render.yaml 蓝图或通过 Render MCP/CLI 创建服务、定时任务与数据库并完成上线核验。'],
+  },
+  'linear': {
+    en: ['Linear Workflow', 'Manage issues, cycles, projects, documentation, and team workflows in Linear through the Linear MCP server.'],
+    zh: ['Linear 项目协作', '通过 Linear MCP 服务管理 Issue 分流、迭代周期（Cycle）、项目里程碑、文档审计与团队负载协作。'],
+  },
+  'sentry': {
+    en: ['Sentry Observability', 'Inspect Sentry production issues, event details, root-cause explanations, and error trends via the Sentry CLI or connected Sentry MCP tools.'],
+    zh: ['Sentry 故障排查', '通过 Sentry CLI 或已连接的 Sentry MCP 只读检索线上未解决异常、事件上下文与根因分析，脱敏汇总生产健康状态。'],
+  },
   'skill-creator': {
-    en: ['Skill Creator', 'Create new reusable skills with correct structure and guidance.'],
-    zh: ['技能创建器', '按正确结构和说明创建新的可复用技能。'],
+    en: ['Skill Creator', 'Create new skills from scratch, capture repeatable workflows from the current chat, or refine existing skills in place.'],
+    zh: ['技能创建器', '从零创建可复用技能、把当前对话的工作流提炼成技能，或根据执行经验原地迭代现有技能。'],
   },
   'slash-command-creator': {
     en: ['Slash Command Creator', 'Create reusable Klaus slash commands under the user commands directory.'],
@@ -458,6 +518,21 @@ const SKILL_ICON_BY_CATEGORY = {
 }
 
 const SKILL_ICON_OVERRIDES = {
+  'record-and-replay': 'video',
+  'latex': 'book',
+  'template-creator': 'layout',
+  'excel-live-control': 'table',
+  'security-best-practices': 'shield',
+  'security-threat-model': 'shield',
+  'security-ownership-map': 'network',
+  'playwright-interactive': 'browser',
+  'cli-creator': 'terminal',
+  'jupyter-notebook': 'code',
+  'yeet': 'gitBranch',
+  'netlify-deploy': 'cloud',
+  'render-deploy': 'rocket',
+  'linear': 'kanban',
+  'sentry': 'activity',
   '1password': 'lock',
   'agent-creator': 'bot',
   'agent-browser': 'browser',
@@ -690,6 +765,8 @@ const PLUGIN_BADGE_LABELS = {
 }
 
 const PLUGIN_NAME_EN_OVERRIDES = {
+  latex: 'LaTeX',
+  'office-bridge': 'Office Templates & Excel Bridge',
   // 插件卡的显示名取 plugin.json 的小写 name，英文档于是直接摆出 "digram"；
   // 第三方市场目录项自带大小写，但官方市场与内置插件的 name 都是小写 slug，
   // 所以这几个条目必须在这里给出产品名（与 plugin.json 的 interface.displayName 一致）。
@@ -710,6 +787,8 @@ const PLUGIN_NAME_EN_OVERRIDES = {
 }
 
 const PLUGIN_NAME_ZH_OVERRIDES = {
+  latex: 'LaTeX 排版',
+  'office-bridge': '办公模板与表格桥接',
   'video-editing': '视频剪辑',
   'reverse-engineering': '逆向工程',
   'voice-clone': '变声翻唱',
@@ -916,6 +995,8 @@ const PLUGIN_NAME_TOKEN_ZH = {
 }
 
 const PLUGIN_DESCRIPTION_ZH_OVERRIDES = {
+  'latex@klaus-official': '在本机编写、编译、排错与校对 LaTeX 论文、技术报告、简历与 Beamer 演示文稿，支持多轮交叉引用与参考文献构建、编译日志精确定位及 PDF 逐页版面核验。',
+  'office-bridge@klaus-official': '从参考 Word、Excel、PPT 文档自动提取主题色板、字体层级、页边距与版式规范生成可复用模板，并通过本机自动化桥实时读写 macOS 与 Windows 上打开的桌面 Excel 工作簿、公式与导出 PDF。',
   'video-editing@klaus-official': '在原生工作面板中使用完整 Studio，代理与人共同编辑同一工程，共享版本、撤销和保存，保留完整 CLI、API、素材、字幕、历史与各类导出。',
   'digram@klaus-official': '通过声明式文档创建并编辑图表；侧边栏支持绘制、缩放、拖动和导出 PNG/JPG/SVG。图表节点在同一文档内渲染数据图表（柱状、堆叠、折线、面积、饼图、环图、散点、热力、甘特、桑基）；图标节点内置 IT/云精选图标库，十大分类、常用别名即搜即得；Mermaid 流程图可导入为自动布局的图表；文档级品牌主题可整体替换色板、纸面与字体。',
   'model3d@klaus-official': '在可编辑的 3D 视图中建模与雕刻、展开 UV、绘制贴图、绑定骨骼、制作动画和路径追踪渲染，计算在本机完成。',

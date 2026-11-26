@@ -1,5 +1,5 @@
 {
-  "_why": "Computer History is a privacy-sensitive local observation surface: the frame protocol, retention budget, observation-policy decision table, private-browsing markers and refusal wording are all user-visible contracts. Pinning them keeps the collection boundary, the 48-hour local retention and the organization switch from drifting silently.",
+  "_why": "Computer History is a privacy-sensitive local observation surface: the frame protocol, retention budget, observation-policy decision table, private-browsing markers and refusal wording are all user-visible contracts. Pinning them keeps the collection boundary, the 48-hour local retention and the organization switch from drifting silently. Windows shares the macOS privacy and retention contract so recent app and window context remains available on both platforms.",
   "frames": {
     "nativeMethod": "watchHistory",
     "events": ["appActivated", "windowTitle", "unavailable", "stopped"],
@@ -29,7 +29,7 @@
   "managedKey": "computerHistoryEnabled",
   "messages": {
     "organizationBlocked": "Computer History is blocked by your organization's policy.",
-    "unavailablePlatform": "Computer History is available only on macOS"
+    "unavailablePlatform": "Computer History is available only on macOS and Windows"
   },
   "channels": [
     "settings:computer-history:get",

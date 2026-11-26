@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, 
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseArgs } from 'node:util';
-import { computerUseArtifactName, copyTree, electronDownloadOptions, egressRelayArtifactName, engineArtifactRecords, inventory, readJson, requireTarget, sourceIdentity, specification, validateComputerUse, validateEgressRelay, validateEngine, validateNative, validatePip, validateRecording, validateRequired, validateSpeech, verifiedElectronArchiveDirectory } from '../packaging/resources.mjs';
+import { recordingArtifactName, computerUseArtifactName, copyTree, electronDownloadOptions, egressRelayArtifactName, engineArtifactRecords, inventory, readJson, requireTarget, sourceIdentity, specification, validateComputerUse, validateEgressRelay, validateEngine, validateNative, validatePip, validateRecording, validateRequired, validateSpeech, verifiedElectronArchiveDirectory } from '../packaging/resources.mjs';
 import { copyPolicyNotices } from '../engine/scripts/policy-notices.mjs';
 import { verifyPackage } from '../packaging/verify.mjs';
 import { DEFAULT_DESKTOP_EDITION, desktopEdition, packagedDesktopEditionDocument, useDesktopEditionsFile } from '../packaging/desktop-edition.mjs';
@@ -48,7 +48,7 @@ if (values.help) {
   console.log(`Desktop edition: --edition <id> (default ${DEFAULT_DESKTOP_EDITION}; additional editions come from --editions-file / KLAUS_DESKTOP_EDITIONS_FILE).`);
   console.log('Official plugins: --official-plugins-dir <marketplace dir> --bundle-official-plugin <name> (repeatable); none are bundled by default.');
   console.log('Plugin seed: --plugin-seed-dir <dir with known_marketplaces.json> (default: an empty seed).');
-  console.log('npm run package -- --engine-dir <staged bin/platform-arch> --native-dir <production artifacts> [--speech-dir <macOS speech artifacts>] [--recording-dir <macOS recording artifacts>] [--pip-dir <macOS PiP artifacts>] [--computer-use-dir <target Computer Use artifacts>] [--egress-dir <target egress relay artifacts>] [--browser-import-dir <target browser import helper>] [--engine-commit <40-char commit>] [--platform darwin|win32] [--arch arm64|x64] [--electron-zip <official release archive>] [--out <directory>]');
+  console.log('npm run package -- --engine-dir <staged bin/platform-arch> --native-dir <production artifacts> [--speech-dir <macOS speech artifacts>] [--recording-dir <recording artifacts>] [--pip-dir <macOS PiP artifacts>] [--computer-use-dir <target Computer Use artifacts>] [--egress-dir <target egress relay artifacts>] [--browser-import-dir <target browser import helper>] [--engine-commit <40-char commit>] [--platform darwin|win32] [--arch arm64|x64] [--electron-zip <official release archive>] [--out <directory>]');
   process.exit(0);
 }
 const platform = values.platform, arch = values.arch;
@@ -56,7 +56,7 @@ useDesktopEditionsFile(values['editions-file']);
 const edition = desktopEdition(values.edition);
 const target = requireTarget(platform, arch);
 if (process.platform !== platform) throw new Error(`Build ${platform} packages on ${platform}; cross-platform output is not a platform verification.`);
-for (const option of ['speech-dir', 'recording-dir', 'pip-dir']) {
+for (const option of ['speech-dir', 'pip-dir']) {
   if (platform !== 'darwin' && values[option] !== undefined) throw new Error(`--${option} is only valid for a macOS package`);
 }
 const identity = sourceIdentity(repo);
@@ -70,8 +70,8 @@ const engine = validateEngine(engineDirectory, { platform, arch, engineCommit })
 const native = validateNative(nativeDirectory, join(appDirectory, 'native'), { platform, arch });
 const speechDirectory = platform === 'darwin' ? resolve(values['speech-dir'] ?? join(repo, 'resources/speech', target)) : undefined;
 const speech = speechDirectory ? validateSpeech(speechDirectory, { platform, arch, sourceRoot: join(appDirectory, 'native/speech') }) : undefined;
-const recordingDirectory = platform === 'darwin' ? resolve(values['recording-dir'] ?? join(repo, 'resources/recording', target)) : undefined;
-const recording = recordingDirectory ? validateRecording(recordingDirectory, { platform, arch, sourceRoot: join(appDirectory, 'native/recording') }) : undefined;
+const recordingDirectory = resolve(values['recording-dir'] ?? join(repo, 'resources/recording', target));
+const recording = validateRecording(recordingDirectory, { platform, arch, sourceRoot: join(appDirectory, 'native/recording') });
 const pipDirectory = platform === 'darwin' ? resolve(values['pip-dir'] ?? join(repo, 'resources/pip', target)) : undefined;
 const pip = pipDirectory ? validatePip(pipDirectory, { platform, arch, sourceRoot: join(appDirectory, 'native/pip') }) : undefined;
 const computerUseDirectory = resolve(values['computer-use-dir'] ?? join(repo, 'resources/computer-use', target));
@@ -135,7 +135,8 @@ try {
   copyPolicyNotices(engineDirectory, join(resources, 'bin', target), engine);
   for (const file of [native.filename, `${native.filename}.json`]) copyTree(join(nativeDirectory, file), join(resources, 'native', file));
   if (speechDirectory) for (const file of ['klaus-speech-helper', 'klaus-speech-helper.json']) copyTree(join(speechDirectory, file), join(resources, 'speech', target, file));
-  if (recordingDirectory) for (const file of ['klaus-recording-helper', 'klaus-recording-helper.json']) copyTree(join(recordingDirectory, file), join(resources, 'recording', target, file));
+  const recordingFilename = recordingArtifactName(platform);
+  for (const file of [recordingFilename, recordingFilename + '.json']) copyTree(join(recordingDirectory, file), join(resources, 'recording', target, file));
   if (pipDirectory) for (const file of ['klaus-pip-producer', 'klaus-pip-producer.json']) copyTree(join(pipDirectory, file), join(resources, 'pip', target, file));
   const computerUseFilename = computerUseArtifactName(platform);
   for (const file of [computerUseFilename, computerUseFilename + '.json']) copyTree(join(computerUseDirectory, file), join(resources, 'computer-use', target, file));
@@ -152,7 +153,7 @@ try {
     layoutVersion: specification.layoutVersion, application: edition.productName, edition: edition.id, applicationId: edition.application, version: pkg.version, platform, arch,
     electronVersion: pkg.devDependencies.electron, buildKind: 'local-unsigned', createdAt: new Date().toISOString(),
     electronArchiveSha256: Object.values(download.checksums)[0],
-    ...identity, officialPlugins: officialPluginRecords(bundledOfficialPlugins), engine, native: native.manifest, ...(speech ? { speech } : {}), ...(recording ? { recording } : {}), ...(pip ? { pip } : {}), ...(computerUse ? { computerUse } : {}), egressRelay, browserImport: browserImport.record,
+    ...identity, officialPlugins: officialPluginRecords(bundledOfficialPlugins), engine, native: native.manifest, ...(speech ? { speech } : {}), recording, ...(pip ? { pip } : {}), ...(computerUse ? { computerUse } : {}), egressRelay, browserImport: browserImport.record,
     appFiles: inventory(appStage), resourceFiles: inventory(resources),
   };
   writeFileSync(join(resources, 'desktop-resources.json'), `${JSON.stringify(resourcesManifest, null, 2)}\n`);
