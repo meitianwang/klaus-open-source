@@ -129,13 +129,16 @@ test('Carbon and Hydrogen families parse and group XHigh reasoning without leavi
   expect(antigravityPresentationFamily('Gemini 4 Hydrogen (XHigh)')).toEqual({
     category: 'gemini', id: 'gemini-4-hydrogen', label: 'Gemini 4 Hydrogen', version: [4, 0],
   })
+  const neon = antigravityPresentationFamily('antigravity:gemini-4-neon-xhigh')
+  expect(neon).toEqual({ category: 'gemini', id: 'gemini-4-neon', label: 'Gemini 4 Neon', version: [4, 0] })
   const families = [
+    neon!,
     antigravityPresentationFamily('gemini-4-hydrogen-high')!,
     antigravityPresentationFamily('gemini-4-argon-medium')!,
     antigravityPresentationFamily('gemini-4-carbon-medium')!,
     antigravityPresentationFamily('gemini-3.8-flash-high')!,
   ]
-  expect([...latestAntigravityFamilyIds(families)]).toEqual(['gemini-4-carbon', 'gemini-3.8-flash'])
+  expect([...latestAntigravityFamilyIds(families)]).toEqual(['gemini-4-neon', 'gemini-3.8-flash'])
 
   const hydrogenEntries: JsonObject[] = [
     { key: 'gemini-4-hydrogen-low', display_name: 'Gemini 4 Hydrogen (Low)', providerMetadata: { supportsThinking: true, modelProvider: 'MODEL_PROVIDER_GOOGLE', thinkingLevel: 1 } },

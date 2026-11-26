@@ -7,8 +7,9 @@ export interface AntigravityPresentationFamily {
 }
 
 const GEMINI_TIER_RANK: Record<string, number> = {
-  ultra: 5,
-  pro: 4,
+  ultra: 6,
+  pro: 5,
+  neon: 4,
   carbon: 3,
   argon: 2,
   hydrogen: 1,
@@ -27,7 +28,7 @@ export function antigravityPresentationFamily(value: string): AntigravityPresent
     return { category, id: `claude-${category}-${release.replace('.', '-')}`,
       label: `Claude ${category === 'opus' ? 'Opus' : 'Sonnet'} ${release}`, version };
   }
-  const gemini = /^gemini-(\d+)(?:\.(\d+))?-(carbon|argon|hydrogen|pro|ultra|flash)(?:-(?:low|medium|high|xhigh|max|thinking|tiered|preview|agent))?$/.exec(text);
+  const gemini = /^gemini-(\d+)(?:\.(\d+))?-(neon|carbon|argon|hydrogen|pro|ultra|flash)(?:-(?:low|medium|high|xhigh|max|thinking|tiered|preview|agent))?$/.exec(text);
   if (!gemini) return undefined;
   const release = gemini[2] === undefined ? gemini[1]! : `${gemini[1]}.${gemini[2]}`;
   const tier = gemini[3]!;
