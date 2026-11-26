@@ -70,7 +70,6 @@ function ProviderRows() {
                 {provider.itemCount
                   ? t('external_import_provider_count').replace('{count}', String(provider.itemCount))
                   : t('external_import_provider_no_data')}
-                {!provider.nativeChatsSupported ? <> · {t('external_import_provider_chats_unsupported')}</> : null}
               </div>
             </div>
             <button
@@ -247,7 +246,7 @@ export function ExternalImportFlow({ mode, onSkip, onImported }: {
   onImported: () => void
 }) {
   const t = useT()
-  useSyncExternalStore(subscribe, getVersion)
+  useSyncExternalStore(subscribe, getVersion, getVersion)
   const [customize, setCustomize] = useState(false)
   const summary = externalImportSummary()
   const shellClass = mode === 'overlay' ? styles['external-import-shell'] : `${styles['external-import-shell']} ${styles['settings-embedded']}`
@@ -258,7 +257,6 @@ export function ExternalImportFlow({ mode, onSkip, onImported }: {
         <div className={styles['external-import-empty']}>
           <ImportHeader title={t('external_import_title')} subtitle={t('external_import_subtitle')} />
           <p className="empty-text">{t('external_import_none')}</p>
-          <p className={styles['external-import-note']}>{t('external_import_native_chat_limit')}</p>
         </div>
       </div>
     )
@@ -406,7 +404,6 @@ export function ExternalImportSettingsTab() {
             <div className={styles['external-import-settings-card-icon']} aria-hidden="true"><Raw name="settings-nav-external-import" /></div>
             <div className={styles['external-import-settings-copy']}>
               <div className={styles['external-import-settings-card-title']}>{t('external_import_none')}</div>
-              <div className={styles['external-import-settings-card-desc']}>{t('external_import_native_chat_limit')}</div>
             </div>
           </div>
           <button type="button" className={`btn-sm ${styles['external-import-settings-action']}`} onClick={() => { void detect() }}>{t('external_import_redetect')}</button>

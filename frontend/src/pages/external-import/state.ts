@@ -30,7 +30,6 @@ export interface ExternalImportProvider {
   name: string
   accent: string
   itemCount: number
-  nativeChatsSupported: boolean
 }
 
 export interface ExternalImportState {
@@ -107,7 +106,6 @@ export function externalImportProviders(detect: any = externalImportState.detect
       name: provider.name || externalImportProviderName(provider.id),
       accent: provider.accent || externalImportProviderAccent(provider.id),
       itemCount: Number(provider.itemCount) || 0,
-      nativeChatsSupported: provider.id === 'claude-code' || provider.id === 'codex',
     })
   })
   items.forEach(item => {
@@ -123,12 +121,11 @@ export function externalImportProviders(detect: any = externalImportState.detect
       name: item?.providerName || externalImportProviderName(id),
       accent: externalImportProviderAccent(id),
       itemCount: 1,
-      nativeChatsSupported: id === 'claude-code' || id === 'codex',
     })
   })
   for (const id of SOURCE_IDS) if (!byId.has(id)) byId.set(id, {
     id, name: externalImportProviderName(id), accent: externalImportProviderAccent(id),
-    itemCount: 0, nativeChatsSupported: id === 'claude-code' || id === 'codex',
+    itemCount: 0,
   })
   return SOURCE_IDS.map(id => byId.get(id)!)
 }
