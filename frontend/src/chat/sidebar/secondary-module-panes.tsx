@@ -10,6 +10,7 @@ import { COLLABORATION_REFRESH, allPages, request as collaborationRequest, useCo
 import { FriendAvatar } from '../../pages/friends/FriendsDialog'
 import { friendDisplayName } from '../../pages/friends/display-name'
 import { startGuestSignin } from './guest-signin'
+import { InlineRenameInput, useInlineRenameForRow } from './inline-rename'
 import type { PrimaryRailSection } from './rail-navigation'
 import styles from './secondary-module-panes.module.css'
 
@@ -325,6 +326,64 @@ function reconcileCronExpansion(detail: CronSessionsSnapshot) {
   moduleExpansionStores.cron.reconcile(detail, activeId, activeId ? findCronGroup(detail, activeId) : undefined)
 }
 
+function SecondarySessionSubRow({
+  sessionId,
+  rowKey,
+  title,
+  editableTitle,
+  active,
+  dotClassName,
+  onSelect,
+}: {
+  sessionId: string
+  rowKey: string
+  title: string
+  editableTitle?: string
+  active: boolean
+  dotClassName: string | null
+  onSelect: () => void
+}) {
+  const activeRename = useInlineRenameForRow(sessionId, rowKey)
+  if (activeRename) {
+    return (
+      <div
+        data-session-id={sessionId}
+        data-rename-row-key={rowKey}
+        className={`${styles.subRow} ${styles.subRowRenaming}${active ? ` ${styles.subRowActive}` : ''}`}
+      >
+        {dotClassName && <span className={dotClassName} aria-hidden="true" />}
+        <InlineRenameInput
+          key={activeRename.id}
+          rename={activeRename}
+          className={styles.subRowRenameInput}
+        />
+      </div>
+    )
+  }
+  return (
+    <button
+      type="button"
+      data-session-id={sessionId}
+      data-rename-row-key={rowKey}
+      className={`${styles.subRow}${active ? ` ${styles.subRowActive}` : ''}`}
+      onClick={onSelect}
+      onContextMenu={(e) => {
+        ;(window as unknown as {
+          klausShowSessionContextMenu?: (
+            ev: MouseEvent,
+            id: string,
+            row: HTMLElement | null,
+            initialTitleOverride?: string,
+          ) => void
+        }).klausShowSessionContextMenu?.(e.nativeEvent, sessionId, e.currentTarget, editableTitle)
+      }}
+    >
+      {dotClassName && <span className={dotClassName} aria-hidden="true" />}
+      <span className={styles.subRowTitle}>{title}</span>
+    </button>
+  )
+}
+
 function CronSecondaryPane() {
   const t = useT()
   const [tasks, setTasks] = useState<CronTask[]>(() => readInitialCronSessionsSnapshot().tasks ?? [])
@@ -520,22 +579,19 @@ function CronSecondaryPane() {
                         <div className={styles.subEmpty}>{t('ch_no_sessions_short')}</div>
                       ) : taskSessions.map(item => {
                         const isCurrent = !sessionsSnap.inSetupView && sessionsSnap.activeSessionId === item.id
+                        const dotClass = (item.working || item.waitingInput || item.unread)
+                          ? `${styles.dot} ${item.working ? styles.dotBusy : styles.dotAttn}`
+                          : null
                         return (
-                          <button
+                          <SecondarySessionSubRow
                             key={item.id}
-                            type="button"
-                            data-session-id={item.id}
-                            className={`${styles.subRow}${isCurrent ? ` ${styles.subRowActive}` : ''}`}
-                            onClick={() => switchCronSession(item.id)}
-                          >
-                            {(item.working || item.waitingInput || item.unread) && (
-                              <span
-                                className={`${styles.dot} ${item.working ? styles.dotBusy : styles.dotAttn}`}
-                                aria-hidden="true"
-                              />
-                            )}
-                            <span className={styles.subRowTitle}>{item.title}</span>
-                          </button>
+                            sessionId={item.id}
+                            rowKey={`cron:${task.id}:${item.id}`}
+                            title={item.title}
+                            active={isCurrent}
+                            dotClassName={dotClass}
+                            onSelect={() => switchCronSession(item.id)}
+                          />
                         )
                       })}
                     </div>
@@ -569,22 +625,19 @@ function CronSecondaryPane() {
                     <div className={styles.subList}>
                       {orphanSessions.map(item => {
                         const isCurrent = !sessionsSnap.inSetupView && sessionsSnap.activeSessionId === item.id
+                        const dotClass = (item.working || item.waitingInput || item.unread)
+                          ? `${styles.dot} ${item.working ? styles.dotBusy : styles.dotAttn}`
+                          : null
                         return (
-                          <button
+                          <SecondarySessionSubRow
                             key={item.id}
-                            type="button"
-                            data-session-id={item.id}
-                            className={`${styles.subRow}${isCurrent ? ` ${styles.subRowActive}` : ''}`}
-                            onClick={() => switchCronSession(item.id)}
-                          >
-                            {(item.working || item.waitingInput || item.unread) && (
-                              <span
-                                className={`${styles.dot} ${item.working ? styles.dotBusy : styles.dotAttn}`}
-                                aria-hidden="true"
-                              />
-                            )}
-                            <span className={styles.subRowTitle}>{item.title}</span>
-                          </button>
+                            sessionId={item.id}
+                            rowKey={`cron:orphan:${item.id}`}
+                            title={item.title}
+                            active={isCurrent}
+                            dotClassName={dotClass}
+                            onSelect={() => switchCronSession(item.id)}
+                          />
                         )
                       })}
                     </div>
@@ -793,19 +846,20 @@ function ChannelsSecondaryPane() {
                   ) : channelSessions.map(item => {
                     const active = !sessionsSnap.inSetupView && item.id === sessionsSnap.activeSessionId
                     const displayTitle = stripChannelTitlePrefix(item.title, row.label)
+                    const dotClass = (item.working || item.waitingInput || item.unread)
+                      ? `${styles.dot}${item.working ? ` ${styles.dotBusy}` : ` ${styles.dotAttn}`}`
+                      : null
                     return (
-                      <button
+                      <SecondarySessionSubRow
                         key={item.id}
-                        type="button"
-                        data-session-id={item.id}
-                        className={`${styles.subRow}${active ? ` ${styles.subRowActive}` : ''}`}
-                        onClick={() => switchChannelSession(item.id)}
-                      >
-                        {(item.working || item.waitingInput || item.unread) && (
-                          <span className={`${styles.dot}${item.working ? ` ${styles.dotBusy}` : ` ${styles.dotAttn}`}`} aria-hidden="true" />
-                        )}
-                        <span className={styles.subRowTitle}>{displayTitle}</span>
-                      </button>
+                        sessionId={item.id}
+                        rowKey={`channel:${row.id}:${item.id}`}
+                        title={displayTitle}
+                        editableTitle={displayTitle}
+                        active={active}
+                        dotClassName={dotClass}
+                        onSelect={() => switchChannelSession(item.id)}
+                      />
                     )
                   })}
                 </div>
@@ -1389,22 +1443,19 @@ function FriendsSecondaryPane() {
                     <div className={styles.subEmpty}>{t('ch_no_sessions_short')}</div>
                   ) : group.sessions.map(item => {
                     const isCurrent = !sessionsSnap.inManagementView && sessionsSnap.activeSessionId === item.id
+                    const dotClass = (item.working || item.waitingInput || item.awaitingReply || item.unread)
+                      ? `${styles.dot} ${item.working ? styles.dotOk : styles.dotAttn}`
+                      : null
                     return (
-                      <button
+                      <SecondarySessionSubRow
                         key={item.id}
-                        type="button"
-                        data-session-id={item.id}
-                        className={`${styles.subRow}${isCurrent ? ` ${styles.subRowActive}` : ''}`}
-                        onClick={() => switchFriendSession(item.id)}
-                      >
-                        {(item.working || item.waitingInput || item.awaitingReply || item.unread) && (
-                          <span
-                            className={`${styles.dot} ${item.working ? styles.dotOk : styles.dotAttn}`}
-                            aria-hidden="true"
-                          />
-                        )}
-                        <span className={styles.subRowTitle}>{item.title}</span>
-                      </button>
+                        sessionId={item.id}
+                        rowKey={`friend:${group.id}:${item.id}`}
+                        title={item.title}
+                        active={isCurrent}
+                        dotClassName={dotClass}
+                        onSelect={() => switchFriendSession(item.id)}
+                      />
                     )
                   })}
                 </div>

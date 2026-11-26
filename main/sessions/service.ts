@@ -625,7 +625,7 @@ export class SessionService {
         const row = await this.threadRow(id);
         return friendPlaceholderTitle(row) ? '' : row.title;
       },
-      serialize: (id, action) => this.mutate(id, action),
+      serialize: (id, action) => this.mutateHostMetadata(id, action),
       publish: event => {
         if (typeof event.sessionId === 'string') this.rememberMentionTitle(event.sessionId, event.title);
         deps.onThreadRow?.({ id: event.sessionId!, title: event.title! });
@@ -5615,21 +5615,37 @@ export class SessionService {
     if (errors.length) throw new AggregateError(errors, 'Some conversations did not refresh their saved permission rules');
   }
   private async updateTitle(id: string, title: string): Promise<void> {
-    if (!title.trim() || Buffer.byteLength(title) > 4096) throw new IpcHandlerError('BAD_REQUEST', 'A title must contain between 1 and 4096 bytes');
+    const trimmed = title.trim();
+    if (!trimmed || Buffer.byteLength(title) > 4096) throw new IpcHandlerError('BAD_REQUEST', 'A title must contain between 1 and 4096 bytes');
     if (this.isSideTask(id)) {
       if (!this.sideTasks.rename(id, title)) throw new IpcHandlerError('SIDE_TASK_UNAVAILABLE', 'The side task cannot be renamed while starting or closing');
       return;
     }
+    const client = await this.client();
     const live = this.deps.state.liveSession(id);
-    await requestAcknowledged(await this.client(), 'session/updateTitle', {
-      threadId: id, title: title.trim(), ...(live ? { sessionId: live } : {}),
-    }, 'title');
+    try {
+      await requestAcknowledged(client, 'session/updateTitle', {
+        threadId: id, title: trimmed, ...(live ? { sessionId: live } : {}),
+      }, 'title');
+    } catch (error) {
+      const unknownLiveSession = /unknown session/i.test(String((error as Error | null)?.message ?? error ?? ''));
+      if (!live || (!unknownLiveSession && this.deps.state.liveSession(id) === live) || this.isSessionClosing(id) || this.deleted.has(id)) throw error;
+      await requestAcknowledged(await this.client(), 'session/updateTitle', {
+        threadId: id, title: trimmed,
+      }, 'title');
+    }
     this.titles.recordRename(id, title);
     this.rememberMentionTitle(id, title);
-    this.deps.onThreadRow?.({ id, title: title.trim() });
+    this.deps.onThreadRow?.({ id, title: trimmed });
   }
   rename(id: string, title: string): Promise<null> {
-    return this.mutate(id, async () => { await this.updateTitle(id, title); return null; });
+    return this.mutateHostMetadata(id, async () => {
+      await this.updateTitle(id, title);
+      if (!this.isSideTask(id)) {
+        this.deps.pushChatEvents([{ type: 'session_title_updated', sessionId: id, title: title.trim() }]);
+      }
+      return null;
+    });
   }
   setPinned(id: string, pinned: boolean): Promise<Json> {
     return this.mutateHostMetadata(id, async () => {

@@ -11,6 +11,7 @@ import { escapeHtml } from '../transcript/factories'
 import type { CollapsedBadge, SidebarSectionKey } from './collapse'
 import type { SidebarSortMode } from './sort'
 import { MarqueeText } from './marquee-text'
+import { InlineRenameInput, useInlineRenameForRow } from './inline-rename'
 import type { SessionWaitingKind } from './attention'
 import { ProjectDropIndicator, ProjectReorderList, useProjectGroupDrag, useProjectReorder } from './project-reorder'
 import styles from './sidebar.module.css'
@@ -290,17 +291,26 @@ function SessionRowActions({ row, actions }: { row: SessionRowSpec; actions: Sid
 }
 
 function SessionRow({ row, actions }: { row: SessionRowSpec; actions: SidebarActions }) {
+  const rowKey = row.renderKey ?? `session:${row.id}`
+  const activeRename = useInlineRenameForRow(row.id, rowKey)
+  const isRenaming = Boolean(activeRename)
   return (
     <SessionRowContainer
-      className={styles['session-item'] + ' ' + MARQUEE_GROUP_CLASS + (row.active ? ' active' : '') + (row.working ? ' is-working' : '') + (row.completeUnread ? ' is-complete-unread' : '') + (row.waitingCount > 0 ? ' is-waiting' : '')}
+      className={styles['session-item'] + ' ' + MARQUEE_GROUP_CLASS + (row.active ? ' active' : '') + (row.working ? ' is-working' : '') + (row.completeUnread ? ' is-complete-unread' : '') + (row.waitingCount > 0 ? ' is-waiting' : '') + (isRenaming ? ' is-renaming' : '')}
       row={row}
+      rowKey={rowKey}
+      isRenaming={isRenaming}
       actions={actions}
       onClick={() => {
         actions.switchSession(row.id)
       }}
     >
       <RawHtml tag="span" className={styles.contents} html={sessionRowPrefixHtml(row)} />
-      <MarqueeText className={styles['s-title']} animateOnGroupHover><span dir="auto">{row.title}</span></MarqueeText>
+      {activeRename ? (
+        <InlineRenameInput key={activeRename.id} rename={activeRename} className={styles['session-rename-input']} />
+      ) : (
+        <MarqueeText className={styles['s-title']} animateOnGroupHover><span dir="auto">{row.title}</span></MarqueeText>
+      )}
       <RawHtml tag="span" className={styles.contents} html={sessionRowSuffixHtml(row)} />
       <SessionRowActions row={row} actions={actions} />
     </SessionRowContainer>
@@ -450,17 +460,26 @@ function projectThreadSuffixHtml(row: ProjectThreadRowSpec): string {
 }
 
 function ProjectThreadRow({ row, actions }: { row: ProjectThreadRowSpec; actions: SidebarActions }) {
+  const rowKey = row.renderKey ?? `project-thread:${row.id}`
+  const activeRename = useInlineRenameForRow(row.id, rowKey)
+  const isRenaming = Boolean(activeRename)
   return (
     <SessionRowContainer
-      className={styles['project-thread-item'] + ' ' + MARQUEE_GROUP_CLASS + (row.active ? ' active' : '') + (row.working ? ' is-working' : '') + (row.completeUnread ? ' is-complete-unread' : '') + (row.waitingCount > 0 ? ' is-waiting' : '')}
+      className={styles['project-thread-item'] + ' ' + MARQUEE_GROUP_CLASS + (row.active ? ' active' : '') + (row.working ? ' is-working' : '') + (row.completeUnread ? ' is-complete-unread' : '') + (row.waitingCount > 0 ? ' is-waiting' : '') + (isRenaming ? ' is-renaming' : '')}
       row={row}
+      rowKey={rowKey}
+      isRenaming={isRenaming}
       actions={actions}
       onClick={() => {
         actions.switchSession(row.id)
       }}
     >
       <RawHtml tag="span" className={styles.contents} html={projectThreadPrefixHtml(row)} />
-      <MarqueeText className={styles['project-thread-title']} animateOnGroupHover><span dir="auto">{row.title}</span></MarqueeText>
+      {activeRename ? (
+        <InlineRenameInput key={activeRename.id} rename={activeRename} className={styles['session-rename-input']} />
+      ) : (
+        <MarqueeText className={styles['project-thread-title']} animateOnGroupHover><span dir="auto">{row.title}</span></MarqueeText>
+      )}
       <RawHtml tag="span" className={styles.contents} html={projectThreadSuffixHtml(row)} />
       <SessionRowActions row={row} actions={actions} />
     </SessionRowContainer>
@@ -470,9 +489,11 @@ function ProjectThreadRow({ row, actions }: { row: ProjectThreadRowSpec; actions
 /** Shared row shell for both row kinds: keyboard activation, the context menu,
  *  and the Needs-input pill's snooze click. A snooze click must not also switch
  *  sessions, so the pill button stops propagation. */
-function SessionRowContainer({ className, row, actions, onClick, children }: {
+function SessionRowContainer({ className, row, rowKey, isRenaming, actions, onClick, children }: {
   className: string
   row: SessionRowSpec
+  rowKey: string
+  isRenaming?: boolean
   actions: SidebarActions
   onClick: (e: React.MouseEvent) => void
   children: React.ReactNode
@@ -481,10 +502,12 @@ function SessionRowContainer({ className, row, actions, onClick, children }: {
     <div
       className={className}
       data-session-id={row.id}
-      tabIndex={0}
+      data-rename-row-key={rowKey}
+      tabIndex={isRenaming ? -1 : 0}
       aria-current={row.active ? 'page' : undefined}
       data-waiting={row.waitingCount > 0 ? row.waitingKind : undefined}
       onClick={(e) => {
+        if (isRenaming || (e.target as HTMLElement).closest('input')) return
         if ((e.target as HTMLElement).closest('[data-session-action]')) return
         const snoozeBtn = (e.target as HTMLElement).closest('.s-status-pill') as HTMLElement | null
         if (snoozeBtn) {
@@ -496,12 +519,15 @@ function SessionRowContainer({ className, row, actions, onClick, children }: {
         onClick(e)
       }}
       onKeyDown={(e) => {
-        if ((e.target as HTMLElement).closest('button')) return
+        if (isRenaming || (e.target as HTMLElement).closest('button, input')) return
         if (e.key !== 'Enter' && e.key !== ' ') return
         e.preventDefault()
         onClick(e as unknown as React.MouseEvent)
       }}
-      onContextMenu={(e) => actions.showContextMenu(e, row.id, e.currentTarget as HTMLElement)}
+      onContextMenu={(e) => {
+        if (isRenaming || (e.target as HTMLElement).closest('input')) return
+        actions.showContextMenu(e, row.id, e.currentTarget as HTMLElement)
+      }}
     >
       {children}
     </div>

@@ -5631,6 +5631,49 @@ h.test('a stopped turn never generates a title and an acknowledged rename surviv
   await service.shutdown();
 });
 
+h.test('rename bypasses blocked session mutations, retries after live unload, and broadcasts title updates', async () => {
+  let releaseStart!: () => void, startEntered = false;
+  const titleAttemptParams: Array<Record<string, Json>> = [];
+  const startGate = new Promise<void>(resolve => { releaseStart = resolve; });
+  class UnloadOnFirstTitleClient extends FakeClient {
+    override async requestWithTimeout(method: string, params: Json): Promise<unknown> {
+      if (method === 'session/start') {
+        startEntered = true;
+        await startGate;
+      }
+      if (method === 'session/updateTitle') {
+        titleAttemptParams.push(object(params) ?? {});
+        if (titleAttemptParams.length === 1) throw new Error('unknown session: stale-live');
+      }
+      return super.requestWithTimeout(method, params);
+    }
+  }
+  const root = byoRoot(), client = new UnloadOnFirstTitleClient()
+    .reply('session/start', { sessionId: 'fresh-live' })
+    .reply('session/updateTitle', { title: { threadId: 'thread', title: 'Instant rename' } });
+  const { service, state, pushed } = serviceWith(client, root);
+  await service.client();
+  const activating = service.resolveLiveSession('thread');
+  try {
+    await waitFor(() => startEntered, 1000, 'session activation holds the session mutation queue');
+    state.rememberSession('thread', 'stale-live', {});
+    await service.rename('thread', '  Instant rename  ');
+    assertEqual(titleAttemptParams.length, 2, 'retries without sessionId when live session unloaded');
+    assertEqual(titleAttemptParams[0]!.sessionId, 'stale-live', 'first attempt uses live sessionId');
+    assertEqual('sessionId' in titleAttemptParams[1]!, false, 'fallback omits stale sessionId');
+    assertEqual(readSessionTitle('thread', root)?.title, 'Instant rename', 'host ledger updated immediately');
+    assertDeepEqual(
+      pushed.filter(value => object(value)?.type === 'session_title_updated'),
+      [{ type: 'session_title_updated', sessionId: 'thread', title: 'Instant rename' }],
+      'broadcasts session_title_updated to renderers and mobile clients',
+    );
+  } finally {
+    releaseStart();
+    await activating.catch(() => {});
+    await service.shutdown();
+  }
+});
+
 // ---------------------------------------------------------------------------
 // 9. The client-owned follow-up queue: dispatch after a completed turn, pause
 //    after an interruption.

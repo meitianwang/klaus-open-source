@@ -227,6 +227,12 @@ import {
   type FriendGroupItem,
   type FriendSidebarSessionsSnapshot,
 } from './sidebar/secondary-module-panes'
+import {
+  getActiveInlineRename,
+  mountTitlebarInlineRenameInput,
+  startInlineRename,
+  subscribeInlineRename,
+} from './sidebar/inline-rename'
 import { initDigramPanel } from './digram/panel'
 import { effectiveViewportRight, uncoveredViewportRight } from '../app/native-overlay-inset'
 import { initModel3DPanel } from './model3d/panel'
@@ -3639,6 +3645,7 @@ const slashTokenLabel = document.getElementById('slash-token-label')
 let sessionContextMenu: HTMLElement | null = null
 let sessionContextMenuCleanup: (() => void) | null = null
 let sessionContextRow: HTMLElement | null = null
+let sessionContextInitialTitle: string | undefined = undefined
 let composerTokenLayerEl = document.getElementById('composer-token-layer')
 if (!composerTokenLayerEl && slashInputLine && inputEl) {
   composerTokenLayerEl = document.createElement('div')
@@ -7321,7 +7328,7 @@ function commandMenuProjectLabel(session: SessionInfo): string | null {
   reloadBrowserPage: () => { document.getElementById('browser-reload')?.click() },
   newChat: () => { document.getElementById('btn-new-chat')?.click() },
   openFolder: () => { void pickAndRegisterProjectWorkdir() },
-  renameThread: () => { const id = window.currentSessionId; if (id) void renameSessionFromMenu(id) },
+  renameThread: () => { const id = window.currentSessionId; if (id) startTitlebarSessionRename(id) },
   archiveThread: () => { const id = window.currentSessionId; if (id) void archiveSessionFromMenu(id) },
   toggleThreadPin: () => {
     const id = window.currentSessionId
@@ -8065,18 +8072,51 @@ function titlebarSessionTitle() {
 
 function syncTitlebarSessionTitle() {
   if (!titlebarSessionTitleEl) return
-  const title = titlebarSessionTitle()
-  // Avoid touching the DOM when the title hasn't changed. renderSessionList() is
-  // invoked many times during a turn (status changes, queue snapshots, list
-  // refreshes) and unconditionally rewriting textContent replaces the text node
-  // on every call, which can make the titlebar title flicker.
-  if (titlebarSessionTitleEl.textContent === title && (title ? !titlebarSessionTitleEl.hasAttribute('aria-hidden') : titlebarSessionTitleEl.hasAttribute('aria-hidden'))) {
+  const currentId = window.currentSessionId || null
+  const activeRename = getActiveInlineRename()
+  if (activeRename && activeRename.surface === 'titlebar' && currentId && activeRename.sessionId === currentId) {
+    mountTitlebarInlineRenameInput(titlebarSessionTitleEl, activeRename)
     return
   }
-  titlebarSessionTitleEl.textContent = title
-  titlebarSessionTitleEl.title = title
-  titlebarSessionTitleEl.toggleAttribute('aria-hidden', !title)
+  if (typeof document !== 'undefined' && document.activeElement instanceof HTMLElement && titlebarSessionTitleEl.contains(document.activeElement) && document.activeElement.tagName === 'INPUT') {
+    document.activeElement.blur()
+  }
+  const title = titlebarSessionTitle()
+  const existingBtn = titlebarSessionTitleEl.querySelector<HTMLButtonElement>(':scope > button.titlebar-session-title-btn')
+  if (title) {
+    if (existingBtn && existingBtn.textContent === title && !titlebarSessionTitleEl.hasAttribute('aria-hidden')) {
+      return
+    }
+    const btn = document.createElement('button')
+    btn.type = 'button'
+    btn.className = 'titlebar-session-title-btn'
+    const span = document.createElement('span')
+    span.className = 'titlebar-session-title-text'
+    span.dir = 'auto'
+    span.textContent = title
+    btn.appendChild(span)
+    btn.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      const id = window.currentSessionId
+      if (id) startTitlebarSessionRename(id)
+    })
+    titlebarSessionTitleEl.replaceChildren(btn)
+    titlebarSessionTitleEl.removeAttribute('title')
+    titlebarSessionTitleEl.toggleAttribute('aria-hidden', false)
+    return
+  }
+  if (titlebarSessionTitleEl.childNodes.length === 0 && titlebarSessionTitleEl.hasAttribute('aria-hidden')) {
+    return
+  }
+  titlebarSessionTitleEl.replaceChildren()
+  titlebarSessionTitleEl.removeAttribute('title')
+  titlebarSessionTitleEl.setAttribute('aria-hidden', 'true')
 }
+
+subscribeInlineRename(() => {
+  syncTitlebarSessionTitle()
+})
 
 function closeSessionContextMenu() {
   sessionContextMenuCleanup?.()
@@ -8085,6 +8125,7 @@ function closeSessionContextMenu() {
   sessionContextMenu = null
   sessionContextRow?.classList.remove('session-row-context')
   sessionContextRow = null
+  sessionContextInitialTitle = undefined
 }
 
 function sessionActionErrorText(error: unknown, fallbackKey: string) {
@@ -8095,37 +8136,126 @@ function sessionActionErrorText(error: unknown, fallbackKey: string) {
   return fallback && fallback !== fallbackKey ? fallback : (raw || fallbackKey || tt('settings_failed'))
 }
 
-async function renameSessionFromMenu(id: string) {
+function formatRenameSessionError(error: unknown): string {
+  const raw = String((error as Error | null)?.message || error || '')
+    .replace(/^(?:Error:\s*)+/i, '')
+    .replace(/^HOST_ERROR:\s*/i, '')
+    .trim()
+  if (raw) {
+    const localized = tt(raw)
+    if (localized && localized !== raw) return localized
+    const withReason = tt('rename_session_failed_reason')
+    if (withReason && withReason !== 'rename_session_failed_reason' && raw !== 'rename_session_failed') {
+      return withReason.replace('{reason}', raw)
+    }
+  }
+  return tt('rename_session_failed') || 'Could not rename conversation'
+}
+
+function initialEditableTitleForSession(session: SessionInfo | null | undefined, initialTitleOverride?: string): string {
+  if (!session) return ''
+  if (typeof initialTitleOverride === 'string') {
+    const trimmed = initialTitleOverride.trim()
+    return isPlaceholderSessionTitle(trimmed) ? '' : trimmed
+  }
+  const raw = String(session.title || '').trim()
+  if (isPlaceholderSessionTitle(raw)) return ''
+  if (session.threadSource === 'automation' || session.automation?.taskId) {
+    const taskName = String(session.automation?.taskName || findCronTaskBySessionId(session.id)?.name || '').trim()
+    if (taskName) {
+      if (raw === taskName) return ''
+      const prefix = `${taskName} · `
+      if (raw.startsWith(prefix) && raw.length > prefix.length) {
+        const stripped = raw.slice(prefix.length).trim()
+        return isPlaceholderSessionTitle(stripped) ? '' : stripped
+      }
+    }
+  }
+  const cleaned = session.forkedFrom ? raw.replace(/\s*·\s*Branch$/i, '').trim() : raw
+  return isPlaceholderSessionTitle(cleaned) ? '' : cleaned
+}
+
+function focusSidebarRenameRow(rowKey: string | null, fallbackSessionId: string): void {
+  const esc = (value: string) => (typeof CSS !== 'undefined' && typeof CSS.escape === 'function')
+    ? CSS.escape(value)
+    : value.replace(/["\\]/g, '\\$&')
+  if (rowKey) {
+    const target = document.querySelector<HTMLElement>(`[data-rename-row-key="${esc(rowKey)}"]`)
+    if (target) {
+      target.focus({ preventScroll: true })
+      return
+    }
+  }
+  document.querySelector<HTMLElement>(`[data-session-id="${esc(fallbackSessionId)}"]`)?.focus({ preventScroll: true })
+}
+
+async function commitSessionRename(id: string, rawTitle: string) {
+  const title = String(rawTitle || '').trim()
+  if (!id || !title) return
   const target = sessions.find((s) => s.id === id)
   if (!target) return
-  const currentTitle = sessionDisplayTitle(target)
-  const value = await window.klausDialog.prompt!({
-    title: tt('rename_session_title'),
-    message: tt('rename_session_message'),
-    placeholder: tt('rename_session_placeholder'),
-    initialValue: currentTitle,
-    confirmText: tt('session_menu_rename'),
-  })
-  if (value === null) return
-  const title = String(value || '').trim()
-  if (!title) {
-    await window.klausDialog.alert(tt('rename_session_empty'))
-    return
-  }
-  if (title === currentTitle) return
+  const previousTitle = target.title
+  const hadProvisional = provisionalClientTitles.has(id)
+  if (previousTitle === title && !hadProvisional) return
 
-  const res = await klausApi.session.rename(id, title)
-    .then(() => ({ ok: true }))
-    .catch((err: unknown) => ({ ok: false, error: String((err as Error | null)?.message || err) }))
-  if (res.ok) {
-    if (target) {
-      target.title = title
+  applySessionTitleUpdate(id, title)
+  const optimisticVersion = sessionTitleVersions.get(id) || 0
+
+  try {
+    await klausApi.session.rename(id, title)
+  } catch (err: unknown) {
+    if ((sessionTitleVersions.get(id) || 0) === optimisticVersion) {
+      if (hadProvisional) {
+        provisionalClientTitles.add(id)
+      }
+      sessions = sessions.map((session) => (
+        session.id === id ? { ...session, title: previousTitle } : session
+      ))
+      sessionTitleVersions.set(id, optimisticVersion + 1)
+      renderSessionList()
+      syncTitlebarSessionTitle()
     }
-    renderSessionList()
-    showToast(tt('settings_saved'))
-  } else {
-    await window.klausDialog.alert(sessionActionErrorText(res.error, 'rename_session_failed'))
+    showToast(formatRenameSessionError(err), { tone: 'danger' })
   }
+}
+
+function startSidebarSessionRename(id: string, row: HTMLElement | null, initialTitleOverride?: string) {
+  const target = sessions.find((s) => s.id === id)
+  if (!target || target.archived) return
+  const rowKey = row?.dataset.renameRowKey || null
+  startInlineRename({
+    sessionId: id,
+    surface: 'sidebar',
+    rowKey,
+    initialValue: initialEditableTitleForSession(target, initialTitleOverride),
+    placeholder: tt('new_chat') || 'New chat',
+    ariaLabel: tt('rename_session_placeholder') || 'Conversation name',
+    onCommit: (sessionId, nextTitle) => {
+      void commitSessionRename(sessionId, nextTitle)
+    },
+    restoreFocus: () => {
+      focusSidebarRenameRow(rowKey, id)
+    },
+  })
+}
+
+function startTitlebarSessionRename(id: string) {
+  const target = sessions.find((s) => s.id === id)
+  if (!target || target.archived) return
+  startInlineRename({
+    sessionId: id,
+    surface: 'titlebar',
+    rowKey: null,
+    initialValue: initialEditableTitleForSession(target),
+    placeholder: tt('new_chat') || 'New chat',
+    ariaLabel: tt('rename_session_placeholder') || 'Conversation name',
+    onCommit: (sessionId, nextTitle) => {
+      void commitSessionRename(sessionId, nextTitle)
+    },
+    restoreFocus: () => {
+      titlebarSessionTitleEl?.querySelector<HTMLElement>('.titlebar-session-title-btn')?.focus({ preventScroll: true })
+    },
+  })
 }
 
 async function exportSessionFromMenu(id: string) {
@@ -8210,10 +8340,15 @@ async function toggleSessionPinned(session: SessionInfo) {
   }
 }
 
-async function runSessionContextAction(action: string, session: SessionInfo) {
+async function runSessionContextAction(
+  action: string,
+  session: SessionInfo,
+  row: HTMLElement | null = null,
+  initialTitleOverride?: string,
+) {
   if (!session?.id) return
   if (action === 'pin' || action === 'unpin') await toggleSessionPinned(session)
-  else if (action === 'rename') await renameSessionFromMenu(session.id)
+  else if (action === 'rename') startSidebarSessionRename(session.id, row, initialTitleOverride)
   else if (action === 'export') await exportSessionFromMenu(session.id)
   else if (action === 'fork') await forkSessionFromMenu(session.id)
   else if (action === 'archive') await archiveSessionFromMenu(session.id)
@@ -8351,12 +8486,18 @@ function sessionMenuItemIconSvg(action: string) {
   return known.includes(action) ? klausIcon(`session-menu-${action}`) : ''
 }
 
-function showSessionContextMenu(e: MouseEvent | { clientX: number; clientY: number; preventDefault(): void; stopPropagation(): void }, session: SessionInfo, row: HTMLElement | null) {
+function showSessionContextMenu(
+  e: MouseEvent | { clientX: number; clientY: number; preventDefault(): void; stopPropagation(): void },
+  session: SessionInfo,
+  row: HTMLElement | null,
+  initialTitleOverride?: string,
+) {
   e.preventDefault()
   e.stopPropagation()
   closeSessionContextMenu()
   closeWorkspaceContextMenu()
   sessionContextRow = row
+  sessionContextInitialTitle = initialTitleOverride
   row?.classList.add('session-row-context')
 
   const menu = document.createElement('div')
@@ -8398,9 +8539,11 @@ function showSessionContextMenu(e: MouseEvent | { clientX: number; clientY: numb
       ev.preventDefault()
       ev.stopPropagation()
       const action = (btn as HTMLElement).dataset.action
+      const targetRow = sessionContextRow
+      const targetInitialTitle = sessionContextInitialTitle
       closeSessionContextMenu()
       try {
-        await runSessionContextAction(action as string, session)
+        await runSessionContextAction(action as string, session, targetRow, targetInitialTitle)
       } catch (error) {
         await window.klausDialog.alert(sessionActionErrorText((error as Error | null)?.message || error, 'session_action_failed'))
       }
@@ -8430,6 +8573,19 @@ function showSessionContextMenu(e: MouseEvent | { clientX: number; clientY: numb
       document.removeEventListener('scroll', onClose, true)
     }
   }, 0)
+}
+
+;(window as unknown as {
+  klausShowSessionContextMenu?: (
+    ev: MouseEvent,
+    sessionId: string,
+    row: HTMLElement | null,
+    initialTitleOverride?: string,
+  ) => void
+}).klausShowSessionContextMenu = (ev, sessionId, row, initialTitleOverride) => {
+  const target = findKnownSession(sessionId)
+  if (!target) return
+  showSessionContextMenu(ev, target, row, initialTitleOverride)
 }
 
 function renderCronChannelBanner(sessionId: string) {

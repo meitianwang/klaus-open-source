@@ -214,7 +214,8 @@
 
 .session-item:hover,
 .session-item:global(.active),
-.session-item:global(.session-row-context) {
+.session-item:global(.session-row-context),
+.session-item:global(.is-renaming) {
   background: color-mix(in srgb, var(--fg) 8%, transparent);
   color: var(--fg);
 }
@@ -632,9 +633,53 @@
 
 .project-thread-item:hover,
 .project-thread-item:global(.active),
-.project-thread-item:global(.session-row-context) {
+.project-thread-item:global(.session-row-context),
+.project-thread-item:global(.is-renaming) {
   background: color-mix(in srgb, var(--fg) 8%, transparent);
   color: var(--fg);
+}
+
+.session-item:global(.is-renaming),
+.project-thread-item:global(.is-renaming) {
+  padding-block: 3px;
+  padding-inline-end: 8px;
+  cursor: default;
+}
+
+.session-item:global(.is-renaming) .session-row-actions,
+.project-thread-item:global(.is-renaming) .session-row-actions,
+.session-item:global(.is-renaming) :global(.s-draft-badge),
+.project-thread-item:global(.is-renaming) :global(.s-draft-badge),
+.session-item:global(.is-renaming) :global(.s-channel-badge),
+.project-thread-item:global(.is-renaming) :global(.s-channel-badge),
+.session-item:global(.is-renaming) :global(.session-branch-icon),
+.project-thread-item:global(.is-renaming) :global(.session-branch-icon),
+.session-item:global(.is-renaming) :global(.s-status-chip),
+.project-thread-item:global(.is-renaming) :global(.s-status-chip),
+.session-item:global(.is-renaming) :global(.s-status-pill),
+.project-thread-item:global(.is-renaming) :global(.s-status-pill) {
+  display: none !important;
+}
+
+.session-rename-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 22px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  margin: 0 -5px;
+  font: inherit;
+  line-height: 20px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xxs);
+  outline: none;
+  box-shadow: none;
+}
+
+.session-rename-input::placeholder {
+  color: var(--fg-tertiary);
 }
 
 /* Same focus-as-background rule as .session-item: no outline on this surface. */

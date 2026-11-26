@@ -224,7 +224,9 @@
   min-width: 0;
   transition: background var(--transition), color var(--transition);
 }
-.subRow:hover {
+.subRow:hover,
+.subRow:global(.session-row-context),
+.subRowRenaming {
   background: color-mix(in srgb, var(--fg) 6%, transparent);
   color: var(--fg);
 }
@@ -232,6 +234,30 @@
   background: color-mix(in srgb, var(--fg) 9%, transparent);
   color: var(--fg);
   font-weight: var(--weight-medium);
+}
+.subRowRenaming {
+  box-sizing: border-box;
+  padding: 2px 8px;
+  cursor: default;
+}
+.subRowRenameInput {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 22px;
+  box-sizing: border-box;
+  padding: 0 4px;
+  margin: 0 -5px;
+  font: inherit;
+  line-height: 20px;
+  color: var(--fg);
+  background: var(--bg);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-xxs);
+  outline: none;
+  box-shadow: none;
+}
+.subRowRenameInput::placeholder {
+  color: var(--fg-tertiary);
 }
 
 .subRowTitle {
