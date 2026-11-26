@@ -7590,7 +7590,7 @@ function syncChannelSidebarSessions() {
   }
   const payload: ChannelSessionsSnapshot = {
     sessionsByChannel,
-    activeSessionId: window.currentSessionId || null,
+    activeSessionId: (typeof effectiveRailSessionId === 'function' ? effectiveRailSessionId() : null) ?? window.currentSessionId ?? null,
     inSetupView: currentNonChatView === 'channels',
   }
   ;(window as unknown as { __klausChannelSidebarSessions?: ChannelSessionsSnapshot }).__klausChannelSidebarSessions = payload
@@ -7601,7 +7601,7 @@ function syncFriendSidebarSessions() {
   if (!getFriendsFeatureEnabled()) {
     const emptyPayload: FriendSidebarSessionsSnapshot = {
       groups: [],
-      activeSessionId: window.currentSessionId || null,
+      activeSessionId: (typeof effectiveRailSessionId === 'function' ? effectiveRailSessionId() : null) ?? window.currentSessionId ?? null,
       inManagementView: currentNonChatView === 'friends',
     }
     ;(window as unknown as { __klausFriendSidebarSessions?: FriendSidebarSessionsSnapshot }).__klausFriendSidebarSessions = emptyPayload
@@ -7653,7 +7653,7 @@ function syncFriendSidebarSessions() {
 
   const payload: FriendSidebarSessionsSnapshot = {
     groups,
-    activeSessionId: window.currentSessionId || null,
+    activeSessionId: (typeof effectiveRailSessionId === 'function' ? effectiveRailSessionId() : null) ?? window.currentSessionId ?? null,
     inManagementView: currentNonChatView === 'friends',
   }
   ;(window as unknown as { __klausFriendSidebarSessions?: FriendSidebarSessionsSnapshot }).__klausFriendSidebarSessions = payload
@@ -7700,7 +7700,7 @@ function syncCronSidebarSessions() {
     tasks: cronTasks.map(task => ({ id: task.id, name: task.name ?? undefined, schedule: task.schedule, prompt: task.prompt, enabled: task.enabled, deleteAfterRun: task.deleteAfterRun })),
     sessionsByTask,
     orphanSessions,
-    activeSessionId: window.currentSessionId || null,
+    activeSessionId: (typeof effectiveRailSessionId === 'function' ? effectiveRailSessionId() : null) ?? window.currentSessionId ?? null,
     inSetupView: currentNonChatView === 'cron',
   }
   ;(window as unknown as { __klausCronSidebarSessions?: CronSessionsSnapshot }).__klausCronSidebarSessions = payload

@@ -17,6 +17,9 @@ import {
 import {
   CHANNEL_ROWS,
   formatCronSessionTitle,
+  isModuleGroupOpen,
+  reconcileModuleExpansionOnSessions,
+  toggleModuleGroupExpansion,
   parseMemoryIndexMarkdown,
   stripChannelTitlePrefix,
 } from './secondary-module-panes'
@@ -233,5 +236,37 @@ describe('two-level primary rail navigation', () => {
     // .window-fullscreen rule from overriding .platform-win32 on Windows F11.
     expect(css).not.toContain('.platform-win32 body.sidebar-collapsed .titlebar-search-btn {\n  left: 34px;')
     expect(css).not.toContain('.window-fullscreen body.sidebar-collapsed .titlebar-search-btn {\n  left: 48px;')
+  })
+})
+
+
+describe('secondary module group expansion', () => {
+  test('opens populated groups by default and only opens the designated empty group', () => {
+    expect(isModuleGroupOpen({}, 'task-a', true)).toBe(true)
+    expect(isModuleGroupOpen({ 'task-a': true }, 'task-a', false)).toBe(false)
+    expect(isModuleGroupOpen({ 'task-a': false }, 'task-a', false, 'task-a')).toBe(true)
+    expect(isModuleGroupOpen({}, 'task-a', false, 'task-b')).toBe(false)
+  })
+
+  test('toggles task and removed-task groups independently', () => {
+    const removed = '__removed_cron_tasks__'
+    const first = toggleModuleGroupExpansion({}, 'task-a')
+    const both = toggleModuleGroupExpansion(first, removed)
+    expect(both).toEqual({ 'task-a': false, [removed]: false })
+    expect(toggleModuleGroupExpansion(both, 'task-a')).toEqual({ 'task-a': true, [removed]: false })
+  })
+
+  test('preserves folds unless navigation enters a session owned by that group', () => {
+    const expansion = { 'task-a': false, '__removed_cron_tasks__': false }
+    let state = reconcileModuleExpansionOnSessions({ expansion, lastActiveChatId: undefined }, 'session-a', 'task-a')
+    expect(state).toEqual({ expansion, lastActiveChatId: 'session-a' })
+    state = reconcileModuleExpansionOnSessions(state, 'session-a', 'task-a')
+    expect(state.expansion).toBe(expansion)
+    state = reconcileModuleExpansionOnSessions(state, null, undefined)
+    expect(state).toEqual({ expansion, lastActiveChatId: null })
+    state = reconcileModuleExpansionOnSessions(state, 'session-b', 'task-b')
+    expect(state.expansion).toBe(expansion)
+    state = reconcileModuleExpansionOnSessions(state, 'session-a', 'task-a')
+    expect(state.expansion).toEqual({ 'task-a': true, '__removed_cron_tasks__': false })
   })
 })

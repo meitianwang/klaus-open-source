@@ -1,5 +1,5 @@
 import { createRoot } from 'react-dom/client'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
 import { useT } from '../../i18n'
 import { Icon } from '../../components/Icon'
 import { sortTasksFlat, type CronStatus, type CronTask } from '../../pages/cron/data'
@@ -214,6 +214,113 @@ function readInitialChannelSessionsSnapshot(): ChannelSessionsSnapshot {
 
 const ORPHAN_CRON_GROUP_ID = '__removed_cron_tasks__'
 
+type ModuleSidebarGroupScope = 'cron' | 'channels' | 'friends'
+type ModuleGroupExpansionMap = Record<string, boolean>
+type ModuleExpansionState = { expansion: ModuleGroupExpansionMap; lastActiveChatId: string | null | undefined }
+
+export function parseModuleGroupExpansionMap(raw: unknown): ModuleGroupExpansionMap {
+  if (typeof raw === 'string') {
+    try { raw = JSON.parse(raw) } catch { return {} }
+  }
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  return Object.fromEntries(Object.entries(raw).filter(([, value]) => typeof value === 'boolean'))
+}
+
+export function isModuleGroupOpen(map: Readonly<ModuleGroupExpansionMap>, groupId: string, hasSessions: boolean, openEmptyGroupId?: string | null): boolean {
+  if (!hasSessions) return openEmptyGroupId === groupId
+  return typeof map[groupId] === 'boolean' ? map[groupId] : true
+}
+
+export function toggleModuleGroupExpansion(map: Readonly<ModuleGroupExpansionMap>, groupId: string): ModuleGroupExpansionMap {
+  return { ...map, [groupId]: !isModuleGroupOpen(map, groupId, true) }
+}
+
+export function revealModuleGroupExpansion(map: Readonly<ModuleGroupExpansionMap>, groupId: string): ModuleGroupExpansionMap {
+  return map[groupId] === false ? { ...map, [groupId]: true } : map
+}
+
+export function reconcileModuleExpansionOnSessions(state: ModuleExpansionState, activeChatId: string | null, ownerGroupId: string | undefined): ModuleExpansionState {
+  const shouldReveal = state.lastActiveChatId !== undefined && activeChatId && activeChatId !== state.lastActiveChatId && ownerGroupId
+  return {
+    expansion: shouldReveal ? revealModuleGroupExpansion(state.expansion, ownerGroupId) : state.expansion,
+    lastActiveChatId: activeChatId,
+  }
+}
+
+function createModuleExpansionStore(scope: ModuleSidebarGroupScope) {
+  const key = `klaus_${scope}_group_expansion_v1`
+  const listeners = new Set<() => void>()
+  let state: ModuleExpansionState | undefined
+  let lastProcessedDetail: object | undefined
+  const read = (): ModuleExpansionState => {
+    if (!state) {
+      let expansion: ModuleGroupExpansionMap = {}
+      try { expansion = parseModuleGroupExpansionMap(window.localStorage.getItem(key)) } catch {}
+      state = { expansion, lastActiveChatId: undefined }
+    }
+    return state
+  }
+  const update = (next: ModuleExpansionState) => {
+    const changed = read().expansion !== next.expansion
+    state = next
+    if (!changed) return
+    try { window.localStorage.setItem(key, JSON.stringify(next.expansion)) } catch {}
+    listeners.forEach(listener => listener())
+  }
+  return {
+    getSnapshot: () => read().expansion,
+    subscribe(listener: () => void) {
+      listeners.add(listener)
+      return () => { listeners.delete(listener) }
+    },
+    toggle(groupId: string) { update({ ...read(), expansion: toggleModuleGroupExpansion(read().expansion, groupId) }) },
+    reveal(groupId: string) { update({ ...read(), expansion: revealModuleGroupExpansion(read().expansion, groupId) }) },
+    reconcile(detail: object, activeId: string | null, owner: string | undefined) {
+      if (detail === lastProcessedDetail) return
+      lastProcessedDetail = detail
+      update(reconcileModuleExpansionOnSessions(read(), activeId, owner))
+    },
+    reset() {
+      state = undefined
+      lastProcessedDetail = undefined
+      try { window.localStorage.removeItem(key) } catch {}
+      listeners.forEach(listener => listener())
+    },
+  }
+}
+
+const moduleExpansionStores = {
+  cron: createModuleExpansionStore('cron'),
+  channels: createModuleExpansionStore('channels'),
+  friends: createModuleExpansionStore('friends'),
+}
+
+function useModuleGroupExpansion(scope: ModuleSidebarGroupScope) {
+  const store = moduleExpansionStores[scope]
+  return useSyncExternalStore(store.subscribe, store.getSnapshot)
+}
+
+function toggleScopedModuleGroup(scope: ModuleSidebarGroupScope, groupId: string) {
+  moduleExpansionStores[scope].toggle(groupId)
+}
+
+function revealScopedModuleGroup(scope: ModuleSidebarGroupScope, groupId: string) {
+  moduleExpansionStores[scope].reveal(groupId)
+}
+
+export function resetModuleGroupExpansionForTests(): void {
+  Object.values(moduleExpansionStores).forEach(store => store.reset())
+}
+
+function findCronGroup(snap: CronSessionsSnapshot, sessionId: string) {
+  return Object.entries(snap.sessionsByTask).find(([, rows]) => rows.some(row => row.id === sessionId))?.[0] ?? (snap.orphanSessions.some(row => row.id === sessionId) ? ORPHAN_CRON_GROUP_ID : undefined)
+}
+
+function reconcileCronExpansion(detail: CronSessionsSnapshot) {
+  const activeId = detail.inSetupView ? null : detail.activeSessionId
+  moduleExpansionStores.cron.reconcile(detail, activeId, activeId ? findCronGroup(detail, activeId) : undefined)
+}
+
 function CronSecondaryPane() {
   const t = useT()
   const [tasks, setTasks] = useState<CronTask[]>(() => readInitialCronSessionsSnapshot().tasks ?? [])
@@ -221,15 +328,8 @@ function CronSecondaryPane() {
   const [filter, setFilter] = useState<'all' | 'enabled' | 'paused'>('all')
   const [sessionsSnap, setSessionsSnap] = useState<CronSessionsSnapshot>(readInitialCronSessionsSnapshot)
   const [selectedEmptyTaskId, setSelectedEmptyTaskId] = useState<string | null>(null)
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
-    const initial = readInitialCronSessionsSnapshot()
-    const next = new Set<string>()
-    for (const [taskId, list] of Object.entries(initial.sessionsByTask)) {
-      if (list.length > 0) next.add(taskId)
-    }
-    if (initial.orphanSessions.length > 0) next.add(ORPHAN_CRON_GROUP_ID)
-    return next
-  })
+  const [openEmptyTaskId, setOpenEmptyTaskId] = useState<string | null>(null)
+  const expansionMap = useModuleGroupExpansion('cron')
 
   const loadCronState = useCallback(() => {
     const api = (window as unknown as {
@@ -252,21 +352,27 @@ function CronSecondaryPane() {
   }, [])
 
   useEffect(() => {
+    let latestSnapshot = readInitialCronSessionsSnapshot()
+    reconcileCronExpansion(latestSnapshot)
     loadCronState()
     const onSync = (event: Event) => {
       const detail = (event as CustomEvent<CronSyncState>).detail
       if (!detail) return
       if (Array.isArray(detail.tasks)) setTasks(detail.tasks)
       if (detail.status) setStatus(detail.status)
-      if ('emptyTaskId' in detail) setSelectedEmptyTaskId(detail.emptyTaskId ?? null)
+      if ('emptyTaskId' in detail) {
+        const nextEmpty = detail.emptyTaskId ?? null
+        if (!nextEmpty) setOpenEmptyTaskId(null)
+        setSelectedEmptyTaskId(nextEmpty)
+      }
     }
     const reveal = listenForSidebarReveal('cron', sessionId => {
-      const snap = readInitialCronSessionsSnapshot()
-      const groupId = Object.entries(snap.sessionsByTask).find(([, rows]) => rows.some(row => row.id === sessionId))?.[0] ?? (snap.orphanSessions.some(row => row.id === sessionId) ? ORPHAN_CRON_GROUP_ID : undefined)
+      const groupId = findCronGroup(latestSnapshot, sessionId)
       if (!groupId) return false
       setFilter('all')
+      setOpenEmptyTaskId(null)
       setSelectedEmptyTaskId(null)
-      setExpandedIds(prev => prev.has(groupId) ? prev : new Set(prev).add(groupId))
+      revealScopedModuleGroup('cron', groupId)
       return true
     })
     const onSessions = (event: Event) => {
@@ -275,26 +381,14 @@ function CronSecondaryPane() {
       if (Array.isArray(detail.tasks) && detail.tasks.length > 0) {
         setTasks(prev => prev.length > 0 ? prev : detail.tasks!)
       }
+      latestSnapshot = detail
+      reconcileCronExpansion(detail)
       setSessionsSnap(detail)
       reveal.consume()
       if (!detail.inSetupView) {
+        setOpenEmptyTaskId(null)
         setSelectedEmptyTaskId(null)
       }
-      setExpandedIds(prev => {
-        let changed = false
-        const next = new Set(prev)
-        for (const [taskId, list] of Object.entries(detail.sessionsByTask)) {
-          if (list.some(item => item.id === detail.activeSessionId) && !next.has(taskId)) {
-            next.add(taskId)
-            changed = true
-          }
-        }
-        if (detail.orphanSessions.some(item => item.id === detail.activeSessionId) && !next.has(ORPHAN_CRON_GROUP_ID)) {
-          next.add(ORPHAN_CRON_GROUP_ID)
-          changed = true
-        }
-        return changed ? next : prev
-      })
     }
     window.addEventListener(CRON_SIDEBAR_SYNC_EVENT, onSync)
     window.addEventListener(CRON_SIDEBAR_SESSIONS_EVENT, onSessions)
@@ -305,18 +399,20 @@ function CronSecondaryPane() {
     }
   }, [loadCronState])
 
-  useEffect(() => { flushPendingSidebarScroll('cron') }, [tasks, sessionsSnap, expandedIds, filter])
+  useEffect(() => { flushPendingSidebarScroll('cron') }, [tasks, sessionsSnap, expansionMap, openEmptyTaskId, filter])
 
   const enabledCount = tasks.filter(task => !!task.enabled).length
   const setupNavActive = sessionsSnap.inSetupView && !selectedEmptyTaskId
 
   const openSetupOverview = () => {
+    setOpenEmptyTaskId(null)
     setSelectedEmptyTaskId(null)
     ;(window as unknown as { klausOpenCronSetup?: () => void }).klausOpenCronSetup?.()
     window.dispatchEvent(new CustomEvent(CRON_SIDEBAR_SELECT_EMPTY_EVENT, { detail: { taskId: null } }))
   }
 
   const switchCronSession = (sessionId: string) => {
+    setOpenEmptyTaskId(null)
     setSelectedEmptyTaskId(null)
     window.dispatchEvent(new CustomEvent(CRON_SIDEBAR_SELECT_EMPTY_EVENT, { detail: { taskId: null } }))
     void (window as unknown as { klausSwitchSession?: (id: string) => Promise<void> | void }).klausSwitchSession?.(sessionId)
@@ -324,26 +420,18 @@ function CronSecondaryPane() {
 
   const handleTaskGroupClick = (taskId: string, taskSessions: CronSessionItem[]) => {
     if (taskSessions.length > 0) {
-      const hasActiveHere = !sessionsSnap.inSetupView && taskSessions.some(s => s.id === sessionsSnap.activeSessionId)
-      if (hasActiveHere) {
-        setExpandedIds(prev => {
-          const next = new Set(prev)
-          if (next.has(taskId)) next.delete(taskId)
-          else next.add(taskId)
-          return next
-        })
-        return
-      }
-      setExpandedIds(prev => new Set(prev).add(taskId))
-      switchCronSession(taskSessions[0]!.id)
+      toggleScopedModuleGroup('cron', taskId)
       return
     }
-    setExpandedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(taskId) && selectedEmptyTaskId === taskId) next.delete(taskId)
-      else next.add(taskId)
-      return next
-    })
+    if (openEmptyTaskId === taskId) {
+      setOpenEmptyTaskId(null)
+      if (selectedEmptyTaskId === taskId) {
+        setSelectedEmptyTaskId(null)
+        window.dispatchEvent(new CustomEvent(CRON_SIDEBAR_SELECT_EMPTY_EVENT, { detail: { taskId: null } }))
+      }
+      return
+    }
+    setOpenEmptyTaskId(taskId)
     setSelectedEmptyTaskId(taskId)
     ;(window as unknown as { klausOpenCronSetup?: () => void }).klausOpenCronSetup?.()
     window.dispatchEvent(new CustomEvent(CRON_SIDEBAR_SELECT_EMPTY_EVENT, { detail: { taskId } }))
@@ -398,7 +486,7 @@ function CronSecondaryPane() {
             {visibleTasks.map(task => {
               const taskSessions = sessionsSnap.sessionsByTask[task.id] || []
               const running = status.running.includes(task.id) || taskSessions.some(s => s.working)
-              const isOpen = expandedIds.has(task.id)
+              const isOpen = isModuleGroupOpen(expansionMap, task.id, taskSessions.length > 0, openEmptyTaskId)
               const hasActiveSession = !sessionsSnap.inSetupView && taskSessions.some(s => s.id === sessionsSnap.activeSessionId)
               const isEmptySelected = sessionsSnap.inSetupView && selectedEmptyTaskId === task.id
               const rowHighlighted = isEmptySelected || (hasActiveSession && !isOpen)
@@ -454,7 +542,7 @@ function CronSecondaryPane() {
 
             {showOrphans && (() => {
               const orphanSessions = sessionsSnap.orphanSessions
-              const isOpen = expandedIds.has(ORPHAN_CRON_GROUP_ID)
+              const isOpen = isModuleGroupOpen(expansionMap, ORPHAN_CRON_GROUP_ID, orphanSessions.length > 0, openEmptyTaskId)
               const hasActiveSession = !sessionsSnap.inSetupView && orphanSessions.some(s => s.id === sessionsSnap.activeSessionId)
               const rowHighlighted = hasActiveSession && !isOpen
               return (
@@ -507,20 +595,23 @@ function CronSecondaryPane() {
   )
 }
 
+function findChannelGroup(snap: ChannelSessionsSnapshot, sessionId: string) {
+  return Object.entries(snap.sessionsByChannel).find(([, rows]) => rows.some(row => row.id === sessionId))?.[0]
+}
+
+function reconcileChannelExpansion(detail: ChannelSessionsSnapshot) {
+  const activeId = detail.inSetupView ? null : detail.activeSessionId
+  moduleExpansionStores.channels.reconcile(detail, activeId, activeId ? findChannelGroup(detail, activeId) : undefined)
+}
+
 function ChannelsSecondaryPane() {
   const t = useT()
   const [filter, setFilter] = useState<'all' | 'active' | 'connected'>('all')
   const [states, setStates] = useState<Map<string, ChannelPresentationState>>(new Map())
   const [sessionsSnap, setSessionsSnap] = useState<ChannelSessionsSnapshot>(readInitialChannelSessionsSnapshot)
   const [selectedEmptyChannelId, setSelectedEmptyChannelId] = useState<string | null>(null)
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
-    const initial = readInitialChannelSessionsSnapshot()
-    const next = new Set<string>()
-    for (const [channelId, list] of Object.entries(initial.sessionsByChannel)) {
-      if (list.length > 0) next.add(channelId)
-    }
-    return next
-  })
+  const [openEmptyChannelId, setOpenEmptyChannelId] = useState<string | null>(null)
+  const expansionMap = useModuleGroupExpansion('channels')
 
   const loadChannels = useCallback(() => {
     const api = (window as unknown as { klaus?: { channels?: { list?: () => Promise<Array<ChannelPresentationState & { id: string }>> } } }).klaus?.channels
@@ -533,6 +624,8 @@ function ChannelsSecondaryPane() {
   }, [])
 
   useEffect(() => {
+    let latestSnapshot = readInitialChannelSessionsSnapshot()
+    reconcileChannelExpansion(latestSnapshot)
     loadChannels()
     const onSync = (event: Event) => {
       const detail = (event as CustomEvent<{ channels?: Array<ChannelPresentationState & { id: string }>; emptyChannelId?: string | null }>).detail
@@ -540,37 +633,31 @@ function ChannelsSecondaryPane() {
         setStates(new Map(detail.channels.map(entry => [entry.id, entry])))
       }
       if (detail && 'emptyChannelId' in detail) {
-        setSelectedEmptyChannelId(detail.emptyChannelId ?? null)
+        const nextEmpty = detail.emptyChannelId ?? null
+        if (!nextEmpty) setOpenEmptyChannelId(null)
+        setSelectedEmptyChannelId(nextEmpty)
       }
     }
     const reveal = listenForSidebarReveal('channels', sessionId => {
-      const snap = readInitialChannelSessionsSnapshot()
-      const groupId = Object.entries(snap.sessionsByChannel).find(([, rows]) => rows.some(row => row.id === sessionId))?.[0]
+      const groupId = findChannelGroup(latestSnapshot, sessionId)
       if (!groupId) return false
       setFilter('all')
+      setOpenEmptyChannelId(null)
       setSelectedEmptyChannelId(null)
-      setExpandedIds(prev => prev.has(groupId) ? prev : new Set(prev).add(groupId))
+      revealScopedModuleGroup('channels', groupId)
       return true
     })
     const onSessions = (event: Event) => {
       const detail = (event as CustomEvent<ChannelSessionsSnapshot>).detail
       if (!detail) return
+      latestSnapshot = detail
+      reconcileChannelExpansion(detail)
       setSessionsSnap(detail)
       reveal.consume()
       if (!detail.inSetupView) {
+        setOpenEmptyChannelId(null)
         setSelectedEmptyChannelId(null)
       }
-      setExpandedIds(prev => {
-        let changed = false
-        const next = new Set(prev)
-        for (const [channelId, list] of Object.entries(detail.sessionsByChannel)) {
-          if (list.some(item => item.id === detail.activeSessionId) && !next.has(channelId)) {
-            next.add(channelId)
-            changed = true
-          }
-        }
-        return changed ? next : prev
-      })
     }
     window.addEventListener(CHANNELS_SIDEBAR_SYNC_EVENT, onSync)
     window.addEventListener(CHANNELS_SIDEBAR_SESSIONS_EVENT, onSessions)
@@ -581,18 +668,20 @@ function ChannelsSecondaryPane() {
     }
   }, [loadChannels])
 
-  useEffect(() => { flushPendingSidebarScroll('channels') }, [sessionsSnap, expandedIds, filter])
+  useEffect(() => { flushPendingSidebarScroll('channels') }, [sessionsSnap, expansionMap, openEmptyChannelId, filter])
 
   const connectedCount = CHANNEL_ROWS.filter(row => isChannelConfigured(states.get(row.id), row.requiredKeys)).length
   const setupNavActive = sessionsSnap.inSetupView && !selectedEmptyChannelId
 
   const openSetupOverview = () => {
+    setOpenEmptyChannelId(null)
     setSelectedEmptyChannelId(null)
     ;(window as unknown as { klausOpenChannelsSetup?: () => void }).klausOpenChannelsSetup?.()
     window.dispatchEvent(new CustomEvent(CHANNELS_SIDEBAR_SELECT_EMPTY_EVENT, { detail: { channelId: null } }))
   }
 
   const switchChannelSession = (sessionId: string) => {
+    setOpenEmptyChannelId(null)
     setSelectedEmptyChannelId(null)
     window.dispatchEvent(new CustomEvent(CHANNELS_SIDEBAR_SELECT_EMPTY_EVENT, { detail: { channelId: null } }))
     void (window as unknown as { klausSwitchSession?: (id: string) => Promise<void> | void }).klausSwitchSession?.(sessionId)
@@ -601,27 +690,18 @@ function ChannelsSecondaryPane() {
   const handleChannelClick = (row: ChannelRowMeta) => {
     const channelSessions = sessionsSnap.sessionsByChannel[row.id] || []
     if (channelSessions.length > 0) {
-      const hasActiveHere = !sessionsSnap.inSetupView && channelSessions.some(s => s.id === sessionsSnap.activeSessionId)
-      if (hasActiveHere) {
-        setExpandedIds(prev => {
-          const next = new Set(prev)
-          if (next.has(row.id)) next.delete(row.id)
-          else next.add(row.id)
-          return next
-        })
-        return
-      }
-      const target = channelSessions.find(s => (s.unreadCount ?? 0) > 0 || s.unread) ?? channelSessions[0]!
-      setExpandedIds(prev => new Set(prev).add(row.id))
-      switchChannelSession(target.id)
+      toggleScopedModuleGroup('channels', row.id)
       return
     }
-    setExpandedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(row.id) && selectedEmptyChannelId === row.id) next.delete(row.id)
-      else next.add(row.id)
-      return next
-    })
+    if (openEmptyChannelId === row.id) {
+      setOpenEmptyChannelId(null)
+      if (selectedEmptyChannelId === row.id) {
+        setSelectedEmptyChannelId(null)
+        window.dispatchEvent(new CustomEvent(CHANNELS_SIDEBAR_SELECT_EMPTY_EVENT, { detail: { channelId: null } }))
+      }
+      return
+    }
+    setOpenEmptyChannelId(row.id)
     setSelectedEmptyChannelId(row.id)
     ;(window as unknown as { klausOpenChannelsSetup?: () => void }).klausOpenChannelsSetup?.()
     window.dispatchEvent(new CustomEvent(CHANNELS_SIDEBAR_SELECT_EMPTY_EVENT, { detail: { channelId: row.id } }))
@@ -679,7 +759,7 @@ function ChannelsSecondaryPane() {
         ) : rows.map(row => {
           const channelSessions = sessionsSnap.sessionsByChannel[row.id] || []
           const unreadBadge = formatChannelUnreadBadge(sumChannelUnreadCount(channelSessions))
-          const isOpen = expandedIds.has(row.id)
+          const isOpen = isModuleGroupOpen(expansionMap, row.id, channelSessions.length > 0, openEmptyChannelId)
           const hasActiveSession = !sessionsSnap.inSetupView && channelSessions.some(s => s.id === sessionsSnap.activeSessionId)
           const isEmptySelected = sessionsSnap.inSetupView && selectedEmptyChannelId === row.id
           const rowHighlighted = isEmptySelected || (hasActiveSession && !isOpen)
@@ -997,6 +1077,15 @@ function readInitialFriendSessionsSnapshot(): FriendSidebarSessionsSnapshot {
   return cached || { groups: [], activeSessionId: null, inManagementView: true }
 }
 
+function findFriendGroup(snap: FriendSidebarSessionsSnapshot, sessionId: string) {
+  return snap.groups.find(group => group.sessions.some(row => row.id === sessionId))?.id
+}
+
+function reconcileFriendExpansion(detail: FriendSidebarSessionsSnapshot) {
+  const activeId = detail.inManagementView ? null : detail.activeSessionId
+  moduleExpansionStores.friends.reconcile(detail, activeId, activeId ? findFriendGroup(detail, activeId) : undefined)
+}
+
 function FriendsSecondaryPane() {
   const t = useT()
   const [requestsCount, setRequestsCount] = useState(0)
@@ -1007,10 +1096,8 @@ function FriendsSecondaryPane() {
   const [selectedEmptyFriendId, setSelectedEmptyFriendId] = useState<string | null>(null)
   const [sessionsSnap, setSessionsSnap] = useState<FriendSidebarSessionsSnapshot>(readInitialFriendSessionsSnapshot)
   const [fallbackFriends, setFallbackFriends] = useState<FriendDirectorySyncItem[]>([])
-  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => {
-    const initial = readInitialFriendSessionsSnapshot()
-    return new Set(initial.groups.filter(g => g.sessions.length > 0).map(g => g.id))
-  })
+  const [openEmptyFriendId, setOpenEmptyFriendId] = useState<string | null>(null)
+  const expansionMap = useModuleGroupExpansion('friends')
 
   const loadFriendsList = useCallback(() => {
     const api = (window as unknown as {
@@ -1056,6 +1143,8 @@ function FriendsSecondaryPane() {
   }, [])
 
   useEffect(() => {
+    let latestSnapshot = readInitialFriendSessionsSnapshot()
+    reconcileFriendExpansion(latestSnapshot)
     loadFriendsList()
     const authApi = (window as unknown as {
       klaus?: {
@@ -1085,36 +1174,32 @@ function FriendsSecondaryPane() {
       if (typeof detail.requests === 'number') setRequestsCount(detail.requests)
       if (typeof detail.signedIn === 'boolean') setSignedIn(detail.signedIn)
       if (Array.isArray(detail.acceptedFriends)) setFallbackFriends(detail.acceptedFriends)
-      if ('emptyFriendId' in detail) setSelectedEmptyFriendId(detail.emptyFriendId ?? null)
+      if ('emptyFriendId' in detail) {
+        const nextEmpty = detail.emptyFriendId ?? null
+        if (!nextEmpty) setOpenEmptyFriendId(null)
+        setSelectedEmptyFriendId(nextEmpty)
+      }
     }
     const reveal = listenForSidebarReveal('friends', sessionId => {
-      const snap = readInitialFriendSessionsSnapshot()
-      const groupId = snap.groups.find(group => group.sessions.some(row => row.id === sessionId))?.id
+      const groupId = findFriendGroup(latestSnapshot, sessionId)
       if (!groupId) return false
       setFilter('all')
+      setOpenEmptyFriendId(null)
       setSelectedEmptyFriendId(null)
-      setExpandedIds(prev => prev.has(groupId) ? prev : new Set(prev).add(groupId))
+      revealScopedModuleGroup('friends', groupId)
       return true
     })
     const onSessions = (event: Event) => {
       const detail = (event as CustomEvent<FriendSidebarSessionsSnapshot>).detail
       if (!detail) return
+      latestSnapshot = detail
+      reconcileFriendExpansion(detail)
       setSessionsSnap(detail)
       reveal.consume()
       if (!detail.inManagementView) {
+        setOpenEmptyFriendId(null)
         setSelectedEmptyFriendId(null)
       }
-      setExpandedIds(prev => {
-        let changed = false
-        const next = new Set(prev)
-        for (const group of detail.groups) {
-          if (group.sessions.some(item => item.id === detail.activeSessionId) && !next.has(group.id)) {
-            next.add(group.id)
-            changed = true
-          }
-        }
-        return changed ? next : prev
-      })
     }
     window.addEventListener(FRIENDS_SIDEBAR_SYNC_EVENT, onSync)
     window.addEventListener(FRIENDS_SIDEBAR_SESSIONS_EVENT, onSessions)
@@ -1127,7 +1212,7 @@ function FriendsSecondaryPane() {
     }
   }, [loadFriendsList])
 
-  useEffect(() => { flushPendingSidebarScroll('friends') }, [fallbackFriends, sessionsSnap, expandedIds, filter])
+  useEffect(() => { flushPendingSidebarScroll('friends') }, [fallbackFriends, sessionsSnap, expansionMap, openEmptyFriendId, filter])
 
   const mergedGroups: FriendGroupItem[] = (() => {
     if (sessionsSnap.groups.length === 0 && fallbackFriends.length === 0) return []
@@ -1169,6 +1254,7 @@ function FriendsSecondaryPane() {
 
   const openManagementView = (section: 'list' | 'requests') => {
     setActiveManagementSection(section)
+    setOpenEmptyFriendId(null)
     setSelectedEmptyFriendId(null)
     ;(window as unknown as { klausOpenFriendsManagement?: () => void }).klausOpenFriendsManagement?.()
     window.dispatchEvent(new CustomEvent(FRIENDS_SIDEBAR_SELECT_EMPTY_EVENT, { detail: { friendId: null } }))
@@ -1176,6 +1262,7 @@ function FriendsSecondaryPane() {
   }
 
   const switchFriendSession = (sessionId: string) => {
+    setOpenEmptyFriendId(null)
     setSelectedEmptyFriendId(null)
     window.dispatchEvent(new CustomEvent(FRIENDS_SIDEBAR_SELECT_EMPTY_EVENT, { detail: { friendId: null } }))
     void (window as unknown as { klausSwitchSession?: (id: string) => Promise<void> | void }).klausSwitchSession?.(sessionId)
@@ -1183,26 +1270,18 @@ function FriendsSecondaryPane() {
 
   const handleFriendGroupClick = (group: FriendGroupItem) => {
     if (group.sessions.length > 0) {
-      const hasActiveHere = !sessionsSnap.inManagementView && group.sessions.some(s => s.id === sessionsSnap.activeSessionId)
-      if (hasActiveHere) {
-        setExpandedIds(prev => {
-          const next = new Set(prev)
-          if (next.has(group.id)) next.delete(group.id)
-          else next.add(group.id)
-          return next
-        })
-        return
-      }
-      setExpandedIds(prev => new Set(prev).add(group.id))
-      switchFriendSession(group.sessions[0]!.id)
+      toggleScopedModuleGroup('friends', group.id)
       return
     }
-    setExpandedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(group.id) && selectedEmptyFriendId === group.id) next.delete(group.id)
-      else next.add(group.id)
-      return next
-    })
+    if (openEmptyFriendId === group.id) {
+      setOpenEmptyFriendId(null)
+      if (selectedEmptyFriendId === group.id) {
+        setSelectedEmptyFriendId(null)
+        window.dispatchEvent(new CustomEvent(FRIENDS_SIDEBAR_SELECT_EMPTY_EVENT, { detail: { friendId: null } }))
+      }
+      return
+    }
+    setOpenEmptyFriendId(group.id)
     setSelectedEmptyFriendId(group.id)
     ;(window as unknown as { klausOpenFriendsManagement?: () => void }).klausOpenFriendsManagement?.()
     window.dispatchEvent(new CustomEvent(FRIENDS_SIDEBAR_SELECT_EMPTY_EVENT, { detail: { friendId: group.id } }))
@@ -1300,7 +1379,7 @@ function FriendsSecondaryPane() {
             {mergedGroups.length === 0 ? t('friends_empty') : t('ch_no_sessions_short')}
           </div>
         ) : filteredGroups.map(group => {
-          const isOpen = expandedIds.has(group.id)
+          const isOpen = isModuleGroupOpen(expansionMap, group.id, group.sessions.length > 0, openEmptyFriendId)
           const hasActiveSession = !sessionsSnap.inManagementView && group.sessions.some(s => s.id === sessionsSnap.activeSessionId)
           const isEmptySelected = sessionsSnap.inManagementView && selectedEmptyFriendId === group.id
           const rowHighlighted = isEmptySelected || (hasActiveSession && !isOpen)
@@ -1368,8 +1447,31 @@ function SecondaryModulePanes() {
       const next = (event as CustomEvent<{ section: PrimaryRailSection }>).detail?.section
       if (next) setSection(next)
     }
+    reconcileCronExpansion(readInitialCronSessionsSnapshot())
+    const onCronSessions = (event: Event) => {
+      const detail = (event as CustomEvent<CronSessionsSnapshot>).detail
+      if (detail) reconcileCronExpansion(detail)
+    }
+    window.addEventListener(CRON_SIDEBAR_SESSIONS_EVENT, onCronSessions)
+    reconcileChannelExpansion(readInitialChannelSessionsSnapshot())
+    const onChannelsSessions = (event: Event) => {
+      const detail = (event as CustomEvent<ChannelSessionsSnapshot>).detail
+      if (detail) reconcileChannelExpansion(detail)
+    }
+    window.addEventListener(CHANNELS_SIDEBAR_SESSIONS_EVENT, onChannelsSessions)
+    reconcileFriendExpansion(readInitialFriendSessionsSnapshot())
+    const onFriendsSessions = (event: Event) => {
+      const detail = (event as CustomEvent<FriendSidebarSessionsSnapshot>).detail
+      if (detail) reconcileFriendExpansion(detail)
+    }
+    window.addEventListener(FRIENDS_SIDEBAR_SESSIONS_EVENT, onFriendsSessions)
     window.addEventListener(RAIL_SECTION_CHANGE_EVENT, onSection)
-    return () => window.removeEventListener(RAIL_SECTION_CHANGE_EVENT, onSection)
+    return () => {
+      window.removeEventListener(RAIL_SECTION_CHANGE_EVENT, onSection)
+      window.removeEventListener(CRON_SIDEBAR_SESSIONS_EVENT, onCronSessions)
+      window.removeEventListener(CHANNELS_SIDEBAR_SESSIONS_EVENT, onChannelsSessions)
+      window.removeEventListener(FRIENDS_SIDEBAR_SESSIONS_EVENT, onFriendsSessions)
+    }
   }, [])
 
   if (section === 'cron') return <CronSecondaryPane />
