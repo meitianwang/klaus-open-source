@@ -1674,6 +1674,10 @@ function selectWorkspaceFile(node: WorkspaceNode, { openMain = true, preview = f
   else if (workspaceMainActive) loadWorkspaceFile(node.path)
 }
 
+export function hasOpenWorkspaceTabs(sessionId: string | null, paths: readonly string[]): boolean {
+  return !!sessionId && paths.every(path => getWorkspaceTabs(sessionId).some(tab => tab.path === path))
+}
+
 /** Open an absolute path in this surface, for callers that know a path but not a
  *  tree node (the overview's artifact rows, transcript file citations).
  *

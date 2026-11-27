@@ -1,7 +1,7 @@
 {
   "summary": {
     "invokeDeclared": 794,
-    "pushDeclared": 86
+    "pushDeclared": 87
   },
   "rows": [
     {
@@ -3254,6 +3254,10 @@
     },
     {
       "channel": "deep-link:friend-task",
+      "kind": "push"
+    },
+    {
+      "channel": "deep-link:open-files",
       "kind": "push"
     },
     {

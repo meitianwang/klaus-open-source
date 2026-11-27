@@ -263,7 +263,7 @@ import { executionModeFlags, resolveSessionExecutionMode, runContextControls, ru
 import { initAuthScreen, hideBootScreen, showLoginScreen, hideLoginScreen, seedIdentityKv, beginAccountLogin } from './auth-screen'
 import { initGuestSignin, syncGuestSigninUi } from './sidebar/guest-signin'
 import { initFeatureGates, type FeatureGateController } from './sidebar/feature-gate'
-import { initWorkspacePanel, hideWorkspaceMainView, showWorkspaceMainView, isWorkspaceMainActive, loadWorkspace, loadArtifacts, loadWorkspaceFile, scheduleWorkspaceReload, selectedWorkspaceFile, shouldReloadWorkspaceFileForEvent, shouldReloadWorkspaceMediaForEvent, closeWorkspaceContextMenu, fileIconSvg, folderIconSvg, workspaceRelativePath, workspaceRootFor, setWorkspaceRoot } from './workspace-panel'
+import { initWorkspacePanel, hideWorkspaceMainView, showWorkspaceMainView, isWorkspaceMainActive, loadWorkspace, loadArtifacts, loadWorkspaceFile, scheduleWorkspaceReload, selectedWorkspaceFile, shouldReloadWorkspaceFileForEvent, shouldReloadWorkspaceMediaForEvent, closeWorkspaceContextMenu, fileIconSvg, folderIconSvg, workspaceRelativePath, workspaceRootFor, setWorkspaceRoot, hasOpenWorkspaceTabs, openWorkspaceFilePath } from './workspace-panel'
 import composerStyles from './composer/composer.module.css'
 import { openImagePreview, configureImagePreview, type ImagePreviewOptions } from './image-preview'
 import sidebarStyles from './sidebar/sidebar.module.css'
@@ -19448,11 +19448,45 @@ inputEl.addEventListener('paste', handleMainComposerPaste)
 klausApi.on.trayNewChat?.(() => newChat())
 klausApi.on.trayOpenSettings?.(() => { if (!document.getElementById('settings-view')?.classList.contains('active')) toggleSettings() })
 klausApi.on.deepLinkOpenSession?.(async ({ sessionId }: { sessionId?: string }) => { if (sessionId) await switchSession(sessionId) })
-klausApi.on.deepLinkOpenFolder?.(async ({ directory }: { directory?: string }) => {
+let systemOpenQueue = Promise.resolve()
+function queueSystemOpen(open: () => Promise<void>) {
+  systemOpenQueue = systemOpenQueue.then(open).catch(error => console.error('System open failed', error))
+  return systemOpenQueue
+}
+klausApi.on.deepLinkOpenFolder?.(({ directory }: { directory?: string }) => queueSystemOpen(async () => {
   if (!directory) return
+  window.KlausPanelTabs?.setMaximized?.(false)
   await refreshProjectWorkspaces({ render: true, refreshWorkdir: false })
   newChat({ workdir: directory })
-})
+  showWorkspaceMainView({ openPanel: true })
+}))
+klausApi.on.deepLinkOpenFiles?.((payload: { files?: string[] } | undefined) => queueSystemOpen(async () => {
+  const files = [...new Set((payload?.files ?? []).filter(path => typeof path === 'string' && path.trim()))]
+  if (!files.length) return
+  window.KlausPanelTabs?.setMaximized?.(false)
+  const activeId = window.currentSessionId
+  const reuse = !currentNonChatView && !document.getElementById('settings-view')?.classList.contains('active')
+    && activeId && !findKnownSession(activeId)?.archived && hasOpenWorkspaceTabs(activeId, files)
+  if (!reuse) {
+    newChat({ workdir: null })
+    const sessionId = await ensureSession()
+    if (!sessionId || window.currentSessionId !== sessionId) return
+    const images: string[] = []
+    for (const filePath of files) {
+      if (pendingFiles.some(entry => entry.uploadPath === filePath || entry.sourcePath === filePath)) continue
+      const name = basenameFromPath(filePath)
+      if (isInlineImage(name, '')) images.push(filePath)
+      else pendingFiles.push({ file: { name, type: '', size: 0 }, objectUrl: null, uploadPath: filePath, sourcePath: filePath, uploading: false })
+    }
+    if (images.length) addFilePaths(images)
+    renderPreviews()
+    updateSendBtn()
+  }
+  const wsWidth = currentWorkspaceWidth()
+  const widened = preferredDesignPanelWidth(rightPanelRatioToWidth(rightPanelWidthRatio, wsWidth), wsWidth)
+  if (widened !== null) setRightPanelWidthPx(widened, { updateRatio: true })
+  for (const path of reuse ? files.slice(-1) : files) openWorkspaceFilePath(path)
+}))
 klausApi.on.deepLinkOpenTeamIssue?.((payload: unknown) => { openTeamIssueDeepLink(payload) })
 // A clicked add-me link: queue the invite and show the friends page; the page
 // consumes the queue when its island mounts (or immediately, if already up).

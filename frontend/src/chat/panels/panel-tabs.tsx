@@ -2415,6 +2415,8 @@ if (maximized) applyMaximized()
 // side-tasks (side-task family, which supplies the `+` menu's side-task
 // entry). Nothing else may render into the strip.
 ;(window as any).KlausPanelTabs = {
+  setMaximized,
+  isMaximized: () => maximized,
   canStep: () => { activeScope(); return tabs.length > 1 },
   step: (delta: number) => {
     activeScope()

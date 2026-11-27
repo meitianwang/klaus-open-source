@@ -642,6 +642,7 @@ body.artifacts-open .titlebar-right {
 body:not(.artifacts-open) .titlebar-right {
   margin-right: -10.5px;
 }
+body.artifacts-maximized .titlebar-right,
 body.non-chat-view .titlebar-right,
 body.settings-open .titlebar-right,
 body:has(#mcp-view.active) .titlebar-right,
@@ -654,6 +655,7 @@ body:has(#cron-view.active) .titlebar-right,
 body:has(#memory-view.active) .titlebar-right {
   display: none;
 }
+body.artifacts-maximized .titlebar-session-title,
 body.non-chat-view .titlebar-session-title,
 body.settings-open .titlebar-session-title,
 body:has(#mcp-view.active) .titlebar-session-title,
@@ -9390,6 +9392,14 @@ body.non-chat-view .side-rail {
 body.artifacts-maximized .artifacts-panel > .artifacts-header,
 body.artifacts-maximized .artifacts-panel > .artifacts-body {
   min-width: 0;
+}
+body.sidebar-collapsed.artifacts-maximized .artifacts-panel > .artifacts-header {
+  min-height: var(--titlebar-height);
+  padding-left: calc(160px - var(--primary-rail-width));
+}
+.platform-win32 body.sidebar-collapsed.artifacts-maximized .artifacts-panel > .artifacts-header,
+.platform-darwin.window-fullscreen body.sidebar-collapsed.artifacts-maximized .artifacts-panel > .artifacts-header {
+  padding-left: calc(var(--sidebar-gutter) + 40px);
 }
 /* Every tab shares this one width; the two-pane tabs (files/diff) lay out their
    fixed side column + viewer WITHIN it rather than forcing the panel wider, so

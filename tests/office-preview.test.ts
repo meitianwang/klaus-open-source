@@ -1,5 +1,8 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
+import { setTimeout as delay } from 'node:timers/promises';
+import { createSystemPathOpener } from '../main/app/system-path-opener';
+import { SessionArtifactPaths } from '../main/services/artifact-paths';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { crc32 } from 'node:zlib';
@@ -390,6 +393,77 @@ h.test('CSV/TSV, XMind (JSON + XML), WPS/template extensions, external Open-With
     const url3gp = (await service.artifactFileUrl({ sessionId: 'local', filePath: clip3gp }) as any).url;
     const res3gp = await media.respond(new Request(url3gp));
     assert.equal(res3gp.headers.get('content-type'), 'video/3gpp');
+  } finally {
+    service.close();
+    media.close();
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
+
+h.test('System open batches canonical files, routes folders immediately, and cancels on disposal', async () => {
+  const tmp = await mkdtemp(join(process.cwd(), 'dist/system-open-'));
+  const a = join(tmp, 'a.xlsx'), b = join(tmp, 'b.xlsx'), c = join(tmp, 'c.xlsx');
+  const batches: string[][] = [], folders: string[] = [];
+  let shown = 0;
+  const opener = createSystemPathOpener({
+    show: () => { shown++; }, folder: path => folders.push(path), files: paths => batches.push(paths),
+    onError: error => { throw error; },
+  });
+  try {
+    for (const path of [a, b, c]) await writeFile(path, xlsx);
+    opener.open([a]); opener.open([b]); opener.open([a]);
+    assert.ok(shown > 0);
+    assert.deepEqual(batches, []);
+    await delay(60);
+    assert.deepEqual(batches, [[realpathSync(a), realpathSync(b)]]);
+    opener.open([tmp, c]);
+    assert.deepEqual(folders, [realpathSync(tmp)]);
+    await delay(60);
+    assert.deepEqual(batches[1], [realpathSync(c)]);
+    opener.open([a]); opener.dispose();
+    await delay(60);
+    assert.equal(batches.length, 2);
+  } finally {
+    opener.dispose();
+    await rm(tmp, { recursive: true, force: true });
+  }
+});
+
+h.test('Projectless chat can preview and reveal selected external files and save a workbook in place', async () => {
+  const tmp = await mkdtemp(join(process.cwd(), 'dist/system-open-scope-'));
+  const scratch = join(tmp, 'scratch');
+  const sessionId = 'projectless';
+  const revealed: string[] = [];
+  const ledger = new SessionArtifactPaths({ canonicalize: realpathSync });
+  const workspaces = new WorkspaceStore({ configRoot: tmp, push: () => {}, onSessionWorkdirChanged: () => {}, pickDirectory: async () => null });
+  const producedBySession = (path: string, id: string) => ledger.has(id, path);
+  const mediaScope = createConversationMediaScope({ configRoot: tmp, prepareSessionMedia: async () => true, resolveSessionDirectory: id => workspaces.resolveSessionDirectory(id), extraRoots: () => [], producedBySession });
+  const media = new MediaFiles(mediaScope);
+  const service = new FileService({ workspaces, watch: false, push: () => {}, openPath: async () => {}, revealPath: path => { revealed.push(path); }, trashPath: async () => {}, openPreviewWindow: async () => { assert.fail('Unexpected popup'); }, requestSession: async () => ({}), mediaScope, producedBySession, toFileUrl: (path, id, name) => media.grant(path, id, name), authorizePreviewPath: (path, id) => ledger.record(id, path, true) });
+  try {
+    await mkdir(scratch);
+    workspaces.bindSession(sessionId, { workdir: scratch });
+    for (const [name, bytes] of [['external.xlsx', xlsx], ['external.pdf', '%PDF-1.4\n%%EOF'], ['external.html', '<p>External</p>']] as const) {
+      const filePath = join(tmp, name);
+      await writeFile(filePath, bytes);
+      const request = { sessionId, filePath: realpathSync(filePath) };
+      const authorization = await service.authorizeArtifactPreview(request) as any;
+      assert.equal(authorization.ok, true, JSON.stringify(authorization));
+      assert.equal(ledger.has(sessionId, request.filePath), true);
+      if (name.endsWith('.pdf')) {
+        assert.ok((await service.artifactFileUrl(request) as any).url);
+      } else {
+        const data = await service.readArtifact(request) as any;
+        assert.equal(data.error, undefined);
+        if (name.endsWith('.xlsx')) {
+          assert.equal(data.office.kind, 'spreadsheet');
+          const saved = await service.writeOfficeArtifact({ ...request, office: data.office, expectedMtimeMs: data.mtimeMs }) as any;
+          assert.equal(saved.ok, true, JSON.stringify(saved));
+        } else assert.equal(data.content, '<p>External</p>');
+      }
+      assert.equal((await service.open(request, true) as any).ok, true);
+      assert.equal(revealed.at(-1), request.filePath);
+    }
   } finally {
     service.close();
     media.close();

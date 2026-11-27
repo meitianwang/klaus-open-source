@@ -7,7 +7,7 @@
   },
   "summary": {
     "registeredInvoke": 794,
-    "registeredPush": 86,
+    "registeredPush": 87,
     "roles": 14
   },
   "pushChannels": [
@@ -30,6 +30,7 @@
     "cron:failed",
     "deep-link:friend-invite",
     "deep-link:friend-task",
+    "deep-link:open-files",
     "deep-link:open-folder",
     "deep-link:open-session",
     "deep-link:open-team-issue",
@@ -922,6 +923,7 @@
         "cron:failed",
         "deep-link:friend-invite",
         "deep-link:friend-task",
+        "deep-link:open-files",
         "deep-link:open-folder",
         "deep-link:open-session",
         "deep-link:open-team-issue",

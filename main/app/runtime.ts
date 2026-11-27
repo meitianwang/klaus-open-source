@@ -2,7 +2,8 @@ import { requireInterruptConfirmation } from '../sessions/turn-interrupt';
 import { autoUpdater, BrowserWindow, clipboard, ClipboardItem, desktopCapturer, dialog, globalShortcut, ipcMain, Menu, nativeImage, nativeTheme, powerMonitor, protocol, safeStorage, screen, session, shell, systemPreferences, Tray, webContents, type App, type WebContents } from 'electron';
 import { VoiceChatPresentationRuntime } from './voice-chat-presentation';
 import { createPowerSaveRuntime } from './power-save-runtime';
-import { existsSync, mkdirSync, realpathSync, statSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, realpathSync, writeFileSync } from 'node:fs';
+import { createSystemPathOpener } from './system-path-opener.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import { AppshotRuntime, appshotCaptureApplication, registerAppshotHandlers } from './appshot-runtime';
 import { appshotContextText } from '../../contracts/appshot-context';
@@ -3586,6 +3587,21 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   }, 5_000);
   resumeRecoveryTimer.unref();
   early.add(() => clearTimeout(resumeRecoveryTimer));
+  const systemPathOpener = createSystemPathOpener({
+    show,
+    folder: directory => {
+      workspaces.projectsAdd({ path: directory });
+      show();
+      void deliverToFocusedMain('deep-link:open-folder', { directory }, notificationNavigation.signal)
+        .catch(() => { if (!closing) log.write('open-file', 'The folder open action could not be delivered to the main window'); });
+    },
+    files: files => {
+      void deliverToFocusedMain('deep-link:open-files', { files }, notificationNavigation.signal)
+        .catch(() => { if (!closing) log.write('open-file', 'The file open action could not be delivered to the main window'); });
+    },
+    onError: error => log.write('open-file', error instanceof Error ? error.message : String(error)),
+  });
+  early.add(systemPathOpener.dispose);
   if (options.show !== false) show();
   void channels.startConfigured().then(results => { for (const result of results) if (result.ok !== true) log.write('channel-startup', JSON.stringify(result)); }).catch(error => log.write('channel-startup', String(error)));
   log.write('ready', JSON.stringify({ version: app.getVersion(), node: process.versions.node, electron: process.versions.electron, implementedChannels: registry.size() }));
@@ -3610,33 +3626,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       }
       else sendToMainWindow(focusedMainWindow(), action.kind === 'new' ? 'tray:new-chat' : 'tray:open-settings');
     },
-    openSystemPaths: paths => {
-      const EXTERNAL_FILE_SESSION_ID = '__external__';
-      for (const rawPath of paths) {
-        if (typeof rawPath !== 'string' || !rawPath.trim()) continue;
-        try {
-          const resolved = resolve(rawPath);
-          const real = realpathSync(resolved);
-          const info = statSync(real);
-          if (info.isDirectory()) {
-            workspaces.projectsAdd({ path: real });
-            show();
-            void deliverToFocusedMain('deep-link:open-folder', { directory: real }, notificationNavigation.signal)
-              .catch(() => { if (!closing) log.write('open-file', 'The folder open action could not be delivered to the main window'); });
-          } else if (info.isFile()) {
-            artifactPaths.record(resolved, EXTERNAL_FILE_SESSION_ID, true);
-            artifactPaths.record(real, EXTERNAL_FILE_SESSION_ID, true);
-            void openPreviewWindow({
-              kind: 'artifact',
-              sessionId: EXTERNAL_FILE_SESSION_ID,
-              filePath: real,
-            }).catch(error => log.write('open-file', error instanceof Error ? error.message : String(error)));
-          }
-        } catch (error) {
-          log.write('open-file', error instanceof Error ? error.message : String(error));
-        }
-      }
-    },
+    openSystemPaths: systemPathOpener.open,
     shutdown, prepareUpdate,
   };
   } catch (error) {

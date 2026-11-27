@@ -2,6 +2,14 @@ import { existsSync, readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, test } from 'bun:test'
+test('Maximized file panel clears the titlebar controls', () => {
+  const css = readFileSync(resolve(dirname(fileURLToPath(import.meta.url)), '../../../css/styles.css'), 'utf8')
+  for (const name of ['titlebar-session-title', 'titlebar-right']) {
+    expect(css).toMatch(new RegExp('body\\.artifacts-maximized \\.' + name + ',[^{}]*\\{\\s*display: none;'))
+  }
+  expect(css).toMatch(/body\.sidebar-collapsed\.artifacts-maximized \.artifacts-panel > \.artifacts-header \{\s*min-height: var\(--titlebar-height\);\s*padding-left: calc\(160px - var\(--primary-rail-width\)\);/)
+})
+
 import { I18N } from '../../i18n/messages'
 import { PRIMARY_RAIL_WIDTH, computeWorkspaceWidth } from '../panel-layout'
 import {

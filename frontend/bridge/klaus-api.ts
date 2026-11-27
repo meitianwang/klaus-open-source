@@ -1902,6 +1902,8 @@ expose('klaus', {
       subscribe('tray:open-settings', () => cb()),
     deepLinkOpenSession: (cb: (payload: { sessionId: string }) => void): Unsubscribe =>
       subscribe('deep-link:open-session', (payload: { sessionId: string }) => cb(payload)),
+    deepLinkOpenFiles: (cb: (payload: { files: string[] }) => void | Promise<void>): Unsubscribe =>
+      subscribe('deep-link:open-files', (payload: { files: string[] }) => cb(payload)),
     deepLinkOpenFolder: (cb: (payload: { directory: string }) => void | Promise<void>): Unsubscribe =>
       subscribe('deep-link:open-folder', (payload: { directory: string }) => cb(payload)),
     deepLinkOpenTeamIssue: (cb: (payload: TeamIssueDeepLink) => void | Promise<void>): Unsubscribe =>
