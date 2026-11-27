@@ -214,6 +214,7 @@ import { WorktreeStorageService } from '../services/worktree-storage';
 import type { StorageChatsChanged } from '../../contracts/storage-settings';
 import { DeviceStorageService, type SessionStorageMeta } from '../services/device-storage';
 import { CronStore } from '../services/cron-store';
+import { deleteCronTaskWithSessions, type CronCleanupDeps } from '../services/cron-cleanup';
 import { CronRuntime } from '../services/cron-runtime';
 import { CRON_TOOL_SPECS, executeCronTool } from '../services/cron-tools';
 import { backfillCronAutomationSessionMetadata } from '../services/cron-metadata';
@@ -1117,8 +1118,22 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
     return { assertCurrent: owner.assertCurrent, local: workspaces.remoteBinding(owner.sessionId) === null };
   });
   early.add(() => threadTools.close());
+  const cronCleanup: CronCleanupDeps = {
+    cancelTask: async id => await cronRuntime?.cancelTask(id) ?? null,
+    automationThreadIds: id => sessions.automationThreadIds(id),
+    deleteSession: id => sessions.deleteSession(id, existsSync(join(configRoot, 'sessions', id))),
+    onSessionsDeleted: sessionIds => {
+      emitStorageChatsChanged({ kind: 'deleted', sessionIds });
+      scheduleWorktreeCleanup();
+    },
+    onChanged: () => { powerRuntime?.changed(); emit('app:preferences-changed', { key: 'cron' }); },
+    log: message => log.write('cron', message),
+  };
   for (const spec of CRON_TOOL_SPECS) dynamicTools.register(spec, args => {
-    const result = executeCronTool(cronStore, String(object(spec)?.name), args);
+    const name = String(object(spec)?.name);
+    if (name === 'CronDelete') return executeCronTool(cronStore, name, args, async id =>
+      (await deleteCronTaskWithSessions(cronStore, id, 'tool', cronCleanup)).deleted);
+    const result = executeCronTool(cronStore, name, args);
     emit('app:preferences-changed', { key: 'cron' });
     return result;
   });
@@ -2406,8 +2421,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   early.add(() => powerRuntime?.close());
   events.agentTasks.onChanged = () => powerRuntime?.changed();
   registerCronSettingsHandlers(registry, {
-    configRoot, store: cronStore, runtime: cronRuntime, powerSettings: powerRuntime.settings,
-    onChanged: () => { powerRuntime?.changed(); emit('app:preferences-changed', { key: 'cron' }); },
+    ...cronCleanup, configRoot, store: cronStore, runtime: cronRuntime, powerSettings: powerRuntime.settings,
   });
   const show = (): void => {
     const owner = focusedMainWindow();

@@ -5597,6 +5597,16 @@ export class SessionService {
   private assertPublicThread(id: string): void {
     if (this.deps.isPrivateThread?.(id)) throw new IpcHandlerError('SESSION_NOT_FOUND', 'The conversation was not found');
   }
+  async automationThreadIds(taskId: string): Promise<string[]> {
+    const ids: string[] = [];
+    for await (const rows of this.sessionPages(true)) for (const row of rows) {
+      const value = object(row);
+      const metadata = object(value?.hostMetadata ?? value?.host_metadata);
+      if (typeof value?.id === 'string' && (object(value.automation)?.taskId === taskId
+        || object(metadata?.automation)?.taskId === taskId)) ids.push(value.id);
+    }
+    return ids;
+  }
   async channelThread(sessionKey: string): Promise<Record<string, Json> | undefined> {
     let match: Record<string, Json> | undefined;
     for await (const rows of this.sessionPages(true)) for (const row of rows) {

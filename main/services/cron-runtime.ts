@@ -105,6 +105,13 @@ export class CronRuntime {
     void entry.done.catch(error => this.deps.log(`run ${row.runId}: ${errorMessage(error)}`));
     return entry;
   }
+  async cancelTask(id: string): Promise<string | null> {
+    const entry = this.running.get(id);
+    if (!entry) return null;
+    await this.cancel(entry, { status: 'stopped', error: null });
+    await entry.done;
+    return entry.bound ? entry.sessionId : null;
+  }
   private settle(entry: Running, outcome: Outcome): void {
     if (entry.terminal) return;
     entry.terminal = true; entry.settle(outcome);

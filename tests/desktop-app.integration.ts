@@ -1896,7 +1896,7 @@ void (async () => {
       const history = await invoke('session:history', { sessionId: launch.sessionId });
       assert(JSON.stringify(history).includes('Fixture response complete.'), 'automation transcript can reopen');
       await invoke('settings:cron:delete', { id: 'gui-cron' });
-      await invoke('session:delete', { sessionId: launch.sessionId });
+      await assertRejects(() => invoke('session:history', { sessionId: launch.sessionId }), 'deleting the task deletes its run conversation');
     });
     await h.test('CronCreate travels through the actual engine dynamic-tool roundtrip', async () => {
       const row = await invoke('session:new') as { id: string };

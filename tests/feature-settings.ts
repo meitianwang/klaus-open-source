@@ -388,7 +388,7 @@ export function registerFeatureSettingsTests(h: Harness, freshRoot: () => string
     store.upsertTask({ id: 'legacy', schedule: '* * * * *', prompt: 'old', model: null, workdir: null });
     assertEqual(store.getTask('legacy')?.model, null, 'clearing the pick persists');
   });
-  h.test('cron history pruning keeps running rows and deleting a task keeps its ordinary execution chat', async () => {
+  h.test('cron store prunes finished rows and rolls back a failed task row cascade', async () => {
     const root = freshRoot(), store = new CronStore(root); store.upsertTask({ id: 'task', schedule: '* * * * *', prompt: 'work' });
     const finished = store.createRun('task', 'Task', 'schedule'), running = store.createRun('task', 'Task', 'manual');
     store.bindSession(finished.runId, 'chat-finished'); store.bindSession(running.runId, 'chat-running'); store.finishRun(finished.runId, 'success', 25);
@@ -429,11 +429,26 @@ export function registerFeatureSettingsTests(h: Harness, freshRoot: () => string
   });
   h.test('cron settings register real storage and require a runtime for execution channels', async () => {
     const root = freshRoot(), registry = new ChannelRegistry(); let changed = 0;
-    const { store } = registerCronSettingsHandlers(registry, { configRoot: root, onChanged: () => { changed++; } });
+    const calls: string[] = [], published: string[][] = [];
+    const { store } = registerCronSettingsHandlers(registry, {
+      configRoot: root, onChanged: () => { changed++; },
+      cancelTask: async id => { calls.push(`cancel:${id}`); return 'active'; },
+      automationThreadIds: async () => ['missing', 'pruned', 'active'],
+      deleteSession: async id => {
+        calls.push(id);
+        if (id === 'missing') throw Object.assign(new Error('Already gone'), { code: 'SESSION_NOT_FOUND' });
+      },
+      onSessionsDeleted: ids => { published.push(ids); },
+    });
     for (const channel of CRON_STORE_CHANNELS) assert(registry.lookup(channel), channel);
     assert(!registry.lookup('settings:cron:status') && !registry.lookup('settings:cron:run:now') && !registry.lookup('settings:cron:keep-awake:set'), 'no pretend runtime');
     await invoke(registry, 'settings:cron:upsert', { id: 'new', schedule: '* * * * *', prompt: 'test' });
-    assertEqual(store.listTasks().length, 1, 'persistent task'); await invoke(registry, 'settings:cron:delete', { id: 'new' });
+    assertEqual(store.listTasks().length, 1, 'persistent task');
+    store.bindSession(store.createRun('new', 'New', 'manual').runId, 'recorded');
+    assertDeepEqual(await invoke(registry, 'settings:cron:delete', { id: 'new' }),
+      { deleted: true, sessionCount: 1, deletedSessionIds: ['active', 'recorded', 'pruned'] }, 'delete result');
+    assertDeepEqual(calls, ['cancel:new', 'active', 'recorded', 'missing', 'pruned'], 'cancel first and continue past missing sessions');
+    assertDeepEqual(published, [['active', 'recorded', 'pruned']], 'publish removed conversations');
     assertEqual(changed, 2, 'scheduler notified after persisted changes');
     const runtimeRegistry = new ChannelRegistry();
     registerCronSettingsHandlers(runtimeRegistry, { configRoot: root, onChanged: () => {}, runtime: { status: () => ({ running: [] }), runNow: id => ({ ok: false, error: 'missing task ' + id }) } });

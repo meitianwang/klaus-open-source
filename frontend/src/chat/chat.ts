@@ -16156,6 +16156,7 @@ const COMPOSER_PREFERENCE_KEYS = new Set([
 // window's own write.
 const SIDEBAR_COLLAPSE_KEYS = new Set([SIDEBAR_PROJECT_EXPANDED_KEY, SIDEBAR_SECTIONS_COLLAPSED_KEY])
 klausApi.on.appPreferencesChanged?.(({ key }: { key?: string }) => {
+  if (key === 'cron') void refreshCronTasksForSidebar()
   if (key === PREDICTIONS_ENABLED_KEY || key === PREDICTIONS_ACCEPTED_KEY) {
     void composerPredictions?.reloadSettings()
     for (const runtime of sidePaneRuntimes.values()) runtime.reloadPredictionSettings?.()

@@ -129,6 +129,12 @@ export function CronPage() {
   }, [t])
 
   useEffect(() => { void loadTasks() }, [loadTasks])
+  useEffect(() => {
+    const unsubscribe = w().klaus?.on?.appPreferencesChanged?.((payload?: { key?: string }) => {
+      if (payload?.key === 'cron') void loadTasks()
+    })
+    return () => { unsubscribe?.() }
+  }, [loadTasks])
 
   // Detail rows name the saved location. The saved id/path remains displayed
   // when a project or workspace was removed, so a history row never implies

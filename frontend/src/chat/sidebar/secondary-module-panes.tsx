@@ -462,6 +462,17 @@ function CronSecondaryPane() {
     }
   }, [loadCronState])
 
+  useEffect(() => {
+    const unsubscribe = (window as any).klaus?.on?.appPreferencesChanged?.((payload?: { key?: string }) => {
+      if (payload?.key === 'cron') void loadCronState()
+    })
+    return () => { unsubscribe?.() }
+  }, [loadCronState])
+  useEffect(() => {
+    if (openEmptyTaskId && openEmptyTaskId !== ORPHAN_CRON_GROUP_ID && !tasks.some(task => task.id === openEmptyTaskId)) setOpenEmptyTaskId(null)
+    if (selectedEmptyTaskId && !tasks.some(task => task.id === selectedEmptyTaskId)) setSelectedEmptyTaskId(null)
+  }, [tasks, openEmptyTaskId, selectedEmptyTaskId])
+
   useEffect(() => { flushPendingSidebarScroll('cron') }, [tasks, sessionsSnap, expansionMap, openEmptyTaskId, filter])
 
   const enabledCount = tasks.filter(task => !!task.enabled).length

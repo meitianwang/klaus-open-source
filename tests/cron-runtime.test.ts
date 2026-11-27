@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import type { Json } from '../main/ipc/contract';
 import { IpcHandlerError } from '../main/ipc/registry';
 import { object, string, type JsonObject } from '../main/services/service-types';
+import { deleteCronTaskWithSessions } from '../main/services/cron-cleanup';
 import { CronStore } from '../main/services/cron-store';
 import { effectiveCronRunStatus } from '../contracts/cron-runs';
 import { CronRuntime, nextScheduledSlot, type CronRuntimeDeps } from '../main/services/cron-runtime';
@@ -476,6 +477,52 @@ h.test('a stalled dynamic handler makes the close deadline fail explicitly', asy
   await waitFor(() => started, 1000, 'stalled handler started');
   try { await assertRejects(() => tools.close(20), 'stalled work cannot report complete shutdown'); }
   finally { finish({ success: false }); }
+});
+for (const stage of ['newSession', 'send'] as const) {
+  h.test(`cancelTask waits for ${stage} and suppresses run outcomes`, async () => {
+    let release!: () => void;
+    const gate = new Promise<void>(resolve => { release = resolve; });
+    let sendStarted = false, settled = false, notices = 0, deliveries = 0;
+    const f = fixture({
+      newSession: async () => { if (stage === 'newSession') await gate; return { id: 'late-session' }; },
+      send: async () => { sendStarted = true; await gate; },
+      interrupt: async () => ({ ok: true }),
+      notifyOutcome: () => { notices++; }, deliver: async () => { deliveries++; },
+    });
+    f.add('cancel', { channelBinding: { channelId: 'fixture', targetId: 'chat' } });
+    const launch = f.runtime.runNow('cancel');
+    if (stage === 'send') await launch;
+    const cancel = f.runtime.cancelTask('cancel').then(id => { settled = true; return id; });
+    await Promise.resolve();
+    assert(!settled, 'cancellation waits for the run driver');
+    release();
+    assertEqual(await cancel, 'late-session', 'returns the bound conversation');
+    assertEqual((await launch).ok, stage === 'send', 'startup result reflects cancellation timing');
+    assertEqual(sendStarted, stage === 'send', 'cancelled startup does not send');
+    assertEqual(f.store.listRuns()[0]?.status, 'stopped', 'run finalized before cancellation returns');
+    assertDeepEqual([notices, deliveries, f.pushes.length], [0, 0, 0], 'no outcome published');
+    assertEqual(await f.runtime.cancelTask('cancel'), null, 'no remaining run');
+    await f.runtime.close();
+  });
+}
+h.test('tool task deletion cleans up recorded and pruned runs without touching settings tasks', async () => {
+  const f = fixture();
+  f.add('tool', { userId: 'desktop' }); f.add('gui', { userId: 'local' });
+  for (const id of ['tool', 'gui']) f.store.bindSession(f.store.createRun(id, id, 'manual').runId, `${id}-recorded`);
+  const calls: string[] = [];
+  const deps = {
+    cancelTask: async (id: string) => { calls.push(`cancel:${id}`); return null; },
+    automationThreadIds: async (id: string) => [`${id}-pruned`, `${id}-recorded`, 'cron-run-placeholder'],
+    deleteSession: async (id: string) => { calls.push(id); },
+    onChanged: () => { calls.push('changed'); },
+  };
+  assertEqual((await deleteCronTaskWithSessions(f.store, 'gui', 'tool', deps)).deleted, false, 'settings task refused');
+  assertDeepEqual(calls, [], 'settings task untouched');
+  assertDeepEqual((await deleteCronTaskWithSessions(f.store, 'tool', 'tool', deps)).deletedSessionIds,
+    ['tool-recorded', 'tool-pruned'], 'both historical sources are included once');
+  assertDeepEqual(calls, ['cancel:tool', 'tool-recorded', 'tool-pruned', 'changed'], 'cleanup and refresh order');
+  assertDeepEqual(f.store.taskSessionIds('gui'), ['gui-recorded'], 'settings history preserved');
+  await f.runtime.close();
 });
 void (async () => {
   const failed = await h.finish(join(__dirname, 'cron-runtime-result.json'), 'cron-runtime');

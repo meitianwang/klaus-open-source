@@ -168,7 +168,9 @@ export function cronToolResultText(result: JsonObject): string {
   return string(item.text);
 }
 
-export function executeCronTool(store: CronStore, name: string, input: unknown): JsonObject {
+export function executeCronTool(store: CronStore, name: string, input: unknown): JsonObject;
+export function executeCronTool(store: CronStore, name: string, input: unknown, deleteTask: (id: string) => Promise<boolean>): JsonObject | Promise<JsonObject>;
+export function executeCronTool(store: CronStore, name: string, input: unknown, deleteTask?: (id: string) => Promise<boolean>): JsonObject | Promise<JsonObject> {
   if (name === 'CronList') {
     let tasks: JsonObject[];
     try { tasks = store.toolTasks().filter(task => task.enabled); }
@@ -186,6 +188,10 @@ export function executeCronTool(store: CronStore, name: string, input: unknown):
     const id = string(parsed.value?.id);
     try {
       if (!store.toolTasks().some(task => task.id === id)) return toolText(`没有 ID 为 "${id}" 的定时任务。`, false);
+      if (deleteTask) return deleteTask(id).then(
+        deleted => deleted ? toolText(`已取消定时任务 ${id}。`) : toolText(`没有 ID 为 "${id}" 的定时任务。`, false),
+        () => toolText('定时任务系统不可用。', false),
+      );
       return store.deleteToolTask(id) ? toolText(`已取消定时任务 ${id}。`) : toolText('定时任务系统不可用。', false);
     } catch { return toolText('定时任务系统不可用。', false); }
   }

@@ -1,3 +1,4 @@
+import { deleteCronTaskWithSessions, type CronCleanupDeps } from '../../services/cron-cleanup';
 import type { Json } from '../contract';
 import { ChannelRegistry } from '../registry';
 import { CronStore } from '../../services/cron-store';
@@ -8,7 +9,7 @@ export const CRON_STORE_CHANNELS = [
   'settings:cron:list', 'settings:cron:upsert', 'settings:cron:delete',
   'settings:cron:runs:list', 'settings:cron:runs:prune', 'settings:cron:keep-awake:get',
 ] as const;
-export interface CronSettingsDeps {
+export interface CronSettingsDeps extends CronCleanupDeps {
   configRoot?: string;
   store?: CronStore;
   onChanged: () => void | Promise<void>;
@@ -20,7 +21,7 @@ export function registerCronSettingsHandlers(registry: ChannelRegistry, deps: Cr
   const store = deps.store ?? new CronStore(deps.configRoot);
   registry.register('settings:cron:list', () => store.listTasks(), 'cron');
   registry.register('settings:cron:upsert', async ctx => { store.upsertTask(object(ctx.args[0])); await deps.onChanged(); return null; }, 'cron');
-  registry.register('settings:cron:delete', async ctx => { const result = store.deleteTask(string(object(ctx.args[0]).id)); await deps.onChanged(); return result; }, 'cron');
+  registry.register('settings:cron:delete', ctx => deleteCronTaskWithSessions(store, string(object(ctx.args[0]).id), 'settings', deps), 'cron');
   registry.register('settings:cron:runs:list', ctx => store.listRuns(object(ctx.args[0])), 'cron');
   registry.register('settings:cron:runs:prune', ctx => store.pruneRuns(object(ctx.args[0])), 'cron');
   registry.register('settings:cron:keep-awake:get', () => {

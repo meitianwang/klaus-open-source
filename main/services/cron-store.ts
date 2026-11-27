@@ -189,6 +189,11 @@ export class CronStore {
       );
     });
   }
+  taskSessionIds(id: string): string[] {
+    return this.operation(false, db => [...new Set(db.prepare(
+      "SELECT session_id FROM cron_runs WHERE task_id=? AND session_id!='' AND session_id NOT LIKE 'cron-run-%' ORDER BY started_at DESC,id DESC",
+    ).all(id).map(row => String(row.session_id)))]);
+  }
   deleteTask(id: string): Json {
     return this.operation(true, db => {
       const sessionCount = Number(db.prepare("SELECT COUNT(*) AS count FROM cron_runs WHERE task_id=? AND session_id!='' AND session_id NOT LIKE 'cron-run-%'").get(id)!.count);
