@@ -68,12 +68,19 @@ test('selected user-only skills retain exact definitions from additional roots',
 test('bundled PDF appears in the built-in skill catalog without writing installed skills', async () => {
   const root = await mkdtemp(join(tmpdir(), 'klaus-workspace-skill-catalog-'));
   const workspaces = new WorkspaceStore({ configRoot: root, push: () => {}, onSessionWorkdirChanged: () => {}, pickDirectory: async () => null });
-  const service = new SkillService({ workspaces, request: async () => ({ builtinSkills: [] }), onChanged: async () => {}, openPreviewWindow: async () => {},
-    bundledSkills: async () => [{ name: 'pdf', description: 'Read PDF documents', userInvocable: true }],
+  const service = new SkillService({ workspaces, request: async () => ({ builtinSkills: [{ name: "compiled", whenToUse: "Guidance", argumentHint: "<arg>" }]  }), onChanged: async () => {}, openPreviewWindow: async () => {},
+    bundledSkills: async () => [{ name: 'pdf', description: 'Read PDF documents', userInvocable: true, path: join(root, 'resources/pdf/SKILL.md') }],
   });
   try {
     const catalog = object(await service.builtin()), rows = catalog.items as Array<Record<string, unknown>>;
     assert.equal(rows.find(row => row.name === 'pdf')?.source, 'builtin');
+    assert.equal(rows.find(row => row.name === 'pdf')?.path, join(root, 'resources/pdf/SKILL.md'));
+    assert.equal(rows.find(row => row.name === 'compiled')?.whenToUse, 'Guidance');
+    assert.equal(rows.find(row => row.name === 'compiled')?.argumentHint, '<arg>');
+    assert.equal(rows.find(row => row.name === 'skill-creator')?.path, 'builtin:skill-creator');
+    const preview = object(await service.readFile({ filePath: 'builtin:skill-creator' }));
+    assert.equal(preview.ok, true);
+    assert.ok(typeof preview.content === 'string' && preview.content.length > 0);
     await assert.rejects(readFile(join(root, 'skills/pdf/SKILL.md')), { code: 'ENOENT' });
   } finally { await service.close(); await rm(root, { recursive: true, force: true }); }
 });

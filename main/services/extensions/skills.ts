@@ -7,7 +7,7 @@ import { withSettingsDb, withSettingsTransaction } from '../settings';
 import { pathInside, WorkspaceStore } from '../workspaces';
 import { frontmatter, scalar } from './frontmatter';
 import { atomicDocument, directoryNames, managedPath, missing, optionalDocument } from './file-store';
-import { BUNDLED_COMMANDS } from './builtins';
+import { BUILTIN_SKILLS, BUNDLED_COMMANDS } from './builtins';
 import { registeredRoots } from './scopes';
 import { DirectoryMutations } from './directory-mutations';
 
@@ -32,6 +32,12 @@ async function readSkillPreview(path: string): Promise<Json> {
   } finally { await handle.close(); }
 }
 function validName(value: string): boolean { return Boolean(value && value.length <= 128 && value !== '.' && value !== '..' && !/[/\\\0]/.test(value)); }
+function builtinHints(row: JsonObject): JsonObject {
+  return {
+    ...(typeof row.whenToUse === 'string' ? { whenToUse: row.whenToUse } : {}),
+    ...(typeof row.argumentHint === 'string' ? { argumentHint: row.argumentHint } : {}),
+  };
+}
 function builtinRow(name: string, description: string, userInvocable: boolean): JsonObject {
   return { name, description, source: 'builtin', userInvocable, userEnabled: true, installed: true, dirName: name, tags: ['builtin'] };
 }
@@ -162,6 +168,11 @@ export class SkillService {
   async readFile(payload: JsonObject): Promise<Json> {
     try {
       this.active(); const input = string(payload.filePath); if (!input || input.includes('\0')) throw new Error('invalid-path');
+      if (input.startsWith('builtin:')) {
+        const match = BUILTIN_SKILLS.find(row => row.name === input.slice('builtin:'.length));
+        if (typeof match?.body !== 'string') throw new Error('file not found');
+        return { ok: true, content: match.body, truncated: false, size: Buffer.byteLength(match.body, 'utf8') };
+      }
       let scope = await this.scope(undefined);
       if (isAbsolute(input)) for (const root of registeredRoots(this.deps.workspaces)) {
         const candidate = await this.scope(root, true);
@@ -193,11 +204,17 @@ export class SkillService {
       if (reply.error !== undefined) throw reply.error;
       if (!Array.isArray(reply.builtinSkills)) throw new Error('Invalid engine builtin skills reply');
       for (const value of reply.builtinSkills) {
-        const row = object(value); if (typeof row.name === 'string') rows.push(builtinRow(row.name, string(row.description), row.userInvocable !== false));
+        const row = object(value); if (typeof row.name === 'string') rows.push({ ...builtinRow(row.name, string(row.description), row.userInvocable !== false), ...builtinHints(row) });
       }
     } catch (reason) { error = { message: errorMessage(reason) }; }
     for (const command of BUNDLED_COMMANDS) if (command.loadedFrom === 'builtin-skill' && !rows.some(row => row.dirName === command.name)) rows.push(builtinRow(string(command.name), string(command.description), command.userInvocable !== false));
-    for (const skill of await this.deps.bundledSkills?.() ?? []) if (!rows.some(row => row.dirName === skill.name)) rows.push(builtinRow(string(skill.name), string(skill.description), skill.userInvocable !== false));
+    for (const skill of BUILTIN_SKILLS) {
+      const name = string(skill.name);
+      let row = rows.find(row => row.dirName === name);
+      if (!row) { row = builtinRow(name, string(skill.description), skill.userInvocable !== false); rows.push(row); }
+      Object.assign(row, { path: 'builtin:' + name, ...builtinHints(skill) });
+    }
+    for (const skill of await this.deps.bundledSkills?.() ?? []) if (!rows.some(row => row.dirName === skill.name)) rows.push({ ...builtinRow(string(skill.name), string(skill.description), skill.userInvocable !== false), ...(typeof skill.path === 'string' && skill.path ? { path: skill.path } : {}) });
     rows.sort((a, b) => string(a.name).localeCompare(string(b.name))); return { items: rows, error };
   }
   async close(): Promise<void> { this.closed = true; await this.mutations.close(); }

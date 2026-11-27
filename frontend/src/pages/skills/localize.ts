@@ -8,6 +8,10 @@ import styles from './skills.module.css'
 const w = () => window as any
 
 export interface SkillItem {
+  path?: string
+  definitionPreview?: boolean
+  whenToUse?: string
+  argumentHint?: string
   name?: string
   dirName?: string
   displayName?: string

@@ -103,3 +103,12 @@ describe('skills page interaction contract', () => {
     expect(modals).toContain("`${t('settings_skills_installed_toast')}: ${displayName}`")
   })
 })
+
+test('skill cards open an accessible preview without icon hover titles', () => {
+  const page = source('./SkillsPage.tsx')
+  const modal = source('./SkillPreviewModal.tsx')
+  expect(page).toMatch(/<MarketCard\s+onOpen=/)
+  expect(page).toContain('<SkillPreviewModal')
+  for (const token of ['role="dialog"', 'aria-modal="true"', 'aria-labelledby', "'Escape'", "'Tab'"]) expect(modal).toContain(token)
+  expect(modal).not.toMatch(/<button\b[^>]*\btitle=/)
+})

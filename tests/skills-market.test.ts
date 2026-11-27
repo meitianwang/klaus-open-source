@@ -25,6 +25,18 @@ async function cleanStages(f: MarketFixture): Promise<void> {
 }
 
 void (async () => {
+  await h.test('market detail loads remote markdown and falls back to local package files', async () => {
+    const f = await remote();
+    try {
+      f.route((_request, response) => response.end(JSON.stringify({ skill: { readme: 'Remote body', includedFiles: ['SKILL.md', 'notes.txt', '../escape'] } })));
+      assert.deepEqual(await f.market.market({ slug: 'sample' }), { ok: true, slug: 'sample', content: 'Remote body', includedFiles: ['notes.txt'] });
+      f.route((_request, response) => { response.writeHead(503); response.end(); });
+      await put(join(f.resources, 'skills-market/sample/SKILL.md'), 'Local body');
+      await put(join(f.resources, 'skills-market/sample/files/notes.txt'), 'notes');
+      assert.deepEqual(await f.market.market({ slug: 'sample' }), { ok: true, slug: 'sample', content: 'Local body', includedFiles: ['files/notes.txt'] });
+      assert.equal(object(await f.market.market({ slug: '../escape' })).error, 'Invalid skill name');
+    } finally { await f.close(); }
+  });
   await h.test('the seven market handlers are real registrations and uploads accept the frontend binary envelope', async () => {
     const f = await marketFixture();
     try {

@@ -689,7 +689,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
       {
         "action": "market",
         "channel": "skills:market",
-        "args": "{ query?: string, limit?: number, cursor?: string }",
+        "args": "{ query?: string, limit?: number, cursor?: string, slug?: string }",
         "confirm": false,
         "currentSession": false
       },

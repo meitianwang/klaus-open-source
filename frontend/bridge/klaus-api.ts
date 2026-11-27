@@ -1524,7 +1524,7 @@ expose('klaus', {
   skills: {
     // 不传 projectRoot = 全局 (~/.klaus/skills)；传 = 项目级 (<root>/.klaus/skills)。
     list: (opts?: { projectRoot?: string; workspaceId?: string }) => call('skills:list', opts),
-    market: (opts?: { cursor?: string; limit?: number; query?: string }) =>
+    market: (opts?: { cursor?: string; limit?: number; query?: string; slug?: string }) =>
       call('skills:market', opts),
     builtin: () => call('skills:builtin'),
     install: (name: string, options?: { installMissing?: boolean; skipDependencyInstall?: boolean; version?: string }) =>

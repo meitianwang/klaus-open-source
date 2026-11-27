@@ -30,6 +30,7 @@ registerPageIsland({
   name: 'skills',
   viewId: 'skills-view',
   containerId: 'skills-view-content',
+  onHide: () => window.dispatchEvent(new CustomEvent('klaus:skills-page-hide')),
   node: () => <SkillsPage />,
 })
 

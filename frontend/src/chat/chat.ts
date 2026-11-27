@@ -20419,7 +20419,7 @@ boot()
 
 // [module-bridge] classic-script 时代的跨文件全局；模块化后由此统一挂到 window。
 // typeof 守卫让 bun test 仍可按 CJS require 本文件。
-if (typeof window !== 'undefined') Object.assign(window, { deleteSession, escapeHtml, invalidateDeviceMentionCache, invalidatePluginMentionCache, listArchivedSessions, openProjectMcpModal, sessionDisplayTitle, showLoginScreen, switchSession, updateSessionInList })
+if (typeof window !== 'undefined') Object.assign(window, { deleteSession, escapeHtml, invalidateDeviceMentionCache, invalidatePluginMentionCache, listArchivedSessions, openProjectMcpModal, sessionDisplayTitle, showLoginScreen, startProjectNewChat, switchSession, updateSessionInList })
 
 // Storage mutations use the same local ownership and cache lifecycle as chat actions.
 klausApi.storage.onChanged(({ kind, sessionIds }: StorageChatsChanged) => {

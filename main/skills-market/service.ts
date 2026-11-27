@@ -162,6 +162,47 @@ export class SkillMarketService {
     return new URL(endpoint.baseUrl.replace(/\/+$/, '') + (endpoint.direct ? '/api/v1/' : '/api/market/') + path);
   }
   market(payload: JsonObject): Promise<Json> {
+    const slug = typeof payload.slug === 'string' ? payload.slug.trim() : '';
+    if (slug) return this.pending.run(async (signal): Promise<Json> => {
+      if (!validName(slug)) return failed('Invalid skill name', slug);
+      let remoteError: unknown;
+      try {
+        const endpoint = await this.deps.endpoint(); checkCancelled(signal);
+        if (endpoint) {
+          const raw = await fetchExtensionText(this.url(endpoint, 'skills/' + encodeURIComponent(slug)).href, signal,
+            { fetch: this.deps.fetch, token: endpoint.token, timeoutMs: this.deps.requestTimeoutMs });
+          const detail = object(JSON.parse(raw)), skill = object(detail.skill ?? detail);
+          const latest = object(detail.latestVersion ?? skill.latestVersion);
+          const content = [skill.readme, skill.content, skill.skillMarkdown, detail.readme, detail.content, latest.readme]
+            .find(value => typeof value === 'string') ?? '';
+          const files = skill.includedFiles ?? detail.includedFiles ?? skill.files;
+          const includedFiles = Array.isArray(files) ? files.filter(value => typeof value === 'string' && value !== 'SKILL.md'
+            && !/[\\:\x00-\x1f]/.test(value) && value.split('/').every(part => part.trim() && part !== '.' && part !== '..')) : [];
+          return { ok: true, slug, content, ...(includedFiles.length ? { includedFiles } : {}) };
+        }
+      } catch (error) { checkCancelled(signal); remoteError = error; }
+      try {
+        const directory = await this.localDirectory();
+        if (directory) {
+          const root = await managedPath(directory, slug);
+          const content = await optionalDocument(await managedPath(root, 'SKILL.md'));
+          if (content !== undefined) {
+            const includedFiles: string[] = [];
+            const visit = async (path: string, prefix: string) => {
+              checkCancelled(signal);
+              for (const entry of await readdir(path, { withFileTypes: true })) {
+                const relative = prefix + entry.name;
+                if (entry.isDirectory()) await visit(await managedPath(root, relative), relative + '/');
+                else if (entry.isFile() && relative !== 'SKILL.md') includedFiles.push(relative);
+              }
+            };
+            await visit(root, '');
+            return { ok: true, slug, content, ...(includedFiles.length ? { includedFiles: includedFiles.sort() } : {}) };
+          }
+        }
+      } catch (error) { checkCancelled(signal); if (!missing(error)) remoteError ??= error; }
+      return failed(remoteError !== undefined ? 'Skill detail failed: ' + errorMessage(remoteError) : 'Skill not found', slug);
+    });
     return this.pending.run(async (signal): Promise<Json> => {
       const installed = await this.installed(), local = this.filterLocalItems(await this.localItems(installed), payload.query);
       try {

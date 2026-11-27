@@ -14,7 +14,7 @@ import {
   getSkillBrandTile, getSkillCategory, getSkillIconName, getSkillSearchValuesLocal, groupSkillsByCategory,
   localizeSkillDescription, localizeSkillName, renderLineIcon, skillCategoryLabel, skillGlyphSvg,
   skillEmojiBrickHtml, skillEmojiGlyphHtml, skillLogoBrickHtml, skillLogoImgHtml, skillRemoteIconHtml,
-  sortSkillsByName, type SkillItem,
+  normalizeMarketKey, sortSkillsByName, type SkillItem,
 } from './localize'
 import {
   appendMarketToCache, consumeInstalledStale, getSkillsCache, invalidateSkillsDataCache,
@@ -23,6 +23,7 @@ import {
 } from './data'
 import { SkillSourceModal, SkillUploadModal } from './modals'
 import styles from './skills.module.css'
+import { SkillPreviewModal } from './SkillPreviewModal'
 
 const w = () => window as any
 const showToast = (msg: string) => w().showToast?.(msg)
@@ -95,7 +96,7 @@ function mergeBuiltinIntoMarket(
   return [...visibleBuiltin, ...market.filter(s => !builtinKeys.has(key(s)))]
 }
 
-function SkillHealthBadge({ skill }: { skill: SkillItem }) {
+function SkillHealthBadge({ skill, tooltip = true }: { skill: SkillItem; tooltip?: boolean }) {
   const t = useT()
   const status = skill.dependencyStatus
   if (!status || status === 'ready') return null
@@ -109,13 +110,15 @@ function SkillHealthBadge({ skill }: { skill: SkillItem }) {
   const labelKey = status === 'missing' ? 'skills_health_missing'
     : status === 'config' ? 'skills_health_config'
       : status === 'invalid' ? 'skills_health_invalid' : 'skills_health_unsupported'
-  return <span className={`sk-health-badge sk-health-${status}`} title={title}>{t(labelKey)}</span>
+  return <span className={`sk-health-badge sk-health-${status}`} title={tooltip ? title : undefined}>{t(labelKey)}</span>
 }
 
 /** 「使用」/「通过 Klaus 创建」：新会话预选命令芯片（同快捷指令页链路）。 */
-function draftInComposer(command: Record<string, unknown>, seed: string) {
+function draftInComposer(command: Record<string, unknown>, seed: string, target?: { projectRoot?: string; workspaceId?: string }) {
   if (w().isSettingsViewActive()) w().toggleSettings()
-  try { document.getElementById('btn-new-chat')?.click() } catch { /* welcome btn absent */ }
+  if (target && (target.workspaceId || target.projectRoot)) {
+    w().startProjectNewChat(target.workspaceId ? `ws:${target.workspaceId}` : target.projectRoot)
+  } else try { document.getElementById('btn-new-chat')?.click() } catch { /* welcome btn absent */ }
   const insertWhenReady = (attempt = 0) => {
     if (w().klausComposer?.setSlashCommandDraft) {
       w().klausComposer.setSlashCommandDraft(command, seed)
@@ -207,16 +210,83 @@ async function performSkillUpdate(
 }
 
 /** 市场卡行尾安装/更新钮（接入共享传输进度与可取消队列）。 */
+function performSkillInstall(skill: SkillItem, t: (key: string) => string, onChanged: () => void, setBusyLabel: (label: string) => void) {
+  const id = skillSlug(skill)
+  return skillAcquisitionStore.enqueue(id, 'install', async () => {
+    let result = requireMutationResult(
+      await w().klaus.skills.install(id, { version: skill.latestVersion || undefined }),
+      t('skills_invalid_response'),
+    )
+    if (result.cancelled) return { ok: false, cancelled: true }
+    if (result.needsDependencyInstall) {
+      const missing = (result.missingBins || []).join(', ')
+      if (result.canAutoInstall) {
+        const choice = await w().klausDialog.confirm({
+          title: t('skills_dependency_install_title'),
+          message: `${t('skills_dependency_install_message')}\n\n${t('skills_dependency_missing')}: ${missing}`,
+          confirmText: t('skills_dependency_install_confirm'),
+          checkbox: { label: t('skills_dependency_install_checkbox'), defaultChecked: true },
+        })
+        if (!choice.confirmed) return { ok: false, cancelled: true }
+        setBusyLabel(choice.checked ? t('skills_installing_dependencies') : t('settings_skills_uploading'))
+        result = requireMutationResult(await w().klaus.skills.install(id, choice.checked
+          ? { installMissing: true, version: skill.latestVersion || undefined }
+          : { skipDependencyInstall: true, version: skill.latestVersion || undefined }), t('skills_invalid_response'))
+      } else {
+        const confirmed = await w().klausDialog.confirm({
+          title: t('skills_dependency_manual_title'),
+          message: `${t('skills_dependency_manual_message')}\n\n${t('skills_dependency_missing')}: ${missing}`,
+          confirmText: t('skills_dependency_install_anyway'),
+        })
+        if (!confirmed) return { ok: false, cancelled: true }
+        setBusyLabel(t('settings_skills_uploading'))
+        result = requireMutationResult(
+          await w().klaus.skills.install(id, { skipDependencyInstall: true, version: skill.latestVersion || undefined }),
+          t('skills_invalid_response'),
+        )
+      }
+    }
+    if (result.cancelled) return { ok: false, cancelled: true }
+    if (result.ok) {
+      let message = `${t('settings_skills_installed_toast')}: ${skillToastName(skill, result.name)}`
+      if (result.missingBins?.length) message += ` · ${t('skills_dependency_missing')}: ${result.missingBins.join(', ')}`
+      if (result.missingEnv?.length) message += ` · ${t('skills_dependency_env_hint')}: ${result.missingEnv.join(', ')}`
+      if (result.dependencyWarnings?.length) message += ` · ${result.dependencyWarnings[0]}`
+      showToast(message)
+      markSkillInstalledInCache(id)
+      markInstalledCacheStale()
+      invalidateSkillsDataCache()
+      onChanged()
+      return { ok: true, version: skill.latestVersion }
+    }
+    if (result.installed) {
+      markSkillInstalledInCache(id)
+      markInstalledCacheStale()
+      invalidateSkillsDataCache()
+      onChanged()
+      showToast(t('skills_saved_reload_failed'))
+      return { ok: false, installed: true }
+    }
+    const missing = result.missingBins?.length ? `${t('skills_dependency_missing')}: ${result.missingBins.join(', ')}. ` : ''
+    const warning = result.dependencyWarnings?.length ? result.dependencyWarnings[0] : ''
+    const err = missing + (result.error || warning || t('toast_unknown'))
+    showToast(t('toast_error_prefix') + err)
+    return { ok: false, error: err }
+  })
+}
+
 function MarketInstallBtn({
   skill,
   operation,
   onChanged,
   onCancel,
+  preview = false,
 }: {
   skill: SkillItem
   operation?: ExtensionAcquisitionItem
   onChanged: () => void
   onCancel: () => void
+  preview?: boolean
 }) {
   const t = useT()
   const [busyLabel, setBusyLabel] = useState<string | null>(null)
@@ -231,67 +301,8 @@ function MarketInstallBtn({
     busyRef.current = true
     setBusyLabel(t('skills_install_checking'))
     try {
-      await skillAcquisitionStore.enqueue(id, 'install', async () => {
-        let result = requireMutationResult(
-          await w().klaus.skills.install(id, { version: skill.latestVersion || undefined }),
-          t('skills_invalid_response'),
-        )
-        if (result.cancelled) return { ok: false, cancelled: true }
-        if (result.needsDependencyInstall) {
-          const missing = (result.missingBins || []).join(', ')
-          if (result.canAutoInstall) {
-            const choice = await w().klausDialog.confirm({
-              title: t('skills_dependency_install_title'),
-              message: `${t('skills_dependency_install_message')}\n\n${t('skills_dependency_missing')}: ${missing}`,
-              confirmText: t('skills_dependency_install_confirm'),
-              checkbox: { label: t('skills_dependency_install_checkbox'), defaultChecked: true },
-            })
-            if (!choice.confirmed) return { ok: false, cancelled: true }
-            setBusyLabel(choice.checked ? t('skills_installing_dependencies') : t('settings_skills_uploading'))
-            result = requireMutationResult(await w().klaus.skills.install(id, choice.checked
-              ? { installMissing: true, version: skill.latestVersion || undefined }
-              : { skipDependencyInstall: true, version: skill.latestVersion || undefined }), t('skills_invalid_response'))
-          } else {
-            const confirmed = await w().klausDialog.confirm({
-              title: t('skills_dependency_manual_title'),
-              message: `${t('skills_dependency_manual_message')}\n\n${t('skills_dependency_missing')}: ${missing}`,
-              confirmText: t('skills_dependency_install_anyway'),
-            })
-            if (!confirmed) return { ok: false, cancelled: true }
-            setBusyLabel(t('settings_skills_uploading'))
-            result = requireMutationResult(
-              await w().klaus.skills.install(id, { skipDependencyInstall: true, version: skill.latestVersion || undefined }),
-              t('skills_invalid_response'),
-            )
-          }
-        }
-        if (result.cancelled) return { ok: false, cancelled: true }
-        if (result.ok) {
-          let message = `${t('settings_skills_installed_toast')}: ${skillToastName(skill, result.name)}`
-          if (result.missingBins?.length) message += ` · ${t('skills_dependency_missing')}: ${result.missingBins.join(', ')}`
-          if (result.missingEnv?.length) message += ` · ${t('skills_dependency_env_hint')}: ${result.missingEnv.join(', ')}`
-          if (result.dependencyWarnings?.length) message += ` · ${result.dependencyWarnings[0]}`
-          showToast(message)
-          markSkillInstalledInCache(id)
-          markInstalledCacheStale()
-          setDone(true)
-          onChanged()
-          return { ok: true, version: skill.latestVersion }
-        }
-        if (result.installed) {
-          markSkillInstalledInCache(id)
-          markInstalledCacheStale()
-          setDone(true)
-          onChanged()
-          showToast(t('skills_saved_reload_failed'))
-          return { ok: false, installed: true }
-        }
-        const missing = result.missingBins?.length ? `${t('skills_dependency_missing')}: ${result.missingBins.join(', ')}. ` : ''
-        const warning = result.dependencyWarnings?.length ? result.dependencyWarnings[0] : ''
-        const err = missing + (result.error || warning || t('toast_unknown'))
-        showToast(t('toast_error_prefix') + err)
-        return { ok: false, error: err }
-      })
+      const outcome = await performSkillInstall(skill, t, onChanged, setBusyLabel)
+      if (outcome.ok || outcome.installed) setDone(true)
     } catch (err: any) {
       showToast(t('toast_error_prefix') + (err?.message || err || t('toast_unknown')))
     } finally {
@@ -349,13 +360,19 @@ function MarketInstallBtn({
     return <button className="btn-xs" data-skill-update={id} onClick={(e) => { e.stopPropagation(); void update() }}>{label}</button>
   }
   return (
-    <button className="btn-xs" data-skill-install={id} onClick={(e) => { e.stopPropagation(); void install() }}>
-      {t('settings_skills_install') || t('skills_install_btn') || '安装'}
+    <button className={preview ? "btn-sm btn-primary" : "btn-xs"} data-skill-preview-install={preview ? "" : undefined} data-skill-install={id} onClick={(e) => { e.stopPropagation(); void install() }}>
+      {preview ? <>+ {t('skills_preview_install_btn')}</> : t('settings_skills_install') || t('skills_install_btn')}
     </button>
   )
 }
 
 export function SkillsPage() {
+  const [preview, setPreview] = useState<{ skill: SkillItem; view: 'market' | 'installed'; root?: string; workspaceId?: string }>()
+  useEffect(() => {
+    const hide = () => setPreview(undefined)
+    window.addEventListener('klaus:skills-page-hide', hide)
+    return () => window.removeEventListener('klaus:skills-page-hide', hide)
+  }, [])
   const t = useT()
   const transferSnap = useSyncExternalStore(skillAcquisitionStore.subscribe, skillAcquisitionStore.getSnapshot)
   const { operations: transferOps, batch: transferBatch } = transferSnap
@@ -639,12 +656,13 @@ export function SkillsPage() {
     })
   }
 
-  const uninstallSkill = async (skill: SkillItem) => {
+  const uninstallSkill = async (skill: SkillItem, projectRoot?: string): Promise<boolean> => {
     const dirName = String(skill.dirName || skill.name || '')
-    if (!dirName) return
+    if (!dirName) return false
+    let removed = false
     // A workspace tab spans several member folders; the row's own root owns
     // the skill directory, so removal targets exactly that folder.
-    const owningRoot = scope.startsWith(WORKSPACE_SCOPE_PREFIX) ? (skill.root || '') : scope !== 'global' ? scope : ''
+    const owningRoot = projectRoot ?? (view === 'installed' ? skillOwningRoot(skill) : undefined)
     await runRowAction(`uninstall:${scope}:${dirName}`, async () => {
       try {
         if (!(await w().klausDialog.confirm({
@@ -655,9 +673,10 @@ export function SkillsPage() {
         }))) return
         const result = await w().klaus.skills.uninstall(
           dirName,
-          view === 'installed' && owningRoot ? { projectRoot: owningRoot } : undefined,
+          owningRoot ? { projectRoot: owningRoot } : undefined,
         )
         if (result !== true && result?.removed !== true) throw new Error(result?.error || t('toast_unknown'))
+        removed = true
         invalidateSkillsDataCache()
         showToast(result?.removed === true ? t('skills_removed_reload_failed') : t('settings_skills_uninstalled_toast'))
         await reload({ forceRefresh: true })
@@ -665,9 +684,13 @@ export function SkillsPage() {
         showToast(`${t('toast_error_prefix')}${errorText(err, t('toast_unknown'))}`)
       }
     })
+    return removed
   }
 
-  const useSkill = (skill: SkillItem) => {
+  const skillOwningRoot = (skill: SkillItem) => scope.startsWith(WORKSPACE_SCOPE_PREFIX) ? skill.root : scope === 'global' ? undefined : scope
+  const scopedWorkspaceId = scope.startsWith(WORKSPACE_SCOPE_PREFIX) ? scope.slice(WORKSPACE_SCOPE_PREFIX.length) : undefined
+  const openSkillPreview = (skill: SkillItem, origin: 'market' | 'installed') => setPreview({ skill, view: origin, ...(origin === 'installed' ? { root: skillOwningRoot(skill), workspaceId: scopedWorkspaceId } : {}) })
+  const useSkill = (skill: SkillItem, projectRoot?: string, workspaceId?: string) => {
     const dirName = String(skill.dirName || skill.name || '')
     if (!dirName) return
     draftInComposer({
@@ -675,14 +698,13 @@ export function SkillsPage() {
       displayName: localizeSkillName(skill),
       description: localizeSkillDescription(skill),
       type: 'prompt',
-      loadedFrom: 'skill',
+      loadedFrom: skill.source === 'builtin' ? 'builtin-skill' : 'skill',
       source: 'skill',
-    }, '')
+    }, '', { projectRoot, workspaceId })
   }
 
-  const openSkillWindow = (dirName: string) => {
-    const isProject = view === 'installed' && scope !== 'global'
-    w().klaus.skills.openWindow(dirName, isProject ? { projectRoot: scope } : undefined)
+  const openSkillWindow = (dirName: string, projectRoot?: string) => {
+    w().klaus.skills.openWindow(dirName, projectRoot ? { projectRoot } : undefined)
       .then((result: any) => {
         if (!result || result.ok !== true) showToast(`${t('toast_error_prefix')}${result?.error || t('skills_invalid_response')}`)
       })
@@ -739,7 +761,19 @@ export function SkillsPage() {
       latestVersion: m.latestVersion ?? item.latestVersion,
     }
   })
-  const baseList = snap ? (view === 'market' ? snap.market : enrichedInstalled) : []
+  const skillKeys = (item: SkillItem) => [item.dirName, item.name].map(normalizeMarketKey).filter(Boolean)
+  const installedByKey = new Map((snap?.installed ?? []).flatMap(item => skillKeys(item).map(key => [key, item] as const)))
+  const enrichMarket = (item: SkillItem): SkillItem => {
+    if (item.source === 'builtin') return item
+    const installed = skillKeys(item).map(key => installedByKey.get(key)).find(Boolean)
+    if (!installed && !item.installed) return item
+    return { ...item, installed: true, path: installed?.path, userEnabled: installed?.userEnabled ?? true, userInvocable: installed?.userInvocable ?? item.userInvocable }
+  }
+  const enrichedMarket = (snap?.market ?? []).map(enrichMarket)
+  const previewSkill = preview && (preview.view === 'market'
+    ? enrichedMarket.find(item => item.source === preview.skill.source && skillSlug(item) === skillSlug(preview.skill)) ?? enrichMarket(preview.skill)
+    : enrichedInstalled.find(item => item.root === preview.skill.root && skillSlug(item) === skillSlug(preview.skill)) ?? preview.skill)
+  const baseList = view === 'market' ? enrichedMarket : enrichedInstalled
   const enabledFiltered = view === 'installed'
     ? baseList.filter(s => (filter === 'enabled' ? s.userEnabled : filter === 'disabled' ? !s.userEnabled : true))
     : baseList
@@ -1037,6 +1071,7 @@ export function SkillsPage() {
               return (
                 <div key={dirName || localizeSkillName(s)} className={styles['sk-card-wrap']}>
                   <MarketCard
+                    onOpen={() => openSkillPreview(s, 'market')}
                     datasets={{
                       name: localizeSkillName(s),
                       'skill-slug': slug,
@@ -1099,7 +1134,7 @@ export function SkillsPage() {
                     data-category={getSkillCategory(s)}
                     aria-busy={rowBusy ? 'true' : 'false'}
                   >
-                    <button type="button" className={styles['sk-row-open']} aria-label={skillName} disabled={!dirName || rowBusy} onClick={() => openSkillWindow(dirName)}>
+                    <button type="button" className={styles['sk-row-open']} aria-label={skillName} disabled={!dirName || rowBusy} onClick={() => openSkillPreview(s, 'installed')}>
                       {tile?.kind === 'logo'
                         ? <span className="kls-icon-host" dangerouslySetInnerHTML={{ __html: skillLogoBrickHtml(tile.src) }} />
                         : tile?.kind === 'icon'
@@ -1150,7 +1185,7 @@ export function SkillsPage() {
                         </>
                       )}
                       {!transferPending && s.userInvocable && dirName && (
-                        <button className="btn-xs" disabled={rowBusy} onClick={() => useSkill(s)}>{t('slash_commands_use')}</button>
+                        <button className="btn-xs" disabled={rowBusy} onClick={() => useSkill(s, skillOwningRoot(s), scopedWorkspaceId)}>{t('slash_commands_use')}</button>
                       )}
                       {!transferPending && s.source === 'installed' && (
                         <button
@@ -1183,6 +1218,19 @@ export function SkillsPage() {
         )}
       </div>
       <div id="sk-scroll-sentinel" className={styles['sk-scroll-sentinel']} ref={sentinelRef} />
+      {preview && previewSkill && (() => {
+        const s = previewSkill
+        const slug = skillSlug(s)
+        const operation = !preview.root ? transferOps[slug] : undefined
+        return <SkillPreviewModal key={`${preview.view}:${preview.root || ''}:${slug}`} skill={s} slug={slug}
+          iconHtml={skillTileHtml(s)} health={<SkillHealthBadge skill={s} tooltip={false} />}
+          marketOrigin={preview.view === 'market'} installed={preview.view === 'installed' || !!s.installed} busy={acquisitionPending(operation)}
+          install={<MarketInstallBtn skill={s} operation={operation} preview onChanged={() => { void refreshPage() }} onCancel={() => { void cancelSkillTransfer(s) }} />}
+          onClose={() => setPreview(undefined)} onToggle={() => toggleSkill(s)} onUninstall={() => uninstallSkill(s, preview.root)}
+          onTry={() => useSkill(s, preview.root, preview.workspaceId)}
+          onOpenWindow={() => openSkillWindow(String(s.dirName || s.name || ''), preview.root)}
+          onUpdate={!preview.root && s.hasUpdate ? () => { void performSkillUpdate(s, t, () => { void refreshPage() }) } : undefined} />
+      })()}
       {modal === 'upload' && (
         <ModalPortal>
           <SkillUploadModal onClose={closeSkillModal} onInstalled={() => { void refreshPage() }} />
