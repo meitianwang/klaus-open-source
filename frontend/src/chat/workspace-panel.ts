@@ -153,6 +153,7 @@ const workspaceFileTitle = document.getElementById('workspace-file-title')
 const workspaceFilePath = document.getElementById('workspace-file-path')
 const workspaceFileStatus = document.getElementById('workspace-file-status')
 let workspaceMountedMedia: { tab: WorkspaceTab; kind: string; filePath: string; url: string; element: HTMLElement } | undefined
+let workspaceMountedPreview: { tab: WorkspaceTab | null; kind: 'html' | 'svg'; filePath: string; content: string; mtimeMs: number | null; element: HTMLElement } | undefined
 const workspaceFileBody = document.getElementById('workspace-file-body')
 const workspaceFileTruncated = document.getElementById('workspace-file-truncated')
 const workspaceFileCopyBtn = document.getElementById('workspace-file-copy')
@@ -497,6 +498,7 @@ function clearWorkspaceImageZoom() {
 
 function setWorkspaceFileBodyMode(mode: string) {
   workspaceMountedMedia = undefined
+  workspaceMountedPreview = undefined
   releaseWorkspaceEditor()
   if (workspaceDocumentNotice) workspaceDocumentNotice.hidden = true
   if (!workspaceFileBody) return
@@ -1059,6 +1061,7 @@ async function saveWorkspaceTab(tab: WorkspaceTab | null = getActiveWorkspaceTab
 
 function renderWorkspaceFileEmpty() {
   workspaceMountedMedia = undefined
+  workspaceMountedPreview = undefined
   releaseWorkspaceEditor()
   if (workspaceDocumentNotice) workspaceDocumentNotice.hidden = true
   revokeWorkspacePreviewObjectUrl()
@@ -1183,8 +1186,17 @@ function renderWorkspaceFileMarkdown(_content: string, _filePath: string) {
   if (tab) void renderWorkspaceTextEditor(tab, 'preview')
 }
 
-function renderWorkspaceFileSvgPreview(content: string, filePath: string) {
+function renderWorkspaceFileSvgPreview(content: string, filePath: string, forceReload = false) {
   if (!workspaceFileBody) return
+  const activeTab = getActiveWorkspaceTab()
+  const mounted = workspaceMountedPreview
+  if (!forceReload && mounted?.kind === 'svg' && mounted.tab === activeTab && mounted.filePath === filePath
+    && mounted.content === content && mounted.element.isConnected && workspaceFileBody.contains(mounted.element)) {
+    if (!workspaceImageElement && mounted.element instanceof HTMLImageElement && mounted.element.parentElement) {
+      setWorkspaceImageZoomTarget(mounted.element, mounted.element.parentElement)
+    }
+    return
+  }
   revokeWorkspacePreviewObjectUrl()
   clearWorkspaceImageZoom()
   setWorkspaceFileBodyMode('svg')
@@ -1205,12 +1217,14 @@ function renderWorkspaceFileSvgPreview(content: string, filePath: string) {
   img.src = workspacePreviewObjectUrl
   if (img.complete) attachZoom()
   img.onerror = () => {
+    workspaceMountedPreview = undefined
     workspaceFileViewMode = 'source'
     syncWorkspaceFileViewToggle()
     renderWorkspaceFileSource(workspaceFileContent)
   }
   wrap.appendChild(img)
   workspaceFileBody.appendChild(wrap)
+  workspaceMountedPreview = { tab: activeTab, kind: 'svg', filePath, content, mtimeMs: activeTab?.mtimeMs ?? null, element: img }
 }
 
 // HTML 产物富预览：沙箱 iframe 直接渲染，agent 产出的报告/原型/可视化页面
@@ -1221,8 +1235,17 @@ function renderWorkspaceFileSvgPreview(content: string, filePath: string) {
 //  - src 用经主进程 isPreviewablePath 校验的 file:// URL（artifacts:file-url），
 //    相对资源（css/图片/脚本）能按文件目录自然解析，且路径困在预览范围内。
 // 异步取 URL 期间用户可能已切文件，完成后校验路径未变才上屏；失败退回源码。
-async function renderWorkspaceFileHtmlPreview(filePath: string) {
+async function renderWorkspaceFileHtmlPreview(filePath: string, forceReload = false) {
   if (!workspaceFileBody) return
+  const activeTab = getActiveWorkspaceTab()
+  const content = activeTab?.draftContent ?? workspaceFileContent
+  const mtimeMs = activeTab?.mtimeMs ?? null
+  const mounted = workspaceMountedPreview
+  if (!forceReload && mounted?.kind === 'html' && mounted.tab === activeTab && mounted.filePath === filePath
+    && mounted.content === content && mounted.mtimeMs === mtimeMs
+    && mounted.element.isConnected && workspaceFileBody.contains(mounted.element)) {
+    return
+  }
   revokeWorkspacePreviewObjectUrl()
   clearWorkspaceImageZoom()
   setWorkspaceFileBodyMode('html')
@@ -1237,14 +1260,16 @@ async function renderWorkspaceFileHtmlPreview(filePath: string) {
   workspaceFileBody.appendChild(wrap)
   const requestSessionId = activeWorkspaceScopeId()
   try {
-    const res = await klausApi().artifacts.fileUrl(requestSessionId, getActiveWorkspaceTab()?.previewPath || filePath)
+    const res = await klausApi().artifacts.fileUrl(requestSessionId, activeTab?.previewPath || filePath)
     const errMsg = res && res.ok === false ? res.error : res?.error
     if (errMsg || !res?.url) throw new Error(errMsg || 'no preview url')
     // 竞态守卫：异步期间切了文件/会话就丢弃本次结果。
     if (workspaceFileContentPath !== filePath || activeWorkspaceScopeId() !== requestSessionId) return
     frame.src = res.url
+    workspaceMountedPreview = { tab: activeTab, kind: 'html', filePath, content, mtimeMs, element: frame }
   } catch (err) {
     if (workspaceFileContentPath !== filePath || activeWorkspaceScopeId() !== requestSessionId) return
+    workspaceMountedPreview = undefined
     console.warn('[workspace] html preview failed, falling back to source:', err)
     workspaceFileViewMode = 'source'
     syncWorkspaceFileViewToggle()
@@ -1252,7 +1277,7 @@ async function renderWorkspaceFileHtmlPreview(filePath: string) {
   }
 }
 
-function renderWorkspaceFileContent() {
+function renderWorkspaceFileContent(reloadMedia = false) {
   if (!workspaceFileContentPath) {
     renderWorkspaceFileEmpty()
     return
@@ -1313,11 +1338,11 @@ function renderWorkspaceFileContent() {
       return
     }
     if (workspaceIsSvg(workspaceFileContentPath)) {
-      renderWorkspaceFileSvgPreview(workspaceFileContent, workspaceFileContentPath)
+      renderWorkspaceFileSvgPreview(workspaceFileContent, workspaceFileContentPath, reloadMedia)
       return
     }
     if (workspaceIsHtml(workspaceFileContentPath)) {
-      void renderWorkspaceFileHtmlPreview(workspaceFileContentPath)
+      void renderWorkspaceFileHtmlPreview(workspaceFileContentPath, reloadMedia)
       return
     }
   }
@@ -1601,7 +1626,7 @@ export async function loadWorkspaceFile(filePath: string, { force = false, reloa
     if (workspaceTabIsEditable(tab)) workspaceDocumentFor(tab)
     syncWorkspaceActiveTabGlobals(tab)
     updateWorkspaceFileChromeForTab(tab)
-    renderWorkspaceFileContent()
+    renderWorkspaceFileContent(reloadMedia)
   } catch (err) {
     if (seq !== workspaceFileLoadSeq || requestSessionId !== activeWorkspaceScopeId()) return
     tab.loading = false

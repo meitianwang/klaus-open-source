@@ -1,13 +1,14 @@
 .editor {
+  --markdown-line-height: round(calc(var(--text-body, 14px) * 1.7), 1px);
   height: 100%;
   color: var(--fg);
   background: var(--bg);
   font-family: var(--font);
   font-size: var(--text-body);
-  line-height: 1.7;
+  line-height: var(--markdown-line-height);
 }
 
-.editor :global(.cm-scroller) { padding: 20px 28px 60px; }
+.editor :global(.cm-scroller) { padding: 20px 28px 60px; line-height: var(--markdown-line-height); }
 .editor :global(.cm-content) { padding: 0; caret-color: var(--fg); min-width: 0; }
 .editor :global(.cm-line) { padding: 0; }
 .editor:global(.cm-focused) { outline: none; }
@@ -16,6 +17,7 @@
 .editor :global(.cm-activeLine) { background: transparent; }
 
 .headingLine { font-weight: 600; line-height: 1.35; padding-top: 1em !important; padding-bottom: .5em !important; }
+.headingText { font: inherit; }
 .heading1 { font-size: 1.9em; letter-spacing: -.02em; }
 .heading2 { font-size: 1.5em; letter-spacing: -.01em; }
 .heading3 { font-size: 1.22em; }
@@ -33,30 +35,31 @@
 .bulletMarker::before { content: '•'; font-size: 14px; display: inline-block; width: 1em; text-align: center; }
 .task { margin: 0 4px 0 1px; vertical-align: -1px; accent-color: var(--accent); cursor: pointer; }
 .task:disabled { cursor: default; }
-.codeLine { background: var(--bg-surface); font-family: var(--font-mono, ui-monospace, monospace); font-size: .9em; padding: 0 12px !important; line-height: 1.6; }
-.tableSourceLine, .literalHtml { font-family: var(--font-mono, ui-monospace, monospace); font-size: .9em; }
+.codeLine { background: var(--bg-surface); font-family: var(--font-mono, ui-monospace, monospace); font-size: .9em; padding: 0 12px !important; line-height: var(--markdown-line-height); }
+.tableSourceLine, .literalHtml { font-family: var(--font-mono, ui-monospace, monospace); font-size: .9em; line-height: var(--markdown-line-height); }
 .widget { max-width: 100%; overflow-x: auto; outline: none; user-select: text; }
 .editor .widget::selection, .editor .widget ::selection,
 .editor :global(.cm-line) .widget::selection, .editor :global(.cm-line) .widget ::selection {
   background: color-mix(in srgb, var(--theme-accent) 18%, transparent) !important;
 }
 .widgetFocused { outline: 2px solid var(--input-focus); outline-offset: 3px; }
-.table { margin: 12px 0; }
+.table { margin: 0; padding: 12px 0; box-sizing: border-box; }
 .table table { border-collapse: collapse; width: 100%; font-size: .94em; }
 .table th, .table td { border: 1px solid var(--border); padding: 7px 12px; text-align: left; min-width: 60px; }
 .table th { background: var(--bg-surface); font-weight: 600; }
 .table a { color: var(--theme-accent); }
 .table code { font-family: var(--font-mono, ui-monospace, monospace); font-size: .9em; background: var(--bg-surface); }
-.image { margin: 12px 0; }
-span.image { display: inline-block; vertical-align: middle; max-width: min(100%, 320px); margin: 0 4px; }
+.image { margin: 0; padding: 12px 0; box-sizing: border-box; }
+span.image { display: inline-block; vertical-align: middle; max-width: min(100%, 320px); margin: 0 4px; padding: 0; }
 .image img { display: block; max-width: 100%; max-height: 640px; object-fit: contain; border-radius: 6px; }
 .imageError { min-height: 28px; color: var(--fg-secondary); }
 .math { overflow-x: auto; }
 div.math { padding: 8px 0; }
 .math :global(.katex-display) { margin: .5em 0; }
-.diagram { padding: 16px; margin: 12px 0; border: 1px solid var(--border); border-radius: 8px; text-align: center; }
+.diagram { padding: 12px 0; margin: 0; box-sizing: border-box; }
+.diagramBody { padding: 16px; border: 1px solid var(--border); border-radius: 8px; text-align: center; }
 .diagram svg { max-width: 100%; height: auto; }
-.diagram pre { white-space: pre-wrap; text-align: left; font-family: var(--font-mono, ui-monospace, monospace); }
+.diagram pre { white-space: pre-wrap; text-align: left; font-family: var(--font-mono, ui-monospace, monospace); margin: 0; }
 .diagramError { color: var(--fg-secondary); }
-.rule { margin: 12px 0; }
-.rule hr { border: 0; border-top: 1px solid var(--border); }
+.rule { margin: 0; padding: 12px 0; box-sizing: border-box; }
+.rule hr { border: 0; border-top: 1px solid var(--border); margin: 0; }

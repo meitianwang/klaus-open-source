@@ -20,6 +20,7 @@ export interface MarkdownEditorSnapshot {
   state: EditorState
   scrollTop: number
   scrollLeft: number
+  scrollSnapshot?: StateEffect<unknown>
 }
 
 export interface MarkdownEditorOptions {
@@ -379,7 +380,7 @@ class RichWidget extends WidgetType {
       })
       root.addEventListener('blur', () => root.classList.remove(styles.widgetFocused))
     }
-    if (this.spec.kind === 'image') this.renderImage(root)
+    if (this.spec.kind === 'image') this.renderImage(root, view)
     if (this.spec.kind === 'table') {
       root.innerHTML = renderMarkdownHtml(this.spec.value ?? '')
       root.querySelectorAll<HTMLAnchorElement>('a[href]').forEach(anchor => {
@@ -396,59 +397,104 @@ class RichWidget extends WidgetType {
         const href = safeMarkdownHref(link.dataset.filePath ?? '')
         if (href) this.context.options.openLink?.(href)
       }))
-      root.querySelectorAll<HTMLImageElement>('img[src]').forEach(image => this.resolveImage(image, image.getAttribute('src') ?? ''))
+      root.querySelectorAll<HTMLImageElement>('img[src]').forEach(image => this.resolveImage(image, image.getAttribute('src') ?? '', view))
     }
     if (this.spec.kind === 'math') root.innerHTML = katex.renderToString(this.spec.value ?? '', { displayMode: !!this.spec.block, throwOnError: false, trust: false, strict: 'ignore' })
     if (this.spec.kind === 'diagram') this.renderDiagram(root, view)
     if (this.spec.kind === 'rule') root.appendChild(document.createElement('hr'))
     return root
   }
-  private resolveImage(image: HTMLImageElement, raw: string) {
+  private applyAnchoredMutation(anchorEl: HTMLElement, view: EditorView, mutate: () => void) {
+    const scrollerRect = view.scrollDOM.getBoundingClientRect()
+    const isAboveViewport = view.scrollDOM.scrollTop > 1 && anchorEl.isConnected && anchorEl.getBoundingClientRect().top < scrollerRect.top + 4
+    const snap = isAboveViewport ? view.scrollSnapshot() : null
+    mutate()
+    if (snap) {
+      view.dispatch({ effects: snap })
+      view.requestMeasure()
+    } else {
+      view.requestMeasure()
+    }
+  }
+  private resolveImage(image: HTMLImageElement, raw: string, view: EditorView) {
     const href = safeMarkdownHref(raw, true)
     if (!href) { image.removeAttribute('src'); return }
     const resolved = this.context.options.resolveImageUrl?.(href) ?? (/^(?:https?:|blob:|klaus-media:)/i.test(href) ? href : '')
-    Promise.resolve(resolved).then(url => { if (url && image.isConnected && safeMarkdownHref(url, true)) image.src = url }).catch(() => { image.classList.add(styles.imageError) })
+    Promise.resolve(resolved).then(url => {
+      if (!url || !image.isConnected || !safeMarkdownHref(url, true)) return
+      const preload = document.createElement('img')
+      preload.alt = image.alt
+      preload.className = image.className
+      preload.addEventListener('error', () => preload.classList.add(styles.imageError))
+      preload.onload = () => {
+        if (!image.isConnected) return
+        const container = image.parentElement ?? image
+        this.applyAnchoredMutation(container, view, () => { image.replaceWith(preload) })
+      }
+      preload.onerror = () => {
+        if (!image.isConnected) return
+        image.classList.add(styles.imageError)
+        image.src = url
+        view.requestMeasure()
+      }
+      preload.src = url
+    }).catch(() => { image.classList.add(styles.imageError); if (image.isConnected) view.requestMeasure() })
   }
-  private renderImage(root: HTMLElement) {
+  private renderImage(root: HTMLElement, view: EditorView) {
     const image = document.createElement('img')
     image.alt = this.spec.alt ?? ''
-    image.loading = 'lazy'
     image.addEventListener('error', () => image.classList.add(styles.imageError))
     root.appendChild(image)
-    this.resolveImage(image, this.spec.href ?? '')
+    this.resolveImage(image, this.spec.href ?? '', view)
   }
   private renderDiagram(root: HTMLElement, view: EditorView) {
+    const body = document.createElement('div')
+    body.className = styles.diagramBody
     const loading = document.createElement('pre')
     loading.textContent = this.spec.value ?? ''
-    root.appendChild(loading)
+    body.appendChild(loading)
+    root.appendChild(body)
     const id = 'markdown-diagram-' + crypto.randomUUID().replace(/-/g, '')
     void import('mermaid').then(async ({ default: mermaid }) => {
       mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'neutral', suppressErrorRendering: true })
       const result = await mermaid.render(id, this.spec.value ?? '')
       if (!root.isConnected) return
-      root.innerHTML = result.svg
-      // The strict renderer generates the SVG; links still go through the
-      // workspace's navigation callback rather than navigating this renderer.
-      root.querySelectorAll('a').forEach(anchor => anchor.addEventListener('click', event => {
-        event.preventDefault(); event.stopPropagation()
-        const href = safeMarkdownHref(anchor.getAttribute('href') ?? anchor.getAttribute('xlink:href') ?? '')
-        if (href) this.context.options.openLink?.(href)
-      }))
-      view.requestMeasure()
+      this.applyAnchoredMutation(root, view, () => {
+        body.innerHTML = result.svg
+        // The strict renderer generates the SVG; links still go through the
+        // workspace's navigation callback rather than navigating this renderer.
+        body.querySelectorAll('a').forEach(anchor => anchor.addEventListener('click', event => {
+          event.preventDefault(); event.stopPropagation()
+          const href = safeMarkdownHref(anchor.getAttribute('href') ?? anchor.getAttribute('xlink:href') ?? '')
+          if (href) this.context.options.openLink?.(href)
+        }))
+      })
     }).catch(() => { root.classList.add(styles.diagramError) })
   }
   ignoreEvent(event: Event) { return event.type !== 'keydown' }
 }
 
-function decorationsFor(specs: readonly MarkdownPresentation[], context: MarkdownPresentationContext): DecorationSet {
-  const ranges = specs.map(spec => {
-    if (spec.kind === 'hide') return Decoration.replace({}).range(spec.from, spec.to)
-    if (spec.kind === 'line') return Decoration.line({ attributes: { class: spec.className ?? '', ...(spec.headingLevel ? { role: 'heading', 'aria-level': String(spec.headingLevel) } : {}) } }).range(spec.from)
-    if (spec.kind === 'mark') return Decoration.mark({ class: spec.className, attributes: spec.href ? { 'data-markdown-href': spec.href, role: 'link', tabindex: '0' } : undefined }).range(spec.from, spec.to)
-    if (spec.kind === 'task') return Decoration.replace({ widget: new TaskWidget(spec, context) }).range(spec.from, spec.to)
-    if (spec.kind === 'table' && context.tableWidget) return Decoration.replace({ widget: context.tableWidget(spec), block: true }).range(spec.from, spec.to)
-    return Decoration.replace({ widget: new RichWidget(spec, context), block: !!spec.block }).range(spec.from, spec.to)
-  })
+function decorationsFor(specs: readonly MarkdownPresentation[], context: MarkdownPresentationContext, doc?: EditorState['doc']): DecorationSet {
+  const ranges: Array<ReturnType<Decoration['range']>> = []
+  for (const spec of specs) {
+    if (spec.kind === 'hide') {
+      ranges.push(Decoration.replace({}).range(spec.from, spec.to))
+    } else if (spec.kind === 'line') {
+      ranges.push(Decoration.line({ attributes: { class: spec.className ?? '', ...(spec.headingLevel ? { role: 'heading', 'aria-level': String(spec.headingLevel) } : {}) } }).range(spec.from))
+      if (spec.headingLevel && doc) {
+        const line = doc.lineAt(Math.max(0, Math.min(spec.from, doc.length)))
+        if (line.to > line.from) ranges.push(Decoration.mark({ class: styles.headingText }).range(line.from, line.to))
+      }
+    } else if (spec.kind === 'mark') {
+      ranges.push(Decoration.mark({ class: spec.className, attributes: spec.href ? { 'data-markdown-href': spec.href, role: 'link', tabindex: '0' } : undefined }).range(spec.from, spec.to))
+    } else if (spec.kind === 'task') {
+      ranges.push(Decoration.replace({ widget: new TaskWidget(spec, context) }).range(spec.from, spec.to))
+    } else if (spec.kind === 'table' && context.tableWidget) {
+      ranges.push(Decoration.replace({ widget: context.tableWidget(spec), block: true }).range(spec.from, spec.to))
+    } else {
+      ranges.push(Decoration.replace({ widget: new RichWidget(spec, context), block: !!spec.block }).range(spec.from, spec.to))
+    }
+  }
   return Decoration.set(ranges, true)
 }
 
@@ -459,15 +505,15 @@ export function createMarkdownPresentationField(context: MarkdownPresentationCon
   readTree(state: EditorState): MarkdownNode | undefined
 } {
   interface PresentationState { tree: MarkdownNode; focused: boolean; decorations: DecorationSet; concealed: DecorationSet }
-  const present = (source: string, selections: readonly SourceRange[], tree: MarkdownNode) => {
+  const present = (doc: EditorState['doc'], source: string, selections: readonly SourceRange[], tree: MarkdownNode) => {
     const specs = planMarkdownPresentation(source, selections, tree)
-    return { decorations: decorationsFor(specs, context), concealed: Decoration.set(context.renderedOnly ? specs.filter(spec => spec.kind === 'hide').map(spec => Decoration.replace({}).range(spec.from, spec.to)) : [], true) }
+    return { decorations: decorationsFor(specs, context, doc), concealed: Decoration.set(context.renderedOnly ? specs.filter(spec => spec.kind === 'hide').map(spec => Decoration.replace({}).range(spec.from, spec.to)) : [], true) }
   }
   const field = StateField.define<PresentationState>({
     create(state) {
       const source = state.doc.toString()
       const tree = fromMarkdown(source, AST_OPTIONS) as MarkdownNode
-      return { tree, focused: false, ...present(source, [], tree) }
+      return { tree, focused: false, ...present(state.doc, source, [], tree) }
     },
     update(value, transaction) {
       const focused = transaction.effects.find(effect => effect.is(focusEffect))?.value ?? value.focused
@@ -479,7 +525,7 @@ export function createMarkdownPresentationField(context: MarkdownPresentationCon
       const source = transaction.state.doc.toString()
       const tree = transaction.docChanged ? fromMarkdown(source, AST_OPTIONS) as MarkdownNode : value.tree
       const selections = focused && !context.renderedOnly ? transaction.state.selection.ranges : []
-      return { tree, focused, ...present(source, selections, tree) }
+      return { tree, focused, ...present(transaction.state.doc, source, selections, tree) }
     },
     provide: field => [EditorView.decorations.from(field, value => value.decorations), EditorView.atomicRanges.of(view => view.state.field(field).concealed)],
   })
@@ -519,6 +565,16 @@ export function createMarkdownEditor(options: MarkdownEditorOptions): MarkdownEd
   const context: MarkdownPresentationContext = { options, isReadOnly: () => readOnly, renderedOnly: options.renderedOnly ?? true }
   const presentation = createMarkdownPresentationField(context)
   let tocBinding: CodeMirrorTocBinding | null = null
+  let editorFocused = false
+  let pointerDownInText = false
+  let allowFocusScroll = false
+  let preservingFocusScroll = false
+  let steadyScrollTop = options.initialState?.scrollTop ?? 0
+  let steadyScrollLeft = options.initialState?.scrollLeft ?? 0
+  const allowProgrammaticScroll = () => {
+    allowFocusScroll = true
+    requestAnimationFrame(() => { allowFocusScroll = false })
+  }
   const extensions: Extension[] = [
     markdown({ codeLanguages: languages }),
     history(), drawSelection(), dropCursor(), EditorView.lineWrapping, search({ top: true }), highlightSelectionMatches(),
@@ -526,6 +582,7 @@ export function createMarkdownEditor(options: MarkdownEditorOptions): MarkdownEd
     syntaxHighlighting(markdownHighlight),
     presentation.extension,
     lineSeparatorCompartment.of(EditorState.lineSeparator.of(markdownLineSeparator(options.content))),
+    EditorView.editorAttributes.of({ class: styles.editor }),
     EditorView.contentAttributes.of({ 'aria-label': options.ariaLabel ?? '', spellcheck: 'true' }),
     readOnlyCompartment.of([EditorState.readOnly.of(readOnly), EditorView.editable.of(!readOnly)]),
     keymap.of([{ key: 'Mod-s', run: () => { void options.onSave?.(); return true } }, ...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
@@ -538,8 +595,34 @@ export function createMarkdownEditor(options: MarkdownEditorOptions): MarkdownEd
       }
     }),
     EditorView.domEventHandlers({
-      focus: (_event, view) => { view.dispatch({ effects: focusEffect.of(true) }) },
+      focus: (_event, view) => {
+        const shouldPreserveScroll = !editorFocused && !pointerDownInText && !allowFocusScroll
+        const targetTop = steadyScrollTop
+        const targetLeft = steadyScrollLeft
+        editorFocused = true
+        if (shouldPreserveScroll) {
+          preservingFocusScroll = true
+          if (Math.abs(view.scrollDOM.scrollTop - targetTop) > 1) {
+            view.scrollDOM.scrollTop = targetTop
+            view.scrollDOM.scrollLeft = targetLeft
+          }
+        }
+        view.dispatch({ effects: focusEffect.of(true) })
+        if (shouldPreserveScroll) {
+          requestAnimationFrame(() => {
+            if (destroyed) return
+            if (!allowFocusScroll && Math.abs(view.scrollDOM.scrollTop - targetTop) > 1) {
+              view.scrollDOM.scrollTop = targetTop
+              view.scrollDOM.scrollLeft = targetLeft
+            }
+            preservingFocusScroll = false
+          })
+        }
+      },
       blur: (_event, view) => {
+        editorFocused = false
+        steadyScrollTop = view.scrollDOM.scrollTop
+        steadyScrollLeft = view.scrollDOM.scrollLeft
         // The next frame lets pointer selection in a protected widget complete
         // before its surrounding syntax is concealed again.
         requestAnimationFrame(() => { if (!destroyed && !view.hasFocus) view.dispatch({ effects: focusEffect.of(false) }) })
@@ -574,15 +657,60 @@ export function createMarkdownEditor(options: MarkdownEditorOptions): MarkdownEd
     EditorView.theme({ '&': { height: '100%' }, '&.cm-focused': { outline: 'none' }, '.cm-scroller': { overflow: 'auto', fontFamily: 'inherit' } }),
   ]
   let state = options.initialState?.state
+  let scrollTo = options.initialState && (options.initialState.scrollTop > 1 || options.initialState.scrollLeft > 1)
+    ? options.initialState.scrollSnapshot
+    : undefined
   state = state ? state.update({ effects: StateEffect.reconfigure.of(extensions) }).state : EditorState.create({ doc: options.content, extensions })
-  if (state.sliceDoc() !== options.content) state = state.update({ changes: markdownExternalChanges(state, options.content), annotations: [externalContent.of(true), Transaction.addToHistory.of(false)] }).state
+  if (state.sliceDoc() !== options.content) {
+    const changes = markdownExternalChanges(state, options.content)
+    scrollTo = scrollTo?.map(changes)
+    state = state.update({ changes, annotations: [externalContent.of(true), Transaction.addToHistory.of(false)] }).state
+  }
   tocBinding = options.toc === false
     ? null
     : attachCodeMirrorToc({
       parent: options.parent,
-      mountEditor: mainEl => new EditorView({ state, parent: mainEl }),
+      mountEditor: mainEl => new EditorView({ state, parent: mainEl, ...(scrollTo ? { scrollTo } : {}) }),
     })
-  const view = tocBinding ? tocBinding.view : new EditorView({ state, parent: options.parent })
+  const view = tocBinding ? tocBinding.view : new EditorView({ state, parent: options.parent, ...(scrollTo ? { scrollTo } : {}) })
+  const rawContentFocus = view.contentDOM.focus.bind(view.contentDOM)
+  view.contentDOM.focus = (focusOptions?: FocusOptions) => {
+    rawContentFocus({ ...focusOptions, preventScroll: focusOptions?.preventScroll ?? !allowFocusScroll })
+  }
+  const onScrollSteady = () => {
+    if (preservingFocusScroll) return
+    steadyScrollTop = view.scrollDOM.scrollTop
+    steadyScrollLeft = view.scrollDOM.scrollLeft
+  }
+  const onPointerDownCapture = (event: MouseEvent | TouchEvent) => {
+    steadyScrollTop = view.scrollDOM.scrollTop
+    steadyScrollLeft = view.scrollDOM.scrollLeft
+    const target = event.target instanceof Element ? event.target : null
+    const inRenderedWidget = Boolean(context.renderedOnly && target?.closest('[data-markdown-widget]'))
+    pointerDownInText = !inRenderedWidget
+    requestAnimationFrame(() => { pointerDownInText = false })
+  }
+  const onFocusInCapture = (event: FocusEvent) => {
+    const target = event.target instanceof Element ? event.target : null
+    if (context.renderedOnly && target?.closest('[data-markdown-widget]') && !allowFocusScroll) {
+      const targetTop = steadyScrollTop
+      const targetLeft = steadyScrollLeft
+      if (Math.abs(view.scrollDOM.scrollTop - targetTop) > 1) {
+        view.scrollDOM.scrollTop = targetTop
+        view.scrollDOM.scrollLeft = targetLeft
+      }
+      queueMicrotask(() => {
+        if (!destroyed && !allowFocusScroll && Math.abs(view.scrollDOM.scrollTop - targetTop) > 1) {
+          view.scrollDOM.scrollTop = targetTop
+          view.scrollDOM.scrollLeft = targetLeft
+        }
+      })
+    }
+  }
+  view.scrollDOM.addEventListener('scroll', onScrollSteady, { passive: true })
+  view.dom.addEventListener('mousedown', onPointerDownCapture, true)
+  view.dom.addEventListener('touchstart', onPointerDownCapture, { capture: true, passive: true })
+  view.dom.addEventListener('focusin', onFocusInCapture, true)
   const refreshSearchLanguage = () => {
     if (destroyed) return
     const open = searchPanelOpen(view.state)
@@ -595,7 +723,18 @@ export function createMarkdownEditor(options: MarkdownEditorOptions): MarkdownEd
   tocBinding?.updateFromDoc(view.state.sliceDoc(), presentation.readTree(view.state))
   if (options.initialState) {
     const { scrollTop, scrollLeft } = options.initialState
-    view.requestMeasure({ read: () => null, write: () => { view.scrollDOM.scrollTop = scrollTop; view.scrollDOM.scrollLeft = scrollLeft; tocBinding?.syncScroll() } })
+    view.requestMeasure({
+      read: () => null,
+      write: () => {
+        if (!scrollTo) {
+          view.scrollDOM.scrollTop = scrollTop
+          view.scrollDOM.scrollLeft = scrollLeft
+        }
+        steadyScrollTop = view.scrollDOM.scrollTop
+        steadyScrollLeft = view.scrollDOM.scrollLeft
+        tocBinding?.syncScroll()
+      },
+    })
   }
   return {
     getContent: () => view.state.sliceDoc(),
@@ -610,15 +749,22 @@ export function createMarkdownEditor(options: MarkdownEditorOptions): MarkdownEd
       readOnly = value
       view.dispatch({ effects: [readOnlyCompartment.reconfigure([EditorState.readOnly.of(value), EditorView.editable.of(!value)]), presentationRefresh.of(null)] })
     },
-    snapshot: () => ({ state: view.state, scrollTop: view.scrollDOM.scrollTop, scrollLeft: view.scrollDOM.scrollLeft }),
+    snapshot: () => ({
+      state: view.state,
+      scrollTop: view.scrollDOM.scrollTop,
+      scrollLeft: view.scrollDOM.scrollLeft,
+      scrollSnapshot: view.scrollDOM.scrollTop > 1 || view.scrollDOM.scrollLeft > 1 ? view.scrollSnapshot() : undefined,
+    }),
     goToLine(line) {
       if (destroyed) return
+      allowProgrammaticScroll()
       const target = view.state.doc.line(Math.max(1, Math.min(view.state.doc.lines, Math.floor(line))))
       view.dispatch({ selection: EditorSelection.cursor(target.from), effects: [focusEffect.of(true), EditorView.scrollIntoView(target.from, { y: 'center' })] })
       view.focus()
     },
     scrollToAnchor(href) {
       if (destroyed) return false
+      allowProgrammaticScroll()
       if (tocBinding) return tocBinding.scrollToAnchor(href)
       const headings = extractMarkdownHeadings(view.state.sliceDoc(), presentation.readTree(view.state))
       const match = resolveMarkdownHeadingAnchor(headings, href)
@@ -628,7 +774,24 @@ export function createMarkdownEditor(options: MarkdownEditorOptions): MarkdownEd
       return true
     },
     focus: () => { if (!destroyed) view.focus() },
-    find: direction => { if (!destroyed) { if (direction === 'next') findNext(view); else if (direction === 'previous') findPrevious(view); else openSearchPanel(view) } },
-    destroy() { if (!destroyed) { destroyed = true; window.removeEventListener('klaus:lang-change', refreshSearchLanguage); tocBinding?.destroy(); view.destroy() } },
+    find: direction => {
+      if (destroyed) return
+      allowProgrammaticScroll()
+      if (direction === 'next') findNext(view)
+      else if (direction === 'previous') findPrevious(view)
+      else openSearchPanel(view)
+    },
+    destroy() {
+      if (!destroyed) {
+        destroyed = true
+        window.removeEventListener('klaus:lang-change', refreshSearchLanguage)
+        view.scrollDOM.removeEventListener('scroll', onScrollSteady)
+        view.dom.removeEventListener('mousedown', onPointerDownCapture, true)
+        view.dom.removeEventListener('touchstart', onPointerDownCapture, true)
+        view.dom.removeEventListener('focusin', onFocusInCapture, true)
+        tocBinding?.destroy()
+        view.destroy()
+      }
+    },
   }
 }

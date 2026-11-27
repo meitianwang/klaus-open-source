@@ -303,6 +303,63 @@ async function run() {
   mediaUrls.set(clip, fixtureMediaUrl())
   await panel.loadWorkspaceFile(clip, { force: true, reloadMedia: false })
   assert(video() !== replaced && video()?.src === mediaUrls.get(clip), 'A new capability URL replaces the video node')
+  const htmlPath = '/fixture/page.html'
+  mediaUrls.set(htmlPath, 'about:blank')
+  disk.set(`s1:${htmlPath}`, { content: '<!doctype html><main>Preview page</main>', mtimeMs: 1 })
+  panel.openWorkspaceFilePath(htmlPath)
+  await panel.loadWorkspaceFile(htmlPath)
+  await until(() => body().querySelector('iframe')?.getAttribute('src') === 'about:blank', 'html preview iframe')
+  const initialFrame = body().querySelector('iframe')
+  assert(initialFrame instanceof HTMLIFrameElement, 'HTML preview mounts an iframe')
+  panel.showWorkspaceMainView({ openPanel: true })
+  assert(body().querySelector('iframe') === initialFrame, 'Re-entering the Files panel preserves an unchanged HTML preview')
+  await panel.loadWorkspaceFile(htmlPath, { force: true, reloadMedia: false })
+  assert(body().querySelector('iframe') === initialFrame, 'Forced refresh without content changes preserves the HTML preview iframe')
+  disk.set(`s1:${htmlPath}`, { content: '<!doctype html><main>Updated page</main>', mtimeMs: 2 })
+  await panel.loadWorkspaceFile(htmlPath, { force: true, reloadMedia: false })
+  await until(() => body().querySelector('iframe') && body().querySelector('iframe') !== initialFrame, 'updated html preview iframe')
+  assert(body().querySelector('iframe') !== initialFrame, 'Changed HTML content replaces the preview iframe')
+  const mixedDoc = [
+    '# Scroll Stability Document',
+    ...Array.from({ length: 18 }, (_, i) => `Section ${i + 1}: ${'Long wrapped narrative sentence for reading stability verification. '.repeat(6)}`),
+    '| Column A | Column B |\n| --- | --- |\n| Alpha | Beta |\n| Gamma | Delta |',
+    '```ts\nconst x = 1\nconst y = 2\n```',
+    '---',
+    ...Array.from({ length: 28 }, (_, i) => `Continuation ${i + 1}: ${'Detailed explanation paragraph below code and table blocks. '.repeat(6)}`),
+  ].join('\n\n')
+  disk.set('s1:/fixture/mixed-scroll.md', { content: mixedDoc, mtimeMs: 1 })
+  panel.openWorkspaceFilePath('/fixture/mixed-scroll.md')
+  await until(() => body().querySelector('.cm-editor') && view()!.state.sliceDoc().includes('Scroll Stability Document'), 'mixed scroll document')
+  const mixedScroller = body().querySelector('.cm-scroller') as HTMLElement
+  const mixedContent = body().querySelector('.cm-content') as HTMLElement
+  const topVisibleLineText = () => {
+    const scroller = body().querySelector('.cm-scroller') as HTMLElement
+    const sr = scroller.getBoundingClientRect()
+    const hit = Array.from(scroller.querySelectorAll<HTMLElement>('.cm-line')).find(el => {
+      const r = el.getBoundingClientRect()
+      return r.bottom > sr.top + 28 && el.textContent && el.textContent.trim().length > 8
+    })
+    return hit?.textContent?.slice(0, 32) ?? ''
+  }
+  for (let step = 0; step < 32; step++) {
+    const prevTop = mixedScroller.scrollTop
+    mixedScroller.scrollTop = prevTop + 60
+    await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+    assert(mixedScroller.scrollTop >= prevTop, 'Mixed prose, code, and table scrolling never jumps backward')
+  }
+  const readingScrollTop = mixedScroller.scrollTop
+  assert(readingScrollTop > 1200, 'Mixed document reaches deep scroll offset')
+  mixedContent.blur()
+  await settle(30)
+  mixedContent.focus()
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  assert(Math.abs(mixedScroller.scrollTop - readingScrollTop) <= 1, 'Refocusing the editor does not jump back to an off-screen caret')
+  const anchorBeforeHide = topVisibleLineText()
+  panel.hideWorkspaceMainView()
+  panel.showWorkspaceMainView({ openPanel: true })
+  await until(() => body().querySelector('.cm-editor'), 'reopened mixed scroll document')
+  await new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve)))
+  assert(topVisibleLineText() === anchorBeforeHide, 'Reopening the Files panel restores the exact visible reading paragraph')
   const { applyTheme } = await import('../frontend/src/app/i18n')
   applyTheme('dark')
   w.currentSessionId = 's1'
