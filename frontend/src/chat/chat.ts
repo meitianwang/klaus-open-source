@@ -172,7 +172,7 @@ import {
 import { SIDEBAR_PROJECT_EXPANDED_KEY, SIDEBAR_PROJECT_ORDER_CHANGED_KEY, SIDEBAR_SECTIONS_COLLAPSED_KEY } from '../../../contracts/sidebar-collapse'
 import { parseSidebarUnreadSessions, serializeSidebarUnreadSessions, SIDEBAR_UNREAD_SESSIONS_KEY } from '../../../shared/sidebar-preferences'
 import { bootFeatureOnboarding } from '../app/feature-onboarding'
-import { parseStoredOrder, reconcileOrder } from './sidebar/project-order'
+import { normalizeProjectWorkdirPath, parseStoredOrder, projectWorkdirComparisonKey, reconcileOrder } from './sidebar/project-order'
 import { SessionPinning } from './sidebar/pinning'
 import { initTerminal, forgetTerminalGroup, syncTerminalPanelForCurrentSession, scheduleTerminalResize, setTerminalOpen, renderTerminalList } from './terminal'
 import { initBrowserPanel, isBrowserPanelMode, isBrowserPanelVisible, browserRuntimeVisible, hideBrowserRuntime, noteBrowserPanelManualResize, reclampBrowserAutoWidth, scheduleBrowserBoundsSync, showBrowserPanel, hideBrowserPanel } from './browser-panel'
@@ -5034,22 +5034,26 @@ function detectChannelPrefix(sessionId: string | null | undefined, sessionHint?:
 }
 
 function normalizeProjectWorkdir(workdir: string | null | undefined) {
-  return typeof workdir === 'string' && workdir.trim() ? workdir : null
+  return normalizeProjectWorkdirPath(workdir)
+}
+
+function resolveCanonicalProjectRoot(workdir: string | null): string | null {
+  if (!workdir) return null
+  const cmp = projectWorkdirComparisonKey(workdir)
+  return projectRoots.find(root => projectWorkdirComparisonKey(root) === cmp) ?? workdir
 }
 
 function setActiveProjectWorkdir(workdir: string | null, options: { render?: boolean; refreshWorkdir?: boolean } = {}) {
   // A managed worktree is never a project identity: activating one selects its
   // origin repository instead of registering the scratch directory.
-  const next = projectIdentityForWorkdir(normalizeProjectWorkdir(workdir))
+  const next = resolveCanonicalProjectRoot(projectIdentityForWorkdir(normalizeProjectWorkdir(workdir)))
   if (activeProjectWorkdir === next) {
-    if (next && !projectRoots.includes(next)) projectRoots = [next, ...projectRoots]
     if (options.render !== false) renderSessionList()
     if (options.refreshWorkdir !== false) refreshWorkdirButton()
     return
   }
   const previous = activeProjectWorkdir
   activeProjectWorkdir = next
-  if (next && !projectRoots.includes(next)) projectRoots = [next, ...projectRoots]
   if (next) persistLocalValue(ACTIVE_PROJECT_WORKDIR_KEY, next)
   else removeLocalValue(ACTIVE_PROJECT_WORKDIR_KEY)
   void klausApi.projects?.setActive?.(next).then((result: { error?: string } | null | undefined) => {
@@ -5072,7 +5076,7 @@ async function refreshProjectWorkspaces(options: { render?: boolean; refreshWork
   try {
     const state = await klausApi.projects.list()
     const roots = Array.isArray(state?.roots)
-      ? state.roots.map((root: string | { path?: string }) => typeof root === 'string' ? root : root?.path).filter((r: string | undefined): r is string => !!r)
+      ? state.roots.map((root: string | { path?: string }) => normalizeProjectWorkdir(typeof root === 'string' ? root : root?.path)).filter((r: string | null): r is string => !!r)
       : []
     projectRoots = [...new Set<string>(roots)]
     projectLabels = state?.labels && typeof state.labels === 'object' ? state.labels : {}
@@ -5278,11 +5282,12 @@ function friendGroupAttentionCount(friendshipId: string): number {
 function projectRowsFromSessions() {
   const projects = new Map<string, { workdir: string; name: string; updatedAt: number }>()
   const pushProject = (workdir: string | null | undefined, session: SessionInfo | null = null) => {
-    const key = normalizeProjectWorkdir(workdir)
+    const normalized = normalizeProjectWorkdir(workdir)
+    const key = resolveCanonicalProjectRoot(normalized)
     if (!key) return
     const existing = projects.get(key) || {
       workdir: key,
-      name: projectLabels[key] || basenameOf(key) || key,
+      name: projectLabels[key] || (normalized ? projectLabels[normalized] : undefined) || basenameOf(key) || key,
       updatedAt: 0,
     }
     if (session) {
@@ -5300,10 +5305,10 @@ function projectRowsFromSessions() {
     // a worktree session lands under its origin project.
     pushProject(sessionProjectKey(session), session)
   }
-  const rank = new Map(projectRoots.map((root, index: number) => [root, index]))
+  const rank = new Map(projectRoots.map((root, index: number) => [projectWorkdirComparisonKey(root), index]))
   return [...projects.values()].sort((a, b) => {
-    const ar = rank.get(a.workdir)
-    const br = rank.get(b.workdir)
+    const ar = rank.get(projectWorkdirComparisonKey(a.workdir))
+    const br = rank.get(projectWorkdirComparisonKey(b.workdir))
     if (ar !== undefined && br !== undefined) return ar - br
     if (ar !== undefined) return -1
     if (br !== undefined) return 1
@@ -5378,12 +5383,16 @@ function projectlessConversationSessions() {
 }
 
 function projectConversationSessions(workdir: string | null) {
-  const selected = normalizeProjectWorkdir(workdir)
+  const selected = resolveCanonicalProjectRoot(normalizeProjectWorkdir(workdir))
   if (!selected) return []
+  const selectedKey = projectWorkdirComparisonKey(selected)
   // A workspace-bound session lives under its workspace container, never under
   // the bare project of its primary root — exclude it here so it is not listed
   // twice. Worktree sessions file under their origin project via membership.
-  return groupedLocalSessions().filter((session) => sessionProjectKey(session) === selected)
+  return groupedLocalSessions().filter((session) => {
+    const key = sessionProjectKey(session)
+    return !!key && projectWorkdirComparisonKey(key) === selectedKey
+  })
 }
 
 function persistExpandedProjectThreadLists() {
@@ -6020,10 +6029,9 @@ function projectPickerItems() {
 }
 
 function revealProjectChoiceInSidebar(workdir: string | null, options: { draft?: boolean } = {}) {
-  const key = normalizeProjectWorkdir(workdir)
+  const key = resolveCanonicalProjectRoot(normalizeProjectWorkdir(workdir))
   if (key) {
     revealProjectInSidebar('projects', key, options)
-    if (!projectRoots.includes(key)) projectRoots = [key, ...projectRoots]
     return
   }
   setSidebarSectionCollapsed('recent', false)
@@ -6130,9 +6138,14 @@ async function pickAndRegisterProjectWorkdir() {
     return null
   }
   projectRoots = Array.isArray(state?.roots)
-    ? state.roots.map((root: string | { path?: string }) => typeof root === 'string' ? root : root?.path).filter((r: string | undefined): r is string => !!r)
-    : (projectRoots.includes(next) ? projectRoots : [next, ...projectRoots])
+    ? state.roots.map((root: string | { path?: string }) => normalizeProjectWorkdir(typeof root === 'string' ? root : root?.path)).filter((r: string | null): r is string => !!r)
+    : (projectRoots.some(root => projectWorkdirComparisonKey(root) === projectWorkdirComparisonKey(next)) ? projectRoots : [next, ...projectRoots])
   projectLabels = state?.labels && typeof state.labels === 'object' ? state.labels : projectLabels
+  const storedOrder = parseStoredOrder((state as { sidebarOrder?: unknown } | null | undefined)?.sidebarOrder)
+  if (storedOrder.length > 0 && sidebarProjectOrderPending === null) {
+    sidebarProjectOrder = storedOrder
+    persistLocalValue(SIDEBAR_PROJECT_ORDER_MIRROR_KEY, JSON.stringify(storedOrder))
+  }
   // 广播项目注册表变化：快捷指令页等消费方据此即时重拉项目 tab。
   try { window.dispatchEvent(new CustomEvent('klaus:projects-changed')) } catch {}
   await window.maybeShowExternalImportForProject?.(next).catch((err: unknown) => {
@@ -6159,9 +6172,14 @@ async function connectSshFromProjectPicker() {
     return
   }
   projectRoots = Array.isArray(state?.roots)
-    ? state.roots.map((root: string | { path?: string }) => typeof root === 'string' ? root : root?.path).filter((r: string | undefined): r is string => !!r)
+    ? state.roots.map((root: string | { path?: string }) => normalizeProjectWorkdir(typeof root === 'string' ? root : root?.path)).filter((r: string | null): r is string => !!r)
     : (projectRoots.includes(picked.workdir) ? projectRoots : [picked.workdir, ...projectRoots])
   projectLabels = state?.labels && typeof state.labels === 'object' ? state.labels : projectLabels
+  const storedOrder = parseStoredOrder((state as { sidebarOrder?: unknown } | null | undefined)?.sidebarOrder)
+  if (storedOrder.length > 0 && sidebarProjectOrderPending === null) {
+    sidebarProjectOrder = storedOrder
+    persistLocalValue(SIDEBAR_PROJECT_ORDER_MIRROR_KEY, JSON.stringify(storedOrder))
+  }
   try { window.dispatchEvent(new CustomEvent('klaus:projects-changed')) } catch {}
   await setProjectForCurrentNewConversation(picked.workdir)
   await refreshProjectWorkspaces({ render: true, refreshWorkdir: true })
@@ -7107,8 +7125,8 @@ function buildSidebarSnapshot() {
   // Apply the user's dragged order last. Rows are built in their natural order
   // (workspace containers, plain projects) because each builder reads a different
   // source; the stored order is what decides where they land. `reconcileOrder`
-  // also drops keys whose row vanished and lifts keys nobody has arranged yet to
-  // the head, so a row can never be lost or duplicated by a stale order row.
+  // also drops keys whose row vanished and appends unarranged session-derived
+  // rows at the tail, so a row can never be lost or duplicated by a stale order.
   const orderedProjects = orderProjectRows(projects)
   return {
     sortMode,
@@ -8399,7 +8417,11 @@ async function archiveSessionFromMenu(id: string, opts: { confirmWhenIdle?: bool
   forgetSessionLocalState(id, false)
   showToast(tt('archive_session_success'))
   if (window.currentSessionId === id) {
-    enterNewChatState({ workdir: normalizeProjectWorkdir(target?.workdir), discardLeavingDraft: true })
+    enterNewChatState({
+      workdir: target ? sessionProjectKey(target) : null,
+      ...(target?.workspaceId ? { workspaceId: target.workspaceId } : {}),
+      discardLeavingDraft: true,
+    })
   } else {
     renderSessionList()
   }
@@ -8889,7 +8911,7 @@ async function switchSession(id: string) {
         revealProjectInSidebar('projects', projectKey)
       }
     }
-    setActiveProjectWorkdir(targetSession?.workspaceId ? null : (targetSession?.workdir || null), { render: false, refreshWorkdir: false })
+    setActiveProjectWorkdir(targetSession ? sessionProjectKey(targetSession) : null, { render: false, refreshWorkdir: false })
   }
   renderSessionList()
   renderCronChannelBanner(id)
@@ -9438,7 +9460,8 @@ async function deleteSession(id: string, opts: { skipConfirm?: boolean } = {}) {
   if (sessionDeletePending.has(id)) return
   const target = findKnownSession(id)
   const targetWorkdir = normalizeProjectWorkdir(target?.workdir)
-  const isWorktree = isWorktreeSessionWorkdir(targetWorkdir)
+  const targetProjectRoot = target ? sessionProjectKey(target) : null
+  const isWorktree = isWorktreeSessionWorkdir(targetWorkdir) || Boolean(targetWorkdir && targetProjectRoot && projectWorkdirComparisonKey(targetWorkdir) !== projectWorkdirComparisonKey(targetProjectRoot))
 
   const doDelete = async (wipeWorkspace: boolean, removeWorktree: boolean) => {
     if (sessionDeletePending.has(id)) return
@@ -9449,7 +9472,13 @@ async function deleteSession(id: string, opts: { skipConfirm?: boolean } = {}) {
       sessionDeletionRevision++
       // 离开动作放在删除确认之后：请求失败时用户仍停留在原会话，
       // 可以直接重试，不需要重建会话状态。
-      if (window.currentSessionId === id) enterNewChatState({ workdir: targetWorkdir, discardLeavingDraft: true })
+      if (window.currentSessionId === id) {
+        enterNewChatState({
+          workdir: targetProjectRoot,
+          ...(target?.workspaceId ? { workspaceId: target.workspaceId } : {}),
+          discardLeavingDraft: true,
+        })
+      }
       if (removeWorktree && targetWorkdir) {
         const res = await klausApi.worktree.remove(targetWorkdir)
           .catch((err: unknown) => ({ ok: false, error: String((err as Error | null)?.message || err) }))

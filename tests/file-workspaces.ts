@@ -325,10 +325,25 @@ export function registerFileWorkspaceTests(h: Harness, freshRoot: () => string):
       await invoke(f.registry, 'projects:set-active', { path: extra });
       const managed = join(root, 'worktrees', 'task'); f.workspaces.bindSession('task', { workdir: managed });
       assert(!(object(f.workspaces.projectsList()).roots as Json[]).some(row => object(row).path === managed), 'managed task not a project');
+      const scratchSessionDir = join(root, 'sessions', 's-scratch');
+      const afterScratchActivate = object(await invoke(f.registry, 'projects:set-active', { path: scratchSessionDir }));
+      assertEqual(afterScratchActivate.activeRoot, extra, 'projectless session scratch directory never steals activeRoot');
+      assert(!(afterScratchActivate.roots as Json[]).some(row => object(row).path === scratchSessionDir), 'projectless session scratch directory never registers as a project');
+      const implicitProject = join(root, 'z-session-only');
+      const afterImplicitActivate = object(await invoke(f.registry, 'projects:set-active', { path: implicitProject }));
+      assertEqual(afterImplicitActivate.activeRoot, implicitProject, 'activating a session-derived folder sets activeRoot');
+      assertDeepEqual((afterImplicitActivate.roots as Json[]).map(row => object(row).path), [extra, f.dir, implicitProject], 'implicit activation appends an unregistered project at the tail instead of promoting it to the top');
+      const implicitBound = join(root, 'y-bound-only');
+      f.workspaces.bindSession('s-bound', { workdir: implicitBound });
+      assertDeepEqual((object(f.workspaces.projectsList()).roots as Json[]).map(row => object(row).path), [extra, f.dir, implicitProject, implicitBound], 'implicit bindSession appends an unregistered project at the tail');
+      await invoke(f.registry, 'projects:remove', { path: implicitProject });
+      await invoke(f.registry, 'projects:remove', { path: implicitBound });
+      await invoke(f.registry, 'projects:set-active', { path: extra });
       await invoke(f.registry, 'projects:remove', { path: extra });
       assertEqual(object(f.workspaces.projectsList()).activeRoot, null, 'remove clears active root');
       assertEqual(object(await invoke(f.registry, 'projects:add', { path: 'relative' })).error, 'invalid path', 'relative root refused');
       assertEqual(normalizeProjectPath('C:\\'), 'C:\\', 'Windows drive root stays absolute');
+      assertEqual(normalizeProjectPath('c:/Users/Alice/Repo/'), 'C:\\Users\\Alice\\Repo', 'Windows slash and drive-letter variations canonicalize');
       assertEqual(normalizeProjectPath('/'), '/', 'filesystem root stays absolute');
     } finally { f.files.close(); }
   });
@@ -380,6 +395,15 @@ export function registerFileWorkspaceTests(h: Harness, freshRoot: () => string):
       await invoke(f.registry, 'projects:reorder', { keys: [bee, 'friend:7', f.dir] });
       await f.workspaces.detachDirectory(bee);
       assertDeepEqual(object(await invoke(f.registry, 'projects:list')).sidebarOrder, ['friend:7', f.dir], 'detaching a directory clears its slot');
+
+      // When sidebar_project_order is active, explicit additions prepend to it,
+      // while implicit activation appends at the tail without jumping above arranged rows.
+      const addedTop = join(root, 'd-explicit');
+      const afterExplicitAdd = object(await invoke(f.registry, 'projects:add', { path: addedTop }));
+      assertDeepEqual(afterExplicitAdd.sidebarOrder, [addedTop, 'friend:7', f.dir], 'explicit projects:add prepends to active sidebar order');
+      const implicitTail = join(root, 'e-implicit');
+      const afterImplicitTail = object(await invoke(f.registry, 'projects:set-active', { path: implicitTail }));
+      assertDeepEqual(afterImplicitTail.sidebarOrder, [addedTop, 'friend:7', f.dir, implicitTail], 'implicit activation appends to active sidebar order');
     } finally { f.files.close(); }
   });
   h.test('the dragged Projects order reaches other windows through its own broadcast key', async () => {

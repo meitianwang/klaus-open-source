@@ -15,7 +15,9 @@ import {
   dropPlacement,
   dropTargetFrom,
   moveBefore,
+  normalizeProjectWorkdirPath,
   parseStoredOrder,
+  projectWorkdirComparisonKey,
   reconcileOrder,
   sameKeys,
   type DropPlacement,
@@ -157,11 +159,32 @@ describe('sidebar project order contract vectors', () => {
       .toContain('sidebarOrder')
     const registerBody = workspaces.slice(workspaces.indexOf('function registerProject('), workspaces.indexOf('export class WorkspaceStore'))
     expect(registerBody).toContain('const isNew = !saved.roots.includes(path)')
+    expect(registerBody).toContain('if (options.promote)')
+    const projectsAddBody = workspaces.slice(workspaces.indexOf('projectsAdd(payload'), workspaces.indexOf('projectsRemove(payload'))
+    expect(projectsAddBody).toContain('{ promote: true }')
     const chat = readRepo('frontend/src/chat/chat.ts')
     const sessionRowsBody = chat.slice(chat.indexOf('function projectRowsFromSessions()'), chat.indexOf('function regularLocalSessions()'))
     expect(sessionRowsBody).not.toContain('b.updatedAt - a.updatedAt')
+    const setActiveBody = chat.slice(chat.indexOf('function setActiveProjectWorkdir('), chat.indexOf('async function refreshProjectWorkspaces('))
+    expect(setActiveBody).not.toContain('[next, ...projectRoots]')
+    const revealChoiceBody = chat.slice(chat.indexOf('function revealProjectChoiceInSidebar('), chat.indexOf('async function setProjectForCurrentNewConversation('))
+    expect(revealChoiceBody).not.toContain('[key, ...projectRoots]')
+    expect(chat).toContain('setActiveProjectWorkdir(targetSession ? sessionProjectKey(targetSession) : null')
     expect(host.activationPreservesOrder.length).toBeGreaterThan(0)
+    expect(host.implicitRegistrationAppends.length).toBeGreaterThan(0)
     expect(host.oneTransaction.length).toBeGreaterThan(0)
+  })
+
+  test('normalizeProjectWorkdirPath canonicalizes slashes, drive letters and trailing separators across platforms', () => {
+    expect(normalizeProjectWorkdirPath('  /Users/alice/repo/  ')).toBe('/Users/alice/repo')
+    expect(normalizeProjectWorkdirPath('/')).toBe('/')
+    expect(normalizeProjectWorkdirPath('c:/Users/Alice/Repo/')).toBe('C:\\Users\\Alice\\Repo')
+    expect(normalizeProjectWorkdirPath('C:\\Users\\Alice\\Repo\\\\')).toBe('C:\\Users\\Alice\\Repo')
+    expect(normalizeProjectWorkdirPath('c:\\')).toBe('C:\\')
+    expect(normalizeProjectWorkdirPath('\\\\?\\d:\\work\\app/')).toBe('D:\\work\\app')
+    expect(normalizeProjectWorkdirPath('ssh://dev@host:22/home/dev/repo/')).toBe('ssh://dev@host:22/home/dev/repo')
+    expect(projectWorkdirComparisonKey('C:\\Users\\Alice\\Repo')).toBe('c:\\users\\alice\\repo')
+    expect(projectWorkdirComparisonKey('/Users/Alice/Repo')).toBe('/Users/Alice/Repo')
   })
 
   test('alt+arrow moves one slot and stops at both ends', () => {

@@ -92,12 +92,15 @@ export function arrayMove<T>(items: readonly T[], index: number, nextIndex: numb
  * Three rules, each of which a naive `storedOrder.filter(exists)` breaks:
  *
  *  1. Stored keys keep their stored relative order, and keys that vanished
- *     (a removed project, a friendship with no conversations left) drop out —
- *     otherwise the list grows forever and a stale key would claim a slot.
- *  2. Keys that exist but were never stored come FIRST, in their natural order.
- *     A newly added project is registered at the head of the host's own order
- *     list for the same reason, so both layers agree that new work appears at
- *     the top rather than buried under everything the user arranged earlier.
+ *  1. Stored keys that exist now keep their stored relative order; keys that do
+ *     not exist now (a removed project, a friendship with no conversations left)
+ *     drop out — otherwise the list grows forever and a stale key would claim a
+ *     slot.
+ *  2. Keys that exist now but were never stored are appended AFTER the stored
+ *     order, in their natural order. Explicit additions (`projects:add`, new
+ *     workspace creation) write their key to the head of the stored order row at
+ *     creation time; unarranged session-derived directories stay at the tail so
+ *     importing or running an external session never jumps above arranged rows.
  *  3. The result always contains exactly `currentKeys`, once each — so the
  *     caller can index rows by it without a fallback path.
  *
@@ -108,7 +111,7 @@ export function reconcileOrder(storedOrder: readonly string[], currentKeys: read
   const present = new Set(currentKeys)
   const ordered = storedOrder.filter(key => present.has(key))
   const orderedSet = new Set(ordered)
-  return [...currentKeys.filter(key => !orderedSet.has(key)), ...ordered]
+  return [...ordered, ...currentKeys.filter(key => !orderedSet.has(key))]
 }
 
 /** Whether two key lists are equal in length and element order. */
@@ -122,3 +125,37 @@ export function parseStoredOrder(raw: unknown): string[] {
   if (!Array.isArray(raw)) return []
   return raw.filter((key): key is string => typeof key === 'string' && key.length > 0)
 }
+
+/** Canonicalize a project path for identity and membership checks across platforms. */
+export function normalizeProjectWorkdirPath(workdir: string | null | undefined): string | null {
+  if (typeof workdir !== 'string') return null
+  const raw = workdir.trim()
+  if (!raw || raw.includes('\0')) return null
+  if (raw.startsWith('ssh://')) {
+    const rest = raw.slice('ssh://'.length)
+    const slash = rest.indexOf('/')
+    if (slash < 0) return raw
+    const remotePath = rest.slice(slash).replace(/\/+$/, '') || '/'
+    return `ssh://${rest.slice(0, slash)}${remotePath}`
+  }
+  const stripped = raw.replace(/^\\\\\?\\(?=[a-zA-Z]:(?:[/\\]|$))/u, '')
+  if (/^[a-zA-Z]:(?:[/\\]|$)/u.test(stripped)) {
+    const collapsed = stripped.replace(/\//g, '\\').replace(/\\{2,}/g, '\\').replace(/\\+$/, '')
+    const upper = `${collapsed[0]!.toUpperCase()}${collapsed.slice(1)}`
+    return /^[A-Z]:$/u.test(upper) ? `${upper}\\` : upper
+  }
+  if (stripped.startsWith('\\\\')) {
+    const body = stripped.slice(2).replace(/\//g, '\\').replace(/\\{2,}/g, '\\').replace(/\\+$/, '')
+    if (!body) return '\\\\'
+    const parts = body.split('\\')
+    if (parts.length <= 2) return `\\\\${parts.join('\\')}\\`
+    return `\\\\${parts.join('\\')}`
+  }
+  const trimmed = stripped.replace(/\/+$/, '')
+  return trimmed || '/'
+}
+
+export function projectWorkdirComparisonKey(workdir: string): string {
+  return /^[a-zA-Z]:\\/u.test(workdir) || workdir.startsWith('\\\\') ? workdir.toLowerCase() : workdir
+}
+

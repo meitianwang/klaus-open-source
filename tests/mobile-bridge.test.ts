@@ -273,7 +273,7 @@ void (async () => {
       assert.equal(object(body.features).taskStream, object(remoteStreamVector.features).taskStream);
       assert.equal(object(body.features).reliableTransport, object(remoteStreamVector.features).reliableTransport);
       assert.equal(body.activeSessionId, 's2'); assert.deepEqual(object(body.desktopState).runningSessionIds, ['s2']);
-      assert.deepEqual(body.projects, [{ workdir: f.root, label: 'Fixture root', updatedAt: 20, conversationCount: 5 }, { workdir: 'C:\\Projects\\Windows', label: 'Windows', updatedAt: 10, conversationCount: 1 }, { workdir: 'C:\\Projects\\Empty', label: 'Empty Windows root', updatedAt: 1, conversationCount: 0 }]);
+      assert.deepEqual(body.projects, [{ workdir: f.root, label: 'Fixture root', updatedAt: 20, conversationCount: 5 }, { workdir: 'C:\\Projects\\Empty', label: 'Empty Windows root', updatedAt: 1, conversationCount: 0 }, { workdir: 'C:\\Projects\\Windows', label: 'Windows', updatedAt: 10, conversationCount: 1 }]);
       const commands = body.slashCommands as { name: string }[]; assert.deepEqual(commands.map(row => row.name), ['mcp-check', 'plain', 'plugin:cmd', 'run-skill']);
       // The engine list still carries the CLI-only compaction row; the phone's
       // projection drops it because the phone has no manual compaction surface.
@@ -696,6 +696,27 @@ void (async () => {
     assert.equal(repo.updatedAt, 40, 'the newest member advances the project recency');
     assert(!projects.some(row => String(row.workdir).includes('worktrees')), 'no phantom worktree project');
     assert(!projects.some(row => row.workdir === '/elsewhere'), 'workspace-bound sessions stay out of the project list');
+
+    // Finishing a reply in a lower project advances `updatedAt`, never the project order.
+    const orderedProjects = projectRows(
+      [
+        { id: 'older', workdir: '/repo-top', updatedAt: 10 },
+        { id: 'newer', workdir: '/repo-bottom', updatedAt: 900 },
+        { id: 'unregistered-z', workdir: '/unregistered-zeta', updatedAt: 999 },
+        { id: 'unregistered-a', workdir: '/unregistered-alpha', updatedAt: 5 },
+      ],
+      {
+        roots: [
+          { path: '/repo-top', label: 'Top', updatedAt: 1, conversationCount: 0 },
+          { path: '/repo-bottom', label: 'Bottom', updatedAt: 1, conversationCount: 0 },
+        ],
+      },
+    );
+    assert.deepEqual(
+      orderedProjects.map(row => row.workdir),
+      ['/repo-top', '/repo-bottom', '/unregistered-alpha', '/unregistered-zeta'],
+      'registered projects keep their registry order and unregistered folders sort alphabetically at the tail regardless of updatedAt',
+    );
   });
   await h.test('workspace groups project to the phone with their bound sessions', async () => {
     // The desktop sidebar shows multi-folder workspace groups; `projectRows` skips their sessions
@@ -715,6 +736,28 @@ void (async () => {
     );
     assert.deepEqual(groups, [{ id: 'ws-1', name: 'Space', roots: ['/space/a', '/space/b'], updatedAt: 50, conversationCount: 2 }],
       'empty-root and id-less groups are dropped; unknown workspace ids never fabricate a group');
+    const orderedGroups = projectWorkspaceGroups(
+      [
+        { id: 's-first', workdir: '/space/a', workspaceId: 'ws-first', updatedAt: 10 },
+        { id: 's-second', workdir: '/space/c', workspaceId: 'ws-second', updatedAt: 999 },
+      ],
+      [
+        { id: 'ws-first', name: 'First', roots: ['/space/a'] },
+        { id: 'ws-second', name: 'Second', roots: ['/space/c'] },
+      ],
+    );
+    assert.deepEqual(orderedGroups.map(row => row.id), ['ws-first', 'ws-second'],
+      'workspace groups preserve registry order instead of floating the newest conversation to the top');
+    const draggedGroups = projectWorkspaceGroups(
+      [],
+      [
+        { id: 'ws-first', name: 'First', roots: ['/space/a'] },
+        { id: 'ws-second', name: 'Second', roots: ['/space/c'] },
+      ],
+      ['ws:ws-second', '/repo', 'ws:ws-first'],
+    );
+    assert.deepEqual(draggedGroups.map(row => row.id), ['ws-second', 'ws-first'],
+      'dragged sidebarOrder orders workspace groups accordingly');
     const f = await mobileFixture(); try {
       await f.enable();
       const state = object((await f.request('GET', '/api/mobile/desktop-state')).body.desktopState);

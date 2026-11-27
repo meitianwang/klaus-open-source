@@ -35,17 +35,48 @@ export interface WorkspaceDeps {
 }
 
 export function pathInside(path: string, root: string): boolean {
+  const winPath = /^[a-zA-Z]:(?:[/\\]|$)/u.test(path) || path.startsWith('\\\\');
+  const winRoot = /^[a-zA-Z]:(?:[/\\]|$)/u.test(root) || root.startsWith('\\\\');
+  if (winPath !== winRoot) return false;
+  if (winPath) {
+    const rel = win32.relative(win32.resolve(root).toLowerCase(), win32.resolve(path).toLowerCase());
+    return rel === '' || (!win32.isAbsolute(rel) && rel !== '..' && !rel.startsWith('..\\'));
+  }
   const rel = relative(resolve(root), resolve(path));
   return rel === '' || (!isAbsolute(rel) && rel !== '..' && !rel.startsWith('..' + (process.platform === 'win32' ? '\\' : '/')));
 }
 
 export function normalizeProjectPath(input: unknown): string | undefined {
-  const path = string(input).trim();
-  if (!path || path.includes('\0')) return undefined;
-  if (path.startsWith('ssh://')) return path;
-  if (!isAbsolute(path) && !win32.isAbsolute(path)) return undefined;
-  const trimmed = path.replace(/[/\\]+$/, '');
-  return /^[a-zA-Z]:$/.test(trimmed) ? win32.parse(path).root : trimmed || '/';
+  const raw = string(input).trim();
+  if (!raw || raw.includes('\0')) return undefined;
+  if (raw.startsWith('ssh://')) {
+    const rest = raw.slice('ssh://'.length);
+    const slash = rest.indexOf('/');
+    if (slash < 0) return raw;
+    const remotePath = rest.slice(slash).replace(/\/+$/, '') || '/';
+    return `ssh://${rest.slice(0, slash)}${remotePath}`;
+  }
+  const stripped = raw.replace(/^\\\\\?\\(?=[a-zA-Z]:(?:[/\\]|$))/u, '');
+  if (!isAbsolute(stripped) && !win32.isAbsolute(stripped)) return undefined;
+  if (/^[a-zA-Z]:(?:[/\\]|$)/u.test(stripped) || stripped.startsWith('\\\\')) {
+    const normalized = win32.normalize(stripped);
+    const trimmed = normalized.replace(/\\+$/, '');
+    if (/^[a-zA-Z]:$/u.test(trimmed)) return `${trimmed[0]!.toUpperCase()}:\\`;
+    if (/^[a-zA-Z]:\\/u.test(trimmed)) return `${trimmed[0]!.toUpperCase()}${trimmed.slice(1)}`;
+    const parsedRoot = win32.parse(normalized).root.replace(/\\+$/, '');
+    return trimmed && trimmed !== parsedRoot ? trimmed : win32.parse(normalized).root;
+  }
+  const trimmed = stripped.replace(/\/+$/, '');
+  return trimmed || '/';
+}
+
+export function projectPathComparisonKey(path: string): string {
+  return /^[a-zA-Z]:\\/u.test(path) || path.startsWith('\\\\') ? path.toLowerCase() : path;
+}
+
+function resolveRegisteredProjectPath(roots: readonly string[], candidate: string): string {
+  const key = projectPathComparisonKey(candidate);
+  return roots.find(root => projectPathComparisonKey(root) === key) ?? candidate;
 }
 
 function get(db: DatabaseSync, key: string): string | undefined {
@@ -186,20 +217,31 @@ function migrateMembers(db: DatabaseSync): void {
   }
   put(db, 'workspace.project_members_separated.v1', '1');
 }
-function registerProject(db: DatabaseSync, path: string, label?: string): void {
+function registerProject(db: DatabaseSync, rawPath: string, label?: string, options: { promote?: boolean } = {}): string {
   migrateMembers(db);
   const saved = projectState(db);
+  const path = resolveRegisteredProjectPath(saved.roots, rawPath);
   const isNew = !saved.roots.includes(path);
   const ordered = new Set(saved.order);
   const missing = saved.roots.filter(root => !ordered.has(root)).sort((a, b) => basename(a).localeCompare(basename(b)));
   if (missing.length) saved.order = [...saved.order, ...missing];
   if (isNew) {
-    saved.roots = [path, ...saved.roots];
-    saved.order = [path, ...saved.order.filter(root => root !== path)];
+    const sidebarOrder = sidebarProjectOrder(db);
+    const inSidebarOrder = sidebarOrder.some(key => projectPathComparisonKey(key) === projectPathComparisonKey(path));
+    if (options.promote) {
+      saved.roots = [path, ...saved.roots];
+      saved.order = [path, ...saved.order.filter(root => root !== path)];
+      if (sidebarOrder.length && !inSidebarOrder) put(db, 'workspace.sidebar_project_order', JSON.stringify([path, ...sidebarOrder]));
+    } else {
+      saved.roots = [...saved.roots, path];
+      saved.order = [...saved.order.filter(root => root !== path), path];
+      if (sidebarOrder.length && !inSidebarOrder) put(db, 'workspace.sidebar_project_order', JSON.stringify([...sidebarOrder, path]));
+    }
   }
   const cleanLabel = label?.trim();
   if (cleanLabel) saved.labels[path] = cleanLabel;
   writeProjectState(db, saved, Boolean(cleanLabel));
+  return path;
 }
 
 /** Owns workspace preferences, never the engine or the lifetime of user folders. */
@@ -270,26 +312,31 @@ export class WorkspaceStore {
         ? db.prepare('SELECT path, repo_root FROM managed_worktree_origins WHERE path IN (SELECT value FROM json_each(?))')
           .all(JSON.stringify(paths)).map(row => [String(row.path), row.repo_root]) : []);
       const managedRoots = [join(this.configRoot, 'worktrees'), managedWorktreeRoot(this.configRoot, db)];
+      const sessionsRoot = join(this.configRoot, 'sessions');
+      const savedRoots = projectState(db).roots;
       const projectRoots = new Map<string, string | null>();
       return rows.map(row => {
         const value = object(row), id = value.id;
         if (typeof id !== 'string') return row;
         const bound = bindings.get(id);
-        const managedSession = normalizeProjectPath(value.workdir) === normalizeProjectPath(join(this.configRoot, 'sessions', id));
-        let projectRoot = typeof bound?.project_root === 'string' && bound.project_root ? bound.project_root : null;
-        if (!projectRoot && !managedSession && typeof value.workdir === 'string' && value.workdir) {
-          const path = normalizeProjectPath(value.workdir);
-          if (path) {
-            if (!projectRoots.has(path)) {
-              const managed = origins.has(resolve(path)) || managedRoots.some(root => resolve(path) !== resolve(root) && pathInside(path, root));
-              const root = managed ? origins.get(resolve(path)) : path;
-              projectRoots.set(path, typeof root === 'string' && root ? root : null);
-            }
-            projectRoot = projectRoots.get(path) ?? null;
+        const normalizedWorkdir = normalizeProjectPath(value.workdir);
+        const managedSession = Boolean(normalizedWorkdir && !normalizedWorkdir.startsWith('ssh://') && pathInside(normalizedWorkdir, sessionsRoot));
+        const rawBoundRoot = typeof bound?.project_root === 'string' && bound.project_root ? normalizeProjectPath(bound.project_root) : undefined;
+        let projectRoot = rawBoundRoot && (rawBoundRoot.startsWith('ssh://') || !pathInside(rawBoundRoot, sessionsRoot))
+          ? resolveRegisteredProjectPath(savedRoots, rawBoundRoot)
+          : null;
+        if (!projectRoot && !managedSession && normalizedWorkdir) {
+          if (!projectRoots.has(normalizedWorkdir)) {
+            const managed = origins.has(resolve(normalizedWorkdir)) || managedRoots.some(root => resolve(normalizedWorkdir) !== resolve(root) && pathInside(normalizedWorkdir, root));
+            const rawRoot = managed ? normalizeProjectPath(origins.get(resolve(normalizedWorkdir))) : normalizedWorkdir;
+            projectRoots.set(normalizedWorkdir, rawRoot ? resolveRegisteredProjectPath(savedRoots, rawRoot) : null);
           }
+          projectRoot = projectRoots.get(normalizedWorkdir) ?? null;
         }
+        const boundWorkdir = typeof bound?.workdir === 'string' && bound.workdir ? bound.workdir : null;
+        const boundScratch = Boolean(boundWorkdir && !boundWorkdir.startsWith('ssh://') && pathInside(boundWorkdir, sessionsRoot));
         return { ...value,
-          workdir: typeof bound?.workdir === 'string' && bound.workdir ? bound.workdir : managedSession ? null : value.workdir ?? null,
+          workdir: boundWorkdir && !boundScratch ? boundWorkdir : managedSession ? null : value.workdir ?? null,
           workspaceId: typeof bound?.workspace_id === 'string' && bound.workspace_id ? bound.workspace_id : null,
           projectRoot,
         };
@@ -560,16 +607,22 @@ export class WorkspaceStore {
         // into the project registry nor steal the default project for new chats.
         // A workspace member folder is never a bare project: binding an
         // unbound session there must not register it nor steal the default.
-        if (!this.isManagedWorktree(path) && !isFriendScratchWorkdir(this.configRoot, path) && !workspaceMemberRoots(db).has(path)) { registerProject(db, path); put(db, 'workspace.active_root', path); }
+        const isSessionScratch = !path.startsWith('ssh://') && pathInside(path, join(this.configRoot, 'sessions'));
+        if (!isSessionScratch && !this.isManagedWorktree(path) && !isFriendScratchWorkdir(this.configRoot, path) && !workspaceMemberRoots(db).has(path)) {
+          const canonical = registerProject(db, path);
+          put(db, 'workspace.active_root', canonical);
+        }
       }
       // Project membership is locked at bind time and never follows the cwd: a
       // workspace session belongs to no bare project, a managed worktree session
       // belongs to the origin repository, and an explicit projectRoot (passed at
       // creation) wins over inference so the assignment survives later rebinds.
+      const isSessionScratch = !path.startsWith('ssh://') && pathInside(path, join(this.configRoot, 'sessions'));
       const explicit = normalizeProjectPath(context.projectRoot);
-      const assignment = context.workspaceId ? undefined
-        : explicit ?? (this.isManagedWorktree(path) ? managedWorktreeOrigin(db, path)
+      const rawAssignment = context.workspaceId || isSessionScratch ? undefined
+        : explicit ?? (this.isManagedWorktree(path) ? normalizeProjectPath(managedWorktreeOrigin(db, path))
           : isFriendScratchWorkdir(this.configRoot, path) ? undefined : normalizeProjectPath(path));
+      const assignment = rawAssignment ? resolveRegisteredProjectPath(projectState(db).roots, rawAssignment) : undefined;
       if (assignment) {
         db.prepare('INSERT INTO session_project_assignments (session_id, project_root, updated_at) VALUES (?, ?, ?) ON CONFLICT(session_id) DO UPDATE SET project_root = excluded.project_root, updated_at = excluded.updated_at').run(sessionId, assignment, Date.now());
       } else {
@@ -661,7 +714,11 @@ export class WorkspaceStore {
       migrateMembers(db);
       const id = string(payload.id).trim() || randomUUID(), name = string(payload.name).trim() || basename(paths[0]!);
       const saved = groups(db), index = saved.findIndex(group => group.id === id), group = { id, name, roots: paths };
-      if (index < 0) saved.push(group); else saved[index] = group;
+      if (index < 0) {
+        saved.push(group);
+        const sidebarOrder = sidebarProjectOrder(db), key = `ws:${id}`;
+        if (sidebarOrder.length && !sidebarOrder.includes(key)) put(db, 'workspace.sidebar_project_order', JSON.stringify([key, ...sidebarOrder]));
+      } else saved[index] = group;
       put(db, 'workspace.groups', JSON.stringify(saved)); return { id, workspaces: saved.map(item => ({ ...item })) };
     });
   }
@@ -748,6 +805,7 @@ export class WorkspaceStore {
       migrateMembers(db); const saved = projectState(db);
       const dragged = keys
         .map(key => normalizeProjectPath(key))
+        .map(path => path !== undefined ? resolveRegisteredProjectPath(saved.roots, path) : undefined)
         .filter((path): path is string => path !== undefined && saved.roots.includes(path));
       const draggedSet = new Set(dragged);
       saved.order = [...dragged, ...saved.order.filter(path => !draggedSet.has(path) && saved.roots.includes(path))];
@@ -758,13 +816,14 @@ export class WorkspaceStore {
   }
   projectsAdd(payload: JsonObject): Json {
     const path = normalizeProjectPath(payload.path); if (!path) return { error: 'invalid path' };
-    withSettingsTransaction(this.configRoot, db => registerProject(db, path, string(payload.label)));
+    withSettingsTransaction(this.configRoot, db => registerProject(db, path, string(payload.label), { promote: true }));
     return this.projectsList();
   }
   projectsRemove(payload: JsonObject): Json {
-    const path = normalizeProjectPath(payload.path); if (!path) return { error: 'invalid path' };
+    const normalized = normalizeProjectPath(payload.path); if (!normalized) return { error: 'invalid path' };
     withSettingsTransaction(this.configRoot, db => {
       migrateMembers(db); const saved = projectState(db);
+      const path = resolveRegisteredProjectPath(saved.roots, normalized);
       saved.roots = saved.roots.filter(root => root !== path); saved.order = saved.order.filter(root => root !== path);
       delete saved.labels[path]; writeProjectState(db, saved, true);
       // The dragged sidebar order names this row too; leaving it behind would keep
@@ -782,12 +841,13 @@ export class WorkspaceStore {
       migrateFriendHomeProjects(db, candidate => isFriendScratchWorkdir(this.configRoot, candidate));
       // A managed worktree is never a project identity: activating one selects
       // its origin repository instead of registering the scratch directory.
-      // A friendship scratch home is never one either: activating it keeps the
-      // previous default project instead of registering the shared home, which
-      // would add a UUID row to the sidebar and hijack new-chat defaults.
-      if (path && (isFriendScratchWorkdir(this.configRoot, path) || workspaceMemberRoots(db).has(path))) return;
-      const project = path ? (this.isManagedWorktree(path) ? managedWorktreeOrigin(db, path) : path) : '';
-      if (project) { registerProject(db, project); put(db, 'workspace.active_root', project); }
+      // A friendship scratch home or projectless session scratch directory is
+      // never one either: activating it keeps the previous default project
+      // instead of registering the scratch folder or stealing new-chat defaults.
+      const isSessionScratch = Boolean(path && !path.startsWith('ssh://') && pathInside(path, join(this.configRoot, 'sessions')));
+      if (path && (isSessionScratch || isFriendScratchWorkdir(this.configRoot, path) || workspaceMemberRoots(db).has(path))) return;
+      const project = path ? (this.isManagedWorktree(path) ? normalizeProjectPath(managedWorktreeOrigin(db, path)) ?? '' : path) : '';
+      if (project) { const canonical = registerProject(db, project); put(db, 'workspace.active_root', canonical); }
       else put(db, 'workspace.active_root', '');
     });
     return this.projectsList();

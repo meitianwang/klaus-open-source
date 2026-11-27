@@ -11,8 +11,10 @@ import { modelOptionsForValue, pickCursorModelMetadata } from '../../../shared/c
 const rows = (value: unknown): JsonObject[] => Array.isArray(value) ? value.map(object) : [];
 export function projectRows(sessions: JsonObject[], workspace: JsonObject): JsonObject[] {
   const projects = new Map<string, JsonObject>();
+  const registeredOrder: string[] = [];
   for (const row of rows(workspace.roots)) {
     const path = nonempty(row.path); if (!path) continue;
+    if (!projects.has(path)) registeredOrder.push(path);
     projects.set(path, { workdir: path, label: optionText(row.label) || pathBase(path), updatedAt: integer(row.updatedAt), conversationCount: integer(row.conversationCount) });
   }
   for (const row of sessions) {
@@ -25,19 +27,28 @@ export function projectRows(sessions: JsonObject[], workspace: JsonObject): Json
     if (entry) { entry.updatedAt = Math.max(integer(entry.updatedAt), integer(row.updatedAt)); entry.conversationCount = integer(entry.conversationCount) + 1; }
     else projects.set(path, { workdir: path, label: nonempty(object(workspace.labels)[path]) || pathBase(path), updatedAt: integer(row.updatedAt), conversationCount: 1 });
   }
-  return [...projects.values()].sort((a, b) => integer(b.updatedAt) - integer(a.updatedAt));
+  const rank = new Map(registeredOrder.map((path, index) => [path, index]));
+  return [...projects.values()].sort((a, b) => {
+    const ar = rank.get(string(a.workdir)), br = rank.get(string(b.workdir));
+    if (ar !== undefined && br !== undefined) return ar - br;
+    if (ar !== undefined) return -1;
+    if (br !== undefined) return 1;
+    return string(a.label).localeCompare(string(b.label)) || string(a.workdir).localeCompare(string(b.workdir));
+  });
 }
 /**
  * Multi-folder workspace groups (`workspaces:list`), the identity the desktop sidebar shows for
  * sessions bound to a workspace. `projectRows` deliberately skips those sessions, so without this
  * projection a phone never sees the group — nor the conversations inside it — at all.
  */
-export function projectWorkspaceGroups(sessions: JsonObject[], groups: JsonObject[]): JsonObject[] {
+export function projectWorkspaceGroups(sessions: JsonObject[], groups: JsonObject[], sidebarOrder?: unknown): JsonObject[] {
   const out = new Map<string, JsonObject>();
+  const naturalOrder: string[] = [];
   for (const group of groups) {
     const id = nonempty(group.id); if (!id) continue;
     const roots = (Array.isArray(group.roots) ? group.roots : []).map(nonempty).filter((root): root is string => root !== null);
     if (!roots.length) continue;
+    if (!out.has(id)) naturalOrder.push(id);
     out.set(id, { id, name: optionText(group.name) || pathBase(roots[0]!), roots, updatedAt: 0, conversationCount: 0 });
   }
   for (const row of sessions) {
@@ -46,9 +57,21 @@ export function projectWorkspaceGroups(sessions: JsonObject[], groups: JsonObjec
     entry.updatedAt = Math.max(integer(entry.updatedAt), integer(row.updatedAt));
     entry.conversationCount = integer(entry.conversationCount) + 1;
   }
-  return [...out.values()].sort((a, b) => integer(b.updatedAt) - integer(a.updatedAt));
+  const dragged = (Array.isArray(sidebarOrder) ? sidebarOrder : [])
+    .map(key => typeof key === 'string' && key.startsWith('ws:') ? key.slice(3) : null)
+    .filter((id): id is string => id !== null && out.has(id));
+  const draggedRank = new Map(dragged.map((id, index) => [id, index]));
+  const naturalRank = new Map(naturalOrder.map((id, index) => [id, index]));
+  return [...out.values()].sort((a, b) => {
+    const da = draggedRank.get(string(a.id)), db = draggedRank.get(string(b.id));
+    if (da !== undefined && db !== undefined) return da - db;
+    if (da !== undefined) return -1;
+    if (db !== undefined) return 1;
+    return (naturalRank.get(string(a.id)) ?? 0) - (naturalRank.get(string(b.id)) ?? 0);
+  });
 }
 function integer(value: unknown): number { return typeof value === 'number' && Number.isSafeInteger(value) ? value : 0; }
+function stringsOf(value: unknown): string[] { return Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string' && item.length > 0) : []; }
 export function normalizeCommands(value: Json): JsonObject[] {
   const seen = new Set<string>(), commands: JsonObject[] = [];
   for (const raw of rows(value)) {
@@ -115,7 +138,9 @@ export class MobileProjection {
       awaitingInputSessionIds: sessions.map(row => string(row.id)).filter(id => id && this.awaitingInput.has(id)),
       unreadSessionIds: sessions.filter(row => row.isWorking !== true).map(row => string(row.id)).filter(id => id && this.unread.has(id)),
       projects: projectRows(sessions, workspace),
-      workspaces: projectWorkspaceGroups(sessions, groups), authMode: await this.authMode() };
+      workspaces: projectWorkspaceGroups(sessions, groups, workspace.sidebarOrder),
+      ...(Array.isArray(workspace.sidebarOrder) ? { sidebarOrder: stringsOf(workspace.sidebarOrder) } : {}),
+      authMode: await this.authMode() };
   }
   async commands(sessionId: string | null | undefined = this.active()): Promise<JsonObject[]> {
     // The phone has no manual compaction surface: context management is the

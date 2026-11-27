@@ -34,12 +34,12 @@
     "unknownBeforeKeyKeepsOrder": { "keys": ["a", "b"], "active": "a", "beforeKey": "ghost", "result": ["a", "b"] }
   },
   "reconcile": {
-    "_why": "The stored order outlives individual rows: a removed project must not keep a slot, and a row nobody has arranged yet must still paint (at the head, matching how a newly registered project lands at the top of the host registry).",
+    "_why": "The stored order outlives individual rows: a removed project must not keep a slot, explicit additions prepend to the stored order row when created, and any unarranged session-derived row appends at the tail so external or implicit sessions never jump above user-arranged projects.",
     "noStoredOrderIsIdentity": { "stored": [], "current": ["a", "b"], "result": ["a", "b"] },
     "storedOrderWins": { "stored": ["b", "a"], "current": ["a", "b"], "result": ["b", "a"] },
     "vanishedKeysDropOut": { "stored": ["ghost", "b", "a"], "current": ["a", "b"], "result": ["b", "a"] },
-    "unknownKeysLeadInCurrentOrder": { "stored": ["b"], "current": ["a", "b", "c"], "result": ["a", "c", "b"] },
-    "resultAlwaysCoversCurrent": { "stored": ["c", "b"], "current": ["a", "b", "c", "d"], "result": ["a", "d", "c", "b"] },
+    "unknownKeysTrailInCurrentOrder": { "stored": ["b"], "current": ["a", "b", "c"], "result": ["b", "a", "c"] },
+    "resultAlwaysCoversCurrent": { "stored": ["c", "b"], "current": ["a", "b", "c", "d"], "result": ["c", "b", "a", "d"] },
     "parseRejectsNonArrays": { "raw": { "a": 1 }, "parsed": [] },
     "parseDropsNonStrings": { "raw": ["a", 3, null, "b", ""], "parsed": ["a", "b"] }
   },
@@ -58,7 +58,8 @@
     "undraggedRootsKeepRelativeOrder": "registered roots absent from the drag keep their previous relative order at the tail, so a reorder can never drop one",
     "removalClearsSlot": "projectsRemove, workspaces:delete and detachDirectory each drop the removed key from the sidebar order row",
     "listEchoesOrder": "projectsList returns sidebarOrder so a hydrate needs no second read",
-    "activationPreservesOrder": "activating or binding an already-registered project updates active_root without promoting that project to the head of workspace.roots or workspace.project_order"
+    "activationPreservesOrder": "activating or binding an already-registered project updates active_root without promoting that project to the head of workspace.roots or workspace.project_order",
+    "implicitRegistrationAppends": "only explicit projectsAdd promotes a newly added project to the head of workspace.roots, workspace.project_order and workspace.sidebar_project_order; implicit registration during projectsSetActive or bindSession appends at the tail"
   },
   "gesture": {
     "_why": "The interaction contract, pinned here because the DOM harness measures it end to end and a unit test cannot.",
