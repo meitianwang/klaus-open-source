@@ -3433,7 +3433,7 @@ export const CONTROL_SURFACES: ControlSurface[] = [
   },
   {
     "key": "orchestrator",
-    "about": "The orchestration execution model (编排执行模型): chooses which model carries out implementation edits and verification runs when a chat enables Orchestration mode, while the chat's selected main model handles read-only planning, stage checks, and final review. Stored once globally in Settings → Model Division & Orchestration (modelTiers); an empty model value reuses the shared Medium sub-agent tier.",
+    "about": "The orchestration execution model (编排执行模型): chooses which model carries out implementation edits, verification runs, and multi-step Git delivery when a chat enables Orchestration mode, while the chat's selected main model handles read-only planning, stage checks, and final review. Stored once globally in Settings → Model Division & Orchestration (modelTiers); an empty model value reuses the shared Medium sub-agent tier. Because Orchestrate mode is remembered as the default for new chats, turn it off for standalone Q&A (use standard mode), prefer Parallel mode for broad multi-source read-only research so bulk sources stay out of the main context, and use Plan mode first ('Implement with Orchestration') when investigation precedes coding.",
     "reads": [
       {
         "action": "get",
