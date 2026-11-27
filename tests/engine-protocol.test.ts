@@ -445,6 +445,23 @@ h.test('atomic side-task start retains foreground admission while history reads 
   f.client.close(); await Promise.all(pending);
 });
 
+h.test('background thread inspection coalesces identical reads and leaves interactive slots free', async () => {
+  const f = fakeEngine(), pending: Promise<unknown>[] = [];
+  for (const id of ['a', 'b', 'c', 'd', 'a']) {
+    pending.push(f.client.request('engine/readThread', { threadId: id, limit: 1 }, {
+      priority: 'background',
+      source: 'thread',
+      conversationId: id,
+    }).catch(error => error));
+  }
+  assertEqual(requests(f).length, 2, 'thread-scoped background reads cap at two concurrent wire operations');
+  assertEqual(f.client.schedulingStats().queued, 2, 'duplicate readThread for thread a coalesces into the running read');
+  pending.push(f.client.request('config/read', { cwd: '/repo' }).catch(error => error));
+  assertEqual(requests(f).length, 3, 'interactive user clicks dispatch immediately without waiting behind background thread reads');
+  assertEqual(requests(f)[2]?.method, 'config/read', 'interactive read enters reserved capacity');
+  f.client.close(); await Promise.all(pending);
+});
+
 // -----------------------------------------------------------------------------
 // Item 2: framing
 // -----------------------------------------------------------------------------

@@ -311,6 +311,39 @@ void (async () => {
       equal(f.service.snapshot().availableVersion, null);
     } finally { await f.close(); }
   });
+  await h.test('checks prune leftover download-* directories with read-only artifacts while keeping non-download files', async () => {
+    const f = await setup();
+    try {
+      const cacheRoot = join(f.directory, 'cache');
+      const staleDir = join(cacheRoot, 'download-stale01');
+      const staleReadOnlyZip = join(staleDir, 'update.zip');
+      const unrelatedMarker = join(cacheRoot, 'keep-notes.txt');
+      await rm(cacheRoot, { recursive: true, force: true });
+      await writeFile(unrelatedMarker, 'keep').catch(async () => {
+        const { mkdir } = await import('node:fs/promises');
+        await mkdir(staleDir, { recursive: true, mode: 0o700 });
+        await writeFile(staleReadOnlyZip, 'old-installer');
+        await chmod(staleReadOnlyZip, 0o400);
+        await writeFile(unrelatedMarker, 'keep');
+      });
+      await f.service.check();
+      await f.wait('downloaded');
+      const afterDownload = (await readdir(cacheRoot)).sort();
+      equal(afterDownload.includes('download-stale01'), false, 'leftover read-only download folder from a previous run is removed');
+      equal(afterDownload.includes('keep-notes.txt'), true, 'non-download entries in cacheRoot stay untouched');
+      equal(afterDownload.filter(name => name.startsWith('download-')).length, 1, 'only the active verified download remains');
+
+      // Also verify 204 No Content (post-upgrade startup check) prunes stale download-* directories.
+      const staleAfterUpgrade = join(cacheRoot, 'download-stale02');
+      const { mkdir } = await import('node:fs/promises');
+      await mkdir(staleAfterUpgrade, { recursive: true, mode: 0o700 });
+      await writeFile(join(staleAfterUpgrade, 'update.zip'), 'older-installer');
+      await chmod(join(staleAfterUpgrade, 'update.zip'), 0o400);
+      f.withdraw();
+      equal((await f.service.check()).state, 'idle');
+      deepEqual(await readdir(cacheRoot), ['keep-notes.txt']);
+    } finally { await f.close(); }
+  });
   await h.test('unsigned development instances expose status without networking or installation', async () => {
     let network = 0;
     const service = new UpdateService({ currentVersion: '1.0.0', cacheRoot: 'unused', emit: () => {}, fetch: async () => { network++; throw new Error('unexpected fetch'); }, installer: { install: async () => { throw new Error('unexpected install'); }, dispose: async () => {} } });

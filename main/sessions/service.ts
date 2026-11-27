@@ -1230,7 +1230,11 @@ export class SessionService {
       try {
         // This read inspects lifecycle only. It never replaces transcript state
         // or invents completion from a missing entry in the host's registry.
-        const result = object(await this.request('engine/readThread', { threadId: binding.rendererId, limit: 1 }));
+        const result = object(await this.request('engine/readThread', { threadId: binding.rendererId, limit: 1 }, undefined, {
+          priority: 'background',
+          source: 'thread',
+          conversationId: binding.rendererId,
+        }));
         this.ensureCurrentClient(owner.client);
         if (this.deps.state.liveSession(binding.rendererId) !== binding.engineId) throw new Error('Session binding changed');
         const status = object(object(result?.thread)?.status), turn = Array.isArray(result?.turns) ? object(result.turns[0]) : undefined;

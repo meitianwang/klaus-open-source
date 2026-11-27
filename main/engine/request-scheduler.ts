@@ -233,7 +233,7 @@ export class RpcRequestScheduler {
 // Keep mutations out of coalescing by construction. A new facade method is not
 // read-only just because its name happens to begin with "read" or "get".
 const coalescibleReads = new Set([
-  'engine/listSessions', 'engine/readSessionSummary', 'session/history',
+  'engine/listSessions', 'engine/readSessionSummary', 'engine/readThread', 'session/history',
   'engine/readThreadHistory', 'engine/readThreadFileChanges', 'engine/readSubagentHistory',
   'session/readHistory', 'session/contextSnapshot', 'session/modelRuntime',
   'session/queueSnapshot', 'thread/queue/list', 'session/setupLifecycle', 'session/subagentLifecycle',

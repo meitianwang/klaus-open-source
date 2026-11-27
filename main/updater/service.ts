@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, mkdtemp, open, rm } from 'node:fs/promises';
+import { chmod, lstat, mkdir, mkdtemp, open, readdir, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { parseReleaseEnvelope, updateUrl, type UpdatePolicy, type VerifiedRelease } from './policy';
 import { verifyMinisignFile } from './minisign';
@@ -204,10 +204,30 @@ export class UpdateService {
     const bytes = await this.request(this.options.policy!.feedUrl, AbortSignal.any([signal, timeout]), 128 * 1024);
     return bytes ? parseReleaseEnvelope(JSON.parse(bytes.toString('utf8')), this.options.policy!) : undefined;
   }
+  private async removeDownloadDirectory(directory: string): Promise<void> {
+    await chmod(directory, 0o700).catch(() => {});
+    const entries = await readdir(directory, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (!entry.isSymbolicLink()) await chmod(join(directory, entry.name), entry.isDirectory() ? 0o700 : 0o600).catch(() => {});
+    }
+    await rm(directory, { recursive: true, force: true }).catch(() => {});
+  }
+  private async pruneStaleDownloads(): Promise<void> {
+    const root = await lstat(this.options.cacheRoot).catch(() => undefined);
+    if (!root || !root.isDirectory() || root.isSymbolicLink()) return;
+    const entries = await readdir(this.options.cacheRoot, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (!entry.name.startsWith('download-')) continue;
+      const target = join(this.options.cacheRoot, entry.name);
+      if (target === this.directory) continue;
+      if (entry.isSymbolicLink()) { await rm(target, { force: true }).catch(() => {}); continue; }
+      if (entry.isDirectory()) await this.removeDownloadDirectory(target);
+    }
+  }
   private async clearPending(): Promise<void> {
     this.pending = undefined;
     const directory = this.directory; this.directory = undefined;
-    if (directory) await rm(directory, { recursive: true, force: true });
+    if (directory) await this.removeDownloadDirectory(directory);
   }
   /**
    * Returns after the feed response; transfer progress continues on
@@ -229,7 +249,7 @@ export class UpdateService {
         this.status = { ...this.status, explicit };
         if (!silentAvailableRefresh) this.publish('checking');
         const proof = await this.offer(controller.signal);
-        if (!proof) { await this.clearPending(); this.publish('idle', null, null); return; }
+        if (!proof) { await this.clearPending(); await this.pruneStaleDownloads(); this.publish('idle', null, null); return; }
         if (this.pending?.proof.digest === proof.digest) {
           // A later timer must not download the same large installer again.
           // Recheck the private cache and preserve the explicit install choice.
@@ -257,6 +277,7 @@ export class UpdateService {
         const root = await lstat(this.options.cacheRoot);
         if (!root.isDirectory() || root.isSymbolicLink()) throw new Error('Update cache must be a private directory');
         await chmod(this.options.cacheRoot, 0o700);
+        await this.pruneStaleDownloads();
         this.directory = await mkdtemp(join(this.options.cacheRoot, 'download-'));
         const file = join(this.directory, proof.release.artifact.kind === 'mac-zip' ? 'update.zip' : 'update.exe');
         const handle = await open(file, 'wx', 0o600);

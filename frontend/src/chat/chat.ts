@@ -7486,8 +7486,15 @@ window.addEventListener('klaus:session-change', () => {
   publishNativeMenuState()
 })
 window.addEventListener('klaus:panel-tabs-change', publishNativeMenuState)
+const WINDOW_FOCUS_RUNTIME_AUDIT_COOLDOWN_MS = 5_000
+let lastWindowFocusRuntimeAuditAt = 0
 window.addEventListener('focus', publishNativeMenuState)
-window.addEventListener('focus', () => scheduleSessionRuntimeAudit({ once: true }))
+window.addEventListener('focus', () => {
+  const now = Date.now()
+  if (now - lastWindowFocusRuntimeAuditAt < WINDOW_FOCUS_RUNTIME_AUDIT_COOLDOWN_MS) return
+  lastWindowFocusRuntimeAuditAt = now
+  scheduleSessionRuntimeAudit({ once: true })
+})
 const nativeMenuObserver = new MutationObserver(publishNativeMenuState)
 for (const id of ['terminal-toggle', 'browser-panel-toggle', 'browser-reload']) {
   const control = document.getElementById(id)
