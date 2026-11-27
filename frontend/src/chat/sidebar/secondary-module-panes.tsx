@@ -367,6 +367,13 @@ function SecondarySessionSubRow({
       data-rename-row-key={rowKey}
       className={`${styles.subRow}${active ? ` ${styles.subRowActive}` : ''}`}
       onClick={onSelect}
+      onDoubleClick={(e) => {
+        e.preventDefault()
+        e.stopPropagation()
+        ;(window as unknown as {
+          klausStartSidebarSessionRename?: (id: string, row: HTMLElement | null, initialTitleOverride?: string) => void
+        }).klausStartSidebarSessionRename?.(sessionId, e.currentTarget, editableTitle)
+      }}
       onContextMenu={(e) => {
         ;(window as unknown as {
           klausShowSessionContextMenu?: (

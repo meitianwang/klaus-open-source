@@ -65,6 +65,13 @@ export function startInlineRename(init: Omit<ActiveInlineRename, 'id'>): ActiveI
   return next
 }
 
+export function rebindInlineRenameSession(fromSessionId: string, toSessionId: string): boolean {
+  if (activeRename?.sessionId !== fromSessionId) return false
+  activeRename = { ...activeRename, sessionId: toSessionId }
+  emitChange()
+  return true
+}
+
 export function clearActiveInlineRename(renameId?: number): boolean {
   if (!activeRename) return false
   if (renameId !== undefined && activeRename.id !== renameId) return false

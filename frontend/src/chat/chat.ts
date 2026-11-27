@@ -229,6 +229,8 @@ import {
 } from './sidebar/secondary-module-panes'
 import {
   getActiveInlineRename,
+  cancelInlineRename,
+  rebindInlineRenameSession,
   mountTitlebarInlineRenameInput,
   startInlineRename,
   subscribeInlineRename,
@@ -7161,9 +7163,14 @@ const sidebarApi = mountSidebar({
   rootEl: sessionListEl,
   actions: {
     switchSession: (id: string) => switchSession(id),
+    renameSession: (id, row) => startSidebarSessionRename(id, row),
     showContextMenu: (event: MouseEvent, sessionId: string, rowEl) => {
       const session = sessions.find((candidate) => candidate.id === sessionId)
       if (session) showSessionContextMenu(event, session, rowEl)
+      else {
+        const pending = findUnmaterializedPendingSubmission(sessionId)
+        if (pending) showPendingSubmissionContextMenu(event, pending, rowEl)
+      }
     },
     toggleProject: (workdir) => toggleProjectSidebarItem(workdir),
     projectMenu: (key: string, anchor: HTMLElement, point: { x: number; y: number } | null) => {
@@ -7329,8 +7336,22 @@ function commandMenuProjectLabel(session: SessionInfo): string | null {
   reloadBrowserPage: () => { document.getElementById('browser-reload')?.click() },
   newChat: () => { document.getElementById('btn-new-chat')?.click() },
   openFolder: () => { void pickAndRegisterProjectWorkdir() },
-  renameThread: () => { const id = window.currentSessionId; if (id) startTitlebarSessionRename(id) },
-  archiveThread: () => { const id = window.currentSessionId; if (id) void archiveSessionFromMenu(id) },
+  renameThread: () => {
+    const id = window.currentSessionId
+    if (id) startTitlebarSessionRename(id)
+    else if (visiblePendingSubmissionId) {
+      const pending = pendingComposerSubmissions.get(visiblePendingSubmissionId)
+      if (pending && !pending.sessionId) startSidebarSessionRename(pending.viewId, findSidebarRenameRow(null, pending.viewId))
+    }
+  },
+  archiveThread: () => {
+    const id = window.currentSessionId
+    if (id) void archiveSessionFromMenu(id)
+    else if (visiblePendingSubmissionId) {
+      const pending = pendingComposerSubmissions.get(visiblePendingSubmissionId)
+      if (pending && !pending.sessionId) void archivePendingSubmission(pending.viewId)
+    }
+  },
   toggleThreadPin: () => {
     const id = window.currentSessionId
     const session = sessions.find(candidate => candidate.id === id)
@@ -8176,18 +8197,19 @@ function initialEditableTitleForSession(session: SessionInfo | null | undefined,
   return isPlaceholderSessionTitle(cleaned) ? '' : cleaned
 }
 
-function focusSidebarRenameRow(rowKey: string | null, fallbackSessionId: string): void {
+function findSidebarRenameRow(rowKey: string | null, fallbackSessionId: string): HTMLElement | null {
   const esc = (value: string) => (typeof CSS !== 'undefined' && typeof CSS.escape === 'function')
     ? CSS.escape(value)
     : value.replace(/["\\]/g, '\\$&')
   if (rowKey) {
     const target = document.querySelector<HTMLElement>(`[data-rename-row-key="${esc(rowKey)}"]`)
-    if (target) {
-      target.focus({ preventScroll: true })
-      return
-    }
+    if (target) return target
   }
-  document.querySelector<HTMLElement>(`[data-session-id="${esc(fallbackSessionId)}"]`)?.focus({ preventScroll: true })
+  return document.querySelector<HTMLElement>(`[data-session-id="${esc(fallbackSessionId)}"]`)
+}
+
+function focusSidebarRenameRow(rowKey: string | null, fallbackSessionId: string): void {
+  findSidebarRenameRow(rowKey, fallbackSessionId)?.focus({ preventScroll: true })
 }
 
 async function commitSessionRename(id: string, rawTitle: string) {
@@ -8222,20 +8244,28 @@ async function commitSessionRename(id: string, rawTitle: string) {
 
 function startSidebarSessionRename(id: string, row: HTMLElement | null, initialTitleOverride?: string) {
   const target = sessions.find((s) => s.id === id)
-  if (!target || target.archived) return
+  const pending = target ? null : findUnmaterializedPendingSubmission(id)
+  if ((!target && !pending) || target?.archived) return
+  const pendingTitle = (initialTitleOverride ?? pending?.provisionalTitle ?? '').trim()
   const rowKey = row?.dataset.renameRowKey || null
   startInlineRename({
     sessionId: id,
     surface: 'sidebar',
     rowKey,
-    initialValue: initialEditableTitleForSession(target, initialTitleOverride),
+    initialValue: pending ? (isPlaceholderSessionTitle(pendingTitle) ? '' : pendingTitle) : initialEditableTitleForSession(target, initialTitleOverride),
     placeholder: tt('new_chat') || 'New chat',
     ariaLabel: tt('rename_session_placeholder') || 'Conversation name',
     onCommit: (sessionId, nextTitle) => {
-      void commitSessionRename(sessionId, nextTitle)
+      if (!pending || pending.sessionId) void commitSessionRename(pending?.sessionId ?? sessionId, nextTitle)
+      else {
+        pending.provisionalTitle = nextTitle
+        pending.userRenamed = true
+        renderSessionList()
+        syncTitlebarSessionTitle()
+      }
     },
     restoreFocus: () => {
-      focusSidebarRenameRow(rowKey, id)
+      focusSidebarRenameRow(rowKey, pending?.sessionId || pending?.viewId || id)
     },
   })
 }
@@ -8290,17 +8320,54 @@ window.klausForkSession = forkSessionFromMenu
 
 const sessionArchivePending = new Set<string>()
 
+function findUnmaterializedPendingSubmission(viewId: string | null | undefined): PendingComposerSubmission | null {
+  if (!viewId) return null
+  for (const pending of pendingComposerSubmissions.values()) {
+    if (!pending.sessionId && pending.viewId === viewId) return pending
+  }
+  return null
+}
+
+async function archivePendingSubmission(id: string, opts: { confirmWhenIdle?: boolean } = {}) {
+  const pending = findUnmaterializedPendingSubmission(id)
+  if (!pending) return
+  const isBusy = pending.phase === 'preparing' || pending.phase === 'submitting'
+  if (opts.confirmWhenIdle !== false || isBusy) {
+    if (!await window.klausDialog.confirm({ title: tt('archive_session_title'), message: tt('archive_session_message'), confirmText: tt('session_menu_archive') })) return
+  }
+  if (pending.sessionId) return archiveSessionFromMenu(pending.sessionId, { confirmWhenIdle: false })
+  if (!findUnmaterializedPendingSubmission(id)) return
+  dismissPendingComposerSubmission(pending)
+  showToast(tt('archive_session_success'))
+}
+
+async function deletePendingSubmission(id: string, opts: { skipConfirm?: boolean }) {
+  const pending = findUnmaterializedPendingSubmission(id)
+  if (!pending) return
+  if (!opts.skipConfirm && !await window.klausDialog.confirm({
+    title: tt('delete_session_title'),
+    message: tt('delete_session_message').replace('{title}', pending.provisionalTitle || tt('new_chat')),
+    confirmText: tt('session_menu_delete'),
+  })) return
+  if (pending.sessionId) return deleteSession(pending.sessionId, { skipConfirm: true })
+  if (!findUnmaterializedPendingSubmission(id)) return
+  dismissPendingComposerSubmission(pending)
+  showToast(tt('toast_deleted'), { tone: 'success' })
+}
+
 async function archiveSessionFromRow(id: string) {
   if (!id || sessionArchivePending.has(id)) return
   sessionArchivePending.add(id)
   try {
-    await archiveSessionFromMenu(id, { confirmWhenIdle: false })
+    if (id.startsWith('pending:')) await archivePendingSubmission(id, { confirmWhenIdle: false })
+    else await archiveSessionFromMenu(id, { confirmWhenIdle: false })
   } finally {
     sessionArchivePending.delete(id)
   }
 }
 
 async function archiveSessionFromMenu(id: string, opts: { confirmWhenIdle?: boolean } = {}) {
+  if (id.startsWith('pending:') && typeof archivePendingSubmission === 'function') { await archivePendingSubmission(id, opts); return }
   const target = findKnownSession(id)
   const isBusy = (window.KlausBackgroundProcessPanel?.count?.(id, true) || 0) > 0
     || (typeof isSidebarSessionWorking === 'function' && isSidebarSessionWorking(id))
@@ -8487,11 +8554,18 @@ function sessionMenuItemIconSvg(action: string) {
   return known.includes(action) ? klausIcon(`session-menu-${action}`) : ''
 }
 
+function showPendingSubmissionContextMenu(
+  event: MouseEvent, pending: PendingComposerSubmission, row: HTMLElement | null, initialTitleOverride?: string,
+) {
+  showSessionContextMenu(event, null, row, initialTitleOverride, pending)
+}
+
 function showSessionContextMenu(
   e: MouseEvent | { clientX: number; clientY: number; preventDefault(): void; stopPropagation(): void },
-  session: SessionInfo,
+  session: SessionInfo | null,
   row: HTMLElement | null,
   initialTitleOverride?: string,
+  pending?: PendingComposerSubmission,
 ) {
   e.preventDefault()
   e.stopPropagation()
@@ -8505,8 +8579,13 @@ function showSessionContextMenu(
   menu.className = 'workspace-context-menu session-context-menu'
   menu.setAttribute('role', 'menu')
   const isRust = true
-  const isWorktree = isWorktreeSessionWorkdir(session.workdir)
-  const items = session.archived
+  const isWorktree = isWorktreeSessionWorkdir(session?.workdir)
+  const items = !session ? [
+    ['rename', tt('session_menu_rename')],
+    ['report', tt('debug_report_tooltip')],
+    ['archive', tt('session_menu_archive')],
+    ['delete', tt('session_menu_delete'), 'danger'],
+  ] : session.archived
     ? [
         ['export', tt('session_menu_export')],
         ['copy-id', tt('session_menu_copy_id')],
@@ -8544,7 +8623,14 @@ function showSessionContextMenu(
       const targetInitialTitle = sessionContextInitialTitle
       closeSessionContextMenu()
       try {
-        await runSessionContextAction(action as string, session, targetRow, targetInitialTitle)
+        if (session) await runSessionContextAction(action as string, session, targetRow, targetInitialTitle)
+        else if (pending) {
+          const id = pending.sessionId || pending.viewId
+          if (action === 'rename') startSidebarSessionRename(id, targetRow, targetInitialTitle)
+          else if (action === 'report') await submitDebugReport('')
+          else if (action === 'archive') await archiveSessionFromMenu(id)
+          else if (action === 'delete') await deleteSession(id)
+        }
       } catch (error) {
         await window.klausDialog.alert(sessionActionErrorText((error as Error | null)?.message || error, 'session_action_failed'))
       }
@@ -8585,9 +8671,14 @@ function showSessionContextMenu(
   ) => void
 }).klausShowSessionContextMenu = (ev, sessionId, row, initialTitleOverride) => {
   const target = findKnownSession(sessionId)
-  if (!target) return
-  showSessionContextMenu(ev, target, row, initialTitleOverride)
+  if (target) showSessionContextMenu(ev, target, row, initialTitleOverride)
+  else {
+    const pending = findUnmaterializedPendingSubmission(sessionId)
+    if (pending) showPendingSubmissionContextMenu(ev, pending, row, initialTitleOverride)
+  }
 }
+;(window as unknown as { klausStartSidebarSessionRename?: typeof startSidebarSessionRename })
+  .klausStartSidebarSessionRename = startSidebarSessionRename
 
 function renderCronChannelBanner(sessionId: string) {
   const el = document.getElementById('cron-channel-banner')
@@ -9144,6 +9235,9 @@ async function ensureSession(pending?: PendingComposerSubmission) {
     draftOnlySessionIds.add(info.id)
     seedPromotedComposerPreferences(info.id, inheritedWorkMode)
     if (pending?.cancelled) {
+      sessions = sessions.filter(candidate => candidate.id !== info.id)
+      draftOnlySessionIds.delete(info.id)
+      renderSessionList()
       void klausApi.session.delete(info.id).catch(() => {})
       return info.id
     }
@@ -9333,6 +9427,7 @@ async function saveSessionDeletePreference(key: string, value: boolean) {
 //   分支保留）；不勾则只删会话文件。
 // opts.skipConfirm：归档页批量/单条删除自带确认，跳过这里的弹框（不 wipe、不动 worktree）。
 async function deleteSession(id: string, opts: { skipConfirm?: boolean } = {}) {
+  if (id.startsWith('pending:') && typeof deletePendingSubmission === 'function') { await deletePendingSubmission(id, opts); return }
   if (sessionDeletePending.has(id)) return
   const target = findKnownSession(id)
   const targetWorkdir = normalizeProjectWorkdir(target?.workdir)
@@ -11551,10 +11646,14 @@ function promotePendingComposerSubmission(pending: PendingComposerSubmission, se
     // would otherwise render both the synthetic pending row and the real session row.
     pending.sessionId = sessionId
     pending.viewId = sessionId
+    if (typeof rebindInlineRenameSession === 'function') rebindInlineRenameSession(previousViewId, sessionId)
     movePendingUserTurn(previousViewId, sessionId, pending.uuid)
     // Rebind the mounted view in the same commit that removes its provisional source.
     if (visible) mountReactTranscript(sessionId, messagesEl, { scroll: 'main' })
   })
+  if (pending.userRenamed && pending.provisionalTitle && typeof commitSessionRename === 'function') {
+    void commitSessionRename(sessionId, pending.provisionalTitle)
+  }
 }
 
 /** A delayed admission acknowledgement must never stop a replacement turn. */
@@ -11596,6 +11695,8 @@ function acceptPendingComposerSubmission(pending: PendingComposerSubmission): vo
 
 function dismissPendingComposerSubmission(pending: PendingComposerSubmission): void {
   if (pending.phase === 'accepted' || !pendingComposerSubmissions.has(pending.id)) return
+  if (typeof getActiveInlineRename === 'function' && typeof cancelInlineRename === 'function'
+    && getActiveInlineRename()?.sessionId === pending.viewId) cancelInlineRename()
   const side = sidePendingSubmissionIds.has(pending.id)
   pending.cancelled = true
   pending.phase = 'cancelled'
@@ -11976,6 +12077,7 @@ async function sendMessage(options: ComposerSendOptions = {}) {
     try {
       await ensureSession(pending)
     } catch (error) {
+      if (pending.cancelled) return
       pending.phase = 'failed'
       pending.error = (error as Error)?.message || String(error)
       console.warn('[composer] session creation during send preparation failed:', error)

@@ -197,6 +197,7 @@
 /* Session/thread row — same shape as sidebar-nav-item, same
    muted-fg behavior: inactive 85%, hover/active 100%. */
 .session-item {
+  user-select: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -616,6 +617,7 @@
 }
 
 .project-thread-item {
+  user-select: none;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -662,6 +664,7 @@
 }
 
 .session-rename-input {
+  user-select: text;
   flex: 1 1 auto;
   min-width: 0;
   height: 22px;

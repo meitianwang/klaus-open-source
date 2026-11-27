@@ -100,6 +100,20 @@ function render(snap: SidebarSnapshot): string {
   return renderToStaticMarkup(<SidebarRoot store={store} actions={actions} />)
 }
 
+test('provisional project rows keep their rename key and expose only settled archive', () => {
+  const projectRow = (spec: SessionRowSpec) => render(snapshot({
+    recent: { rows: [], collapsed: false, collapsedBadge: null },
+    projects: { rows: [project('app', { threads: { rows: [spec], more: false } })], collapsed: false, collapsedBadge: null },
+  }))
+  const working = projectRow(row('pending:abc', { working: true }))
+  const settled = projectRow(row('pending:abc'))
+  const promoted = projectRow(row('real-1', { renderKey: 'pending:abc' }))
+  expect(working).not.toContain('data-session-action=')
+  expect(settled).toContain('data-session-action="archive"')
+  expect(settled).not.toContain('data-session-action="pin"')
+  for (const html of [working, settled, promoted]) expect(html).toContain('data-rename-row-key="project-thread:pending:abc"')
+})
+
 /** Every section-head toggle button, by its distinguishing attributes. */
 function sectionToggles(html: string): string[] {
   // The head toggle is the button whose first child is the label span and

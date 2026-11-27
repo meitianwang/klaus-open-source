@@ -7,6 +7,7 @@ import {
   cancelInlineRename,
   getActiveInlineRename,
   isImeComposingKeyEvent,
+  rebindInlineRenameSession,
   resetInlineRenameForTests,
   settleInlineRenameValue,
   startInlineRename,
@@ -15,6 +16,18 @@ import {
 describe('inline session rename state and contracts', () => {
   afterEach(() => {
     resetInlineRenameForTests()
+  })
+
+  test('commits an active provisional rename to the promoted session', () => {
+    const commits: string[][] = []
+    const active = startInlineRename({ sessionId: 'pending:abc', surface: 'sidebar',
+      rowKey: 'project-thread:pending:abc', initialValue: 'Before', placeholder: 'New chat',
+      ariaLabel: 'Name', onCommit: (...args) => commits.push(args) })
+    expect(rebindInlineRenameSession('pending:abc', 'real-1')).toBe(true)
+    const rebound = getActiveInlineRename()!
+    expect(rebound).toEqual({ ...active, sessionId: 'real-1' })
+    settleInlineRenameValue(rebound, ' After ', { restoreFocus: false })
+    expect(commits).toEqual([['real-1', 'After']])
   })
 
   test('tracks a single active inline rename and commits only trimmed changed values', () => {

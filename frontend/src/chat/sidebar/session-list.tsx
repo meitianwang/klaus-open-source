@@ -109,6 +109,7 @@ export interface SidebarSnapshot {
 }
 
 export interface SidebarActions {
+  renameSession?(sessionId: string, rowEl: HTMLElement): void
   switchSession(id: string): void
   showContextMenu(event: MouseEvent | React.MouseEvent, sessionId: string, rowEl: HTMLElement): void
   toggleProject(workdir: string): void
@@ -243,7 +244,8 @@ function stopRowActionKeyDown(e: React.KeyboardEvent) {
  *  These two icon-only buttons have no visible text labels, so they opt into
  *  localized hover tooltips (`top` placement) alongside `aria-label`. */
 function SessionRowActions({ row, actions }: { row: SessionRowSpec; actions: SidebarActions }) {
-  if (row.id.startsWith('pending:')) return null
+  const isPending = row.id.startsWith('pending:')
+  if (isPending && row.working) return null
   const pinLabel = row.pinned
     ? chipLabel('session_row_unpin', 'Unpin chat')
     : chipLabel('session_row_pin', 'Pin chat')
@@ -251,7 +253,7 @@ function SessionRowActions({ row, actions }: { row: SessionRowSpec; actions: Sid
   const archiveLabel = chipLabel('session_row_archive', 'Archive chat')
   return (
     <span className={styles['session-row-actions']}>
-      <button
+      {!isPending && <button
         type="button"
         className={styles['session-row-action']}
         data-session-action="pin"
@@ -268,7 +270,7 @@ function SessionRowActions({ row, actions }: { row: SessionRowSpec; actions: Sid
           actions.togglePin(row.id)
         }}
         dangerouslySetInnerHTML={{ __html: rawIconHtml(pinIcon) }}
-      />
+      />}
       <button
         type="button"
         className={styles['session-row-action']}
@@ -291,7 +293,7 @@ function SessionRowActions({ row, actions }: { row: SessionRowSpec; actions: Sid
 }
 
 function SessionRow({ row, actions }: { row: SessionRowSpec; actions: SidebarActions }) {
-  const rowKey = row.renderKey ?? `session:${row.id}`
+  const rowKey = `session:${row.renderKey ?? row.id}`
   const activeRename = useInlineRenameForRow(row.id, rowKey)
   const isRenaming = Boolean(activeRename)
   return (
@@ -460,7 +462,7 @@ function projectThreadSuffixHtml(row: ProjectThreadRowSpec): string {
 }
 
 function ProjectThreadRow({ row, actions }: { row: ProjectThreadRowSpec; actions: SidebarActions }) {
-  const rowKey = row.renderKey ?? `project-thread:${row.id}`
+  const rowKey = `project-thread:${row.renderKey ?? row.id}`
   const activeRename = useInlineRenameForRow(row.id, rowKey)
   const isRenaming = Boolean(activeRename)
   return (
@@ -523,6 +525,12 @@ function SessionRowContainer({ className, row, rowKey, isRenaming, actions, onCl
         if (e.key !== 'Enter' && e.key !== ' ') return
         e.preventDefault()
         onClick(e as unknown as React.MouseEvent)
+      }}
+      onDoubleClick={(e) => {
+        if (isRenaming || (e.target as Element).closest('input, [data-session-action], .s-status-pill')) return
+        e.preventDefault()
+        e.stopPropagation()
+        actions.renameSession?.(row.id, e.currentTarget)
       }}
       onContextMenu={(e) => {
         if (isRenaming || (e.target as HTMLElement).closest('input')) return

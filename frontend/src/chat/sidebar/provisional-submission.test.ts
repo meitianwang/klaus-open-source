@@ -54,6 +54,7 @@ function createSidebarSendHarness(options: {
   initialExpansion: Record<string, boolean>
   initialSectionsCollapsed?: Record<string, boolean>
   existingTitles?: string[]
+  commitSessionRename?: (id: string, title: string) => void
 }) {
   const root = options.projectRoot ?? '/repo/klaus'
   const workspace = options.workspace ?? null
@@ -158,6 +159,12 @@ function createSidebarSendHarness(options: {
     provisionalSessionTitle,
     provisionalTitleForPayload,
     clearPendingSubmissionRecovery() {},
+    discardPendingUserTurn: store.discardPendingUserTurn,
+    unmountReactTranscript() {},
+    syncBusyForCurrentSession() {},
+    syncMainTranscriptChrome() {},
+    sideRuntimeForSession: () => null,
+    commitSessionRename: options.commitSessionRename,
     clearUnsentSubmission() {},
     hasMoreProjectThreads,
     isProjectOpen,
@@ -219,6 +226,7 @@ function createSidebarSendHarness(options: {
       createdAt: Date.now(),
     }),
     mainScrollController: {
+      clearPendingLatestTurnPlacement() {},
       resetForConversation() {},
       prepareLatestTurnPlacement() {},
       movePendingLatestTurnPlacement() {},
@@ -252,6 +260,7 @@ function createSidebarSendHarness(options: {
     beginPendingComposerSubmission(draft: any, files: any[], slash: any, token: string, goalMode?: boolean): any
     ensureSession(pending?: any): Promise<string | null>
     acceptPendingComposerSubmission(pending: any): void
+    dismissPendingComposerSubmission(pending: any): void
     applySessionTitleUpdate(sessionId: string, title: string): boolean
     setProjectThreadListOpen(workdir: string | null, open: boolean): void
   }>([
@@ -296,8 +305,9 @@ function createSidebarSendHarness(options: {
     'promotePendingComposerSubmission',
     'reconcileCancelledComposerAdmissions',
     'acceptPendingComposerSubmission',
+    'dismissPendingComposerSubmission',
     'ensureSession',
-  ], c, '{ renderSessionList, beginPendingComposerSubmission, ensureSession, acceptPendingComposerSubmission, applySessionTitleUpdate, setProjectThreadListOpen }')
+  ], c, '{ renderSessionList, beginPendingComposerSubmission, ensureSession, acceptPendingComposerSubmission, dismissPendingComposerSubmission, applySessionTitleUpdate, setProjectThreadListOpen }')
 
   // Mirror the global stream-store subscription that marks promoted sessions running
   // and synchronously re-renders the sidebar list inside flushSync.
@@ -325,6 +335,36 @@ function createSidebarSendHarness(options: {
 }
 
 describe('sending a new chat into a sidebar project group', () => {
+  test('promotes a manual provisional title and removes a dismissed failed row', async () => {
+    const commits: string[][] = []
+    const harness = createSidebarSendHarness({ initialExpansion: { '/repo/klaus': true }, existingTitles: [],
+      commitSessionRename: (...args) => { commits.push(args) } })
+    const begin = () => harness.api.beginPendingComposerSubmission(normalizeComposerDraft('Original'), [], null, '0:0')
+    const rows = () => harness.snapshots.at(-1)!.projects.rows.flatMap((p: any) => p.threads?.rows ?? [])
+    try {
+      const failed = begin()
+      failed.phase = 'failed'
+      harness.api.renderSessionList()
+      expect(rows().some((row: any) => row.id === failed.viewId)).toBe(true)
+      harness.api.dismissPendingComposerSubmission(failed)
+      expect(rows().some((row: any) => row.id === failed.viewId)).toBe(false)
+
+      const pending = begin()
+      pending.userRenamed = true
+      pending.provisionalTitle = 'Custom Architecture Name'
+      harness.api.renderSessionList()
+      expect(rows().find((row: any) => row.id === pending.viewId)?.title).toBe(pending.provisionalTitle)
+      const promotion = harness.api.ensureSession(pending)
+      harness.resolveSessionNew({ id: 'real-1', title: 'New Chat', createdAt: 2000, updatedAt: 2000, workdir: '/repo/klaus' })
+      await promotion
+      harness.api.renderSessionList()
+      expect(rows().find((row: any) => row.id === 'real-1')?.title).toBe(pending.provisionalTitle)
+      expect(commits).toEqual([['real-1', 'Custom Architecture Name']])
+    } finally {
+      harness.cleanup()
+    }
+  })
+
   test('an explicitly collapsed project stays collapsed across send and session promotion without flashing a single-item list', async () => {
     const harness = createSidebarSendHarness({
       projectRoot: '/repo/klaus',
