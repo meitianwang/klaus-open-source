@@ -1,0 +1,55 @@
+{
+  "version": 1,
+  "reason": "Market catalogs must retain dependency metadata across list, batch and detail responses so clients report declared missing requirements instead of readiness. Object metadata and legacy JSON strings remain supported.",
+  "cases": [
+    {
+      "slug": "object-missing",
+      "metadata": { "klaus": { "emoji": " 🧪 ", "requires": { "bins": ["missing-bin"], "env": ["ABSENT"] } } },
+      "expected": { "dependencyStatus": "missing", "missingBins": ["missing-bin"], "missingEnv": ["ABSENT"], "emoji": "🧪" }
+    },
+    {
+      "slug": "legacy-missing",
+      "metadata": "{\"klaus\":{\"emoji\":\" 🧪 \",\"requires\":{\"bins\":[\"missing-bin\"],\"env\":[\"ABSENT\"]}}}",
+      "expected": { "dependencyStatus": "missing", "missingBins": ["missing-bin"], "missingEnv": ["ABSENT"], "emoji": "🧪" }
+    },
+    {
+      "slug": "object-config",
+      "metadata": { "openclaw": { "requires": { "env": ["ABSENT"] } } },
+      "expected": { "dependencyStatus": "config", "missingBins": [], "missingEnv": ["ABSENT"] }
+    },
+    {
+      "slug": "legacy-unsupported",
+      "metadata": "{\"clawdbot\":{\"os\":[\"win32\"],\"requires\":{\"bins\":[\"missing-bin\"]}}}",
+      "expected": { "dependencyStatus": "unsupported", "missingBins": ["missing-bin"], "missingEnv": [] }
+    },
+    {
+      "slug": "flat-missing",
+      "metadata": { "requires": { "bins": ["missing-bin"] } },
+      "expected": { "dependencyStatus": "missing", "missingBins": ["missing-bin"], "missingEnv": [] }
+    },
+    {
+      "slug": "no-declarations",
+      "expected": { "dependencyStatus": "ready", "missingBins": [], "missingEnv": [] }
+    },
+    {
+      "slug": "empty-declarations",
+      "metadata": {},
+      "expected": { "dependencyStatus": "ready", "missingBins": [], "missingEnv": [] }
+    },
+    {
+      "slug": "invalid-json",
+      "metadata": "{\"klaus\":",
+      "expected": { "dependencyStatus": "invalid", "missingBins": [], "missingEnv": [], "error": "Skill dependency metadata is invalid" }
+    },
+    {
+      "slug": "invalid-array",
+      "metadata": [{ "requires": { "bins": ["missing-bin"] } }],
+      "expected": { "dependencyStatus": "invalid", "missingBins": [], "missingEnv": [], "error": "Skill dependency metadata is invalid" }
+    },
+    {
+      "slug": "invalid-encoded-scalar",
+      "metadata": "42",
+      "expected": { "dependencyStatus": "invalid", "missingBins": [], "missingEnv": [], "error": "Skill dependency metadata is invalid" }
+    }
+  ]
+}

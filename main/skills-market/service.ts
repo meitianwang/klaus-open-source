@@ -54,6 +54,16 @@ const dependencies = (value: { missingBins: string[]; missingEnv: string[]; unsu
   dependencyStatus: value.unsupported ? 'unsupported' : value.missingBins.length ? 'missing' : value.missingEnv.length ? 'config' : 'ready',
   missingBins: value.missingBins, missingEnv: value.missingEnv,
 });
+function remoteMetadata(value: Json | undefined): { metadata: JsonObject; error?: string } {
+  if (value == null || value === '') return { metadata: {} };
+  try {
+    const parsed: unknown = typeof value === 'string' ? JSON.parse(value) : value;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('Expected a metadata object');
+    return { metadata: object(parsed) };
+  } catch {
+    return { metadata: {}, error: 'Skill dependency metadata is invalid' };
+  }
+}
 
 /** Acquires skill content, while the existing SkillService serializes every skill mutation. */
 export class SkillMarketService {
@@ -140,8 +150,8 @@ export class SkillMarketService {
   }
   private async remoteItem(item: JsonObject, installed: string[], versions: Map<string, string>): Promise<JsonObject> {
     const slug = string(item.slug), local = versions.get(slug), latest = object(item.latestVersion).version;
-    let metadata: JsonObject = {}; if (typeof item.metadata === 'string') try { metadata = object(JSON.parse(item.metadata)); } catch { /* A missing declaration has no executable dependency to test. */ }
-    const declared = object(metadata.klaus ?? metadata.openclaw ?? metadata.clawdbot ?? metadata)
+    const { metadata, error } = remoteMetadata(item.metadata);
+    const declared = object(metadata.klaus ?? metadata.openclaw ?? metadata.clawdbot ?? metadata);
     const displayName = string(item.displayName).trim(), nameZh = string(item.nameCn).trim();
     const descriptionEn = string(item.summary).trim(), descriptionZh = string(item.descriptionCn).trim();
     return { name: nameZh || displayName || slug, description: descriptionZh || descriptionEn,
@@ -149,7 +159,7 @@ export class SkillMarketService {
       ...(descriptionEn ? { descriptionEn } : {}), ...(descriptionZh ? { descriptionZh } : {}),
       source: 'market', userInvocable: true, userEnabled: false, installed: installed.includes(slug), dirName: slug, upstreamSlug: slug,
       hasUpdate: installed.includes(slug) && typeof latest === 'string' && Boolean(latest) && Boolean(local) && local !== latest,
-      ...dependencies(await this.deps.skills.missingDependencies({ metadata })),
+      ...(error ? { dependencyStatus: 'invalid', missingBins: [], missingEnv: [], error } : dependencies(await this.deps.skills.missingDependencies({ metadata }))),
       ...(local === undefined ? {} : { version: local }), ...(typeof latest === 'string' ? { latestVersion: latest } : {}),
       // Server-side iconography: the catalog's own icon URL and the skill's
       // self-declared emoji travel with the listing so the client can brand

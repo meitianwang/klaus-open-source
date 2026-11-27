@@ -6094,6 +6094,72 @@
         }
       }
     },
+    "engine/checkSkillDependencies": {
+      "params": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "EngineCheckSkillDependenciesParams",
+        "description": "Data-only requirements evaluated in the engine's recovered shell environment.",
+        "type": "object",
+        "required": [
+          "cwd"
+        ],
+        "properties": {
+          "bins": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "cwd": {
+            "type": "string"
+          },
+          "env": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "os": {
+            "default": [],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      },
+      "result": {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "title": "EngineCheckSkillDependenciesResult",
+        "description": "Presence information only: no environment values or resolved paths.",
+        "type": "object",
+        "required": [
+          "missingBins",
+          "missingEnv",
+          "unsupported"
+        ],
+        "properties": {
+          "missingBins": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "missingEnv": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "unsupported": {
+            "type": "boolean"
+          }
+        }
+      }
+    },
     "engine/builtinAgents": {
       "params": {
         "$schema": "http://json-schema.org/draft-07/schema#",

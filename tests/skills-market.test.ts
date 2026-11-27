@@ -104,6 +104,26 @@ void (async () => {
       assert.match(String(object(await f.market.market({})).error), /no items array/);
     } finally { await f.close(); }
   });
+  await h.test('remote dependency metadata supports objects and legacy JSON without false readiness', async () => {
+    const vectors = JSON.parse(await readFile(join(__dirname, '../../contracts/vectors/skill-market-metadata-vectors.json'), 'utf8')) as {
+      cases: Array<{ slug: string; metadata?: Json; expected: JsonObject }>;
+    };
+    const f = await remote();
+    try {
+      f.route((_request, response) => { response.end(JSON.stringify({
+        items: vectors.cases.map(({ slug, metadata }) => ({ slug, ...(metadata === undefined ? {} : { metadata }) })),
+      })); });
+      const result = object(await f.market.market({})), rows = result.items as JsonObject[];
+      assert.equal(result.isRemote, true);
+      assert.equal(rows.length, vectors.cases.length);
+      for (const vector of vectors.cases) {
+        const row = rows.find(item => item.dirName === vector.slug)!;
+        for (const key of ['dependencyStatus', 'missingBins', 'missingEnv', 'emoji', 'error']) {
+          assert.deepEqual(row[key], vector.expected[key], `${vector.slug}.${key}`);
+        }
+      }
+    } finally { await f.close(); }
+  });
   await h.test('remote install replaces the whole skill, retains preference fields and records the selected version', async () => {
     const f = await remote();
     try {

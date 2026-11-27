@@ -234,7 +234,6 @@ import { OfficialPluginsService } from '../services/extensions/official-plugins'
 import { registerHookStyleHandlers } from '../ipc/handlers/hooks-styles';
 import { HooksTrustState } from '../services/extensions/hooks-state';
 import type { HookStyleService } from '../services/extensions/hooks-styles';
-import { inheritedEnv } from '../engine/spawn';
 import { registerPluginHandlers, registerRuntimeViewHandlers } from '../ipc/handlers/plugins';
 import type { PluginProgressEvent, PluginService } from '../services/extensions/plugins';
 import { requestAcknowledged } from '../engine/acknowledged';
@@ -1791,7 +1790,6 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   early.add(() => documents.close());
   const skills = registerSkillHandlers(registry, {
     workspaces, request: (method, params) => sessions.request(method, object(params) ?? {}), openPreviewWindow,
-    environment: async () => Object.fromEntries(inheritedEnv({ ...process.env, KLAUS_CONFIG_DIR: configRoot })),
     bundledSkills: () => extensions.discovery.bundledSkills(),
     onChanged: async () => { await invalidateSkillCatalog(); emit('app:preferences-changed', { key: 'skills' }); },
   });

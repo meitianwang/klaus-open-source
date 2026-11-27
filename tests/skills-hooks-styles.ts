@@ -112,6 +112,30 @@ export function registerSkillsHooksStyleTests(h: Harness, freshRoot: () => strin
       assertEqual(kvGet('skill:../escape', f.root), null, 'invalid toggle writes no preference');
     } finally { await f.close(); }
   });
+  h.test('production skill dependencies use the sessionless engine facade and reject unavailable checks', async () => {
+    const root = freshRoot(), calls: Array<{ method: string; params: JsonObject }> = [];
+    let result: unknown = { missingBins: [], missingEnv: ['ABSENT'], unsupported: false };
+    let failure: Error | undefined;
+    const f = await fixture(root, { environment: undefined, request: async (method, params) => {
+      calls.push({ method, params: object(params) });
+      if (failure) throw failure;
+      return result;
+    } });
+    const meta = { metadata: { klaus: { requires: { bins: ['node', 'npm', 'ffmpeg', 'ffprobe'], env: ['ABSENT'] }, os: ['darwin'] } } };
+    try {
+      assertDeepEqual(await f.skills.missingDependencies(meta), { missingBins: [], missingEnv: ['ABSENT'], unsupported: false }, 'engine recovery determines availability');
+      assertDeepEqual(calls, [{ method: 'engine/checkSkillDependencies', params: {
+        cwd: root, bins: ['node', 'npm', 'ffmpeg', 'ffprobe'], env: ['ABSENT'], os: ['darwin'],
+      } }], 'no session id or environment values cross the facade');
+      result = {};
+      await assertRejects(() => f.skills.missingDependencies(meta), 'an invalid response never reports ready');
+      result = { missingBins: ['undeclared'], missingEnv: [], unsupported: false };
+      await assertRejects(() => f.skills.missingDependencies(meta), 'unexpected requirement names are refused');
+      failure = new Error('dependency checker unavailable');
+      await assertRejects(() => f.skills.missingDependencies(meta), 'a failed recovery never reports ready');
+      assertDeepEqual(await f.skills.missingDependencies({}), { missingBins: [], missingEnv: [], unsupported: false }, 'undeclared requirements need no process probe');
+    } finally { await f.close(); }
+  });
   h.test('saved toggle and uninstall results remain truthful when live reload fails', async () => {
     const root = freshRoot(), f = await fixture(root, { onChanged: async () => { throw new Error('reload fixture failure'); } });
     try {

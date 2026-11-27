@@ -1,4 +1,4 @@
-import { open, rm, stat } from 'node:fs/promises';
+import { mkdir, open, rm, stat } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:path';
 import type { Json } from '../../ipc/contract';
 import { IpcHandlerError } from '../../ipc/registry';
@@ -16,6 +16,7 @@ export interface SkillDeps {
   request: EngineRequest;
   onChanged: (projectRoot?: string) => Promise<void>;
   openPreviewWindow: (options: { kind: 'skill'; filePath: string }) => Promise<void>;
+  /** An explicit environment isolates dependency checks in host fixtures. */
   environment?: () => Promise<NodeJS.ProcessEnv>;
   platform?: NodeJS.Platform;
   bundledSkills?: () => Promise<JsonObject[]>;
@@ -59,8 +60,20 @@ export class SkillService {
   withMutation<T>(operation: () => Promise<T>): Promise<T> {
     return this.mutations.run(async () => { this.active(); return operation(); });
   }
-  async missingDependencies(meta: JsonObject): Promise<{ missingBins: string[]; missingEnv: string[]; unsupported: boolean }> {
+  async missingDependencies(meta: JsonObject, cwd = this.configRoot): Promise<{ missingBins: string[]; missingEnv: string[]; unsupported: boolean }> {
     const metadata = object(meta.metadata), nested = object(metadata.klaus ?? metadata.openclaw ?? metadata.clawdbot ?? metadata), requires = object(nested.requires);
+    const bins = strings(requires.bins), env = strings(requires.env), os = strings(nested.os);
+    if (!bins.length && !env.length && !os.length) return { missingBins: [], missingEnv: [], unsupported: false };
+    if (!this.deps.environment) {
+      if (cwd === this.configRoot) await mkdir(cwd, { recursive: true });
+      const result = object(await this.deps.request('engine/checkSkillDependencies', { cwd, bins, env, os }));
+      const validNames = (value: Json | undefined, declared: string[]): value is string[] =>
+        Array.isArray(value) && value.every(name => typeof name === 'string' && declared.includes(name));
+      if (!validNames(result.missingBins, bins) || !validNames(result.missingEnv, env) || typeof result.unsupported !== 'boolean') {
+        throw new Error('Skill dependency checker returned an invalid response');
+      }
+      return { missingBins: result.missingBins, missingEnv: result.missingEnv, unsupported: result.unsupported };
+    }
     const environment = await this.deps.environment?.() ?? process.env, platform = this.deps.platform ?? process.platform;
     const windows = platform === 'win32', paths = string(environment.PATH ?? environment.Path).split(windows ? ';' : ':').filter(Boolean);
     const suffixes = windows ? ['', ...string(environment.PATHEXT, '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean).map(value => value.toLowerCase())] : [''];
@@ -107,7 +120,7 @@ export class SkillService {
       if (raw !== undefined) { const parsed = frontmatter(raw); meta = parsed.data; parseError = parsed.error; }
       else parseError = 'Installed skill has no readable SKILL.md';
       const metadata = object(meta.metadata), nested = object(metadata.klaus ?? metadata.openclaw ?? metadata.clawdbot ?? metadata);
-      const dependencies = parseError ? { missingBins: [], missingEnv: [], unsupported: false } : await this.missingDependencies(meta); let enabled = true;
+      const dependencies = parseError ? { missingBins: [], missingEnv: [], unsupported: false } : await this.missingDependencies(meta, scope.root); let enabled = true;
       const pref = preferences.get(name); if (pref !== undefined) try { enabled = object(JSON.parse(pref)).enabled !== false; } catch { enabled = pref !== 'off'; }
       const displayName = (scalar(meta.display_name) ?? scalar(meta['display-name']))?.trim();
       const nameZh = (scalar(meta.name_zh) ?? scalar(meta['name-zh']))?.trim();
