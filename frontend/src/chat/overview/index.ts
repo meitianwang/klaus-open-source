@@ -21,7 +21,7 @@ import { initComputerUseSection, renderComputerUseSection } from './computer-use
 // ---- Public face (chat.ts / approvals.ts / panel-tabs.tsx consume these) ----
 export type { MonitorSummaryDeps } from './shared'
 export { applyDefaultCollapseState } from './shared'
-export { artifactTurn, artifactsReady, ensureArtifactsForSession, formatLineCount, reloadArtifacts, revealArtifacts, subscribeArtifacts, artifactsVersion } from './artifacts'
+export { artifactTurn, artifactsReady, ensureArtifactsForSession, formatLineCount, reloadArtifacts, revealArtifacts, sessionHasArtifactPath, subscribeArtifacts, artifactsVersion } from './artifacts'
 export type { ArtifactFile, ArtifactTurn, LineCount } from './artifacts'
 export { noteCommandReference, noteMemoryWriteReference, noteToolReference, renderReferencesPanel } from './context-refs'
 export { reconcilePlanSection, renderPlanRows, resetPlanViewport, revealPlan } from './plan'

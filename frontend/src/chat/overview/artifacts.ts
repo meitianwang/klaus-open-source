@@ -129,6 +129,11 @@ export function artifactTurn(sessionId: string | null, turnId: string | null): A
   return sessionCache.get(sessionId)?.find(entry => entry.turnId === turnId) ?? null
 }
 
+export function sessionHasArtifactPath(sessionId: string | null, filePath: string): boolean {
+  if (!sessionId || !filePath) return false
+  return sessionCache.get(sessionId)?.some(turn => turn.files.some(file => file.path === filePath)) ?? false
+}
+
 function sessionFileKind(first: string, latest: string): string {
   if (latest === 'delete') return 'delete'
   return first === 'create' ? 'create' : 'modify'

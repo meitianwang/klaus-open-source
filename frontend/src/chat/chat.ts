@@ -251,7 +251,9 @@ import { initEquityResearchPanel, hideEquityResearchPanel, scheduleEquityResearc
 import { createDesignChatConsumer } from './design-chat'
 import type { DesignChatRequest } from '../../bridge/design-api'
 import { initBackgroundProcessMonitor } from './background-process-monitor'
-import { initMonitorSummary, noteToolReference, noteCommandReference, reconcilePlanSection, renderPlanRows, initSubagentSection, renderSubagentSection, subagentConversationId, subagentDisplayName, subagentDisplayStatus, subagentTaskText, noteMemoryWriteReference } from './overview'
+import { initMonitorSummary, noteToolReference, noteCommandReference, reconcilePlanSection, renderPlanRows, initSubagentSection, renderSubagentSection, sessionHasArtifactPath, subagentConversationId, subagentDisplayName, subagentDisplayStatus, subagentTaskText, noteMemoryWriteReference } from './overview'
+import { endResourcesForSession } from './end-resources'
+import { handleSystemOpenFiles } from './system-file-open'
 import { normalizeSubagentAvatarIds, preserveSubagentAvatarId, subagentAvatarHtml } from './subagent-avatar'
 import { notifySubagentsChanged } from './subagent-state'
 import { paintSubagentModel } from './subagent-model'
@@ -19603,17 +19605,19 @@ klausApi.on.deepLinkOpenFolder?.(({ directory }: { directory?: string }) => queu
   newChat({ workdir: directory })
   showWorkspaceMainView({ openPanel: true })
 }))
-klausApi.on.deepLinkOpenFiles?.((payload: { files?: string[] } | undefined) => queueSystemOpen(async () => {
-  const files = [...new Set((payload?.files ?? []).filter(path => typeof path === 'string' && path.trim()))]
-  if (!files.length) return
-  window.KlausPanelTabs?.setMaximized?.(false)
-  const activeId = window.currentSessionId
-  const reuse = !currentNonChatView && !document.getElementById('settings-view')?.classList.contains('active')
-    && activeId && !findKnownSession(activeId)?.archived && hasOpenWorkspaceTabs(activeId, files)
-  if (!reuse) {
-    newChat({ workdir: null })
-    const sessionId = await ensureSession()
-    if (!sessionId || window.currentSessionId !== sessionId) return
+klausApi.on.deepLinkOpenFiles?.((payload: { files?: string[] } | undefined) => queueSystemOpen(() => handleSystemOpenFiles(payload, {
+  currentSessionId: () => window.currentSessionId,
+  inChatView: () => !currentNonChatView && !document.getElementById('settings-view')?.classList.contains('active'),
+  findSession: findKnownSession,
+  sessionWorkdir,
+  workspaceRootFor,
+  hasOpenWorkspaceTabs,
+  sessionHasArtifactPath,
+  endResourcesForSession,
+  draftProjectWorkdir,
+  newProjectlessChat: () => newChat({ workdir: null }),
+  ensureSession,
+  attachFiles: files => {
     const images: string[] = []
     for (const filePath of files) {
       if (pendingFiles.some(entry => entry.uploadPath === filePath || entry.sourcePath === filePath)) continue
@@ -19624,12 +19628,14 @@ klausApi.on.deepLinkOpenFiles?.((payload: { files?: string[] } | undefined) => q
     if (images.length) addFilePaths(images)
     renderPreviews()
     updateSendBtn()
-  }
-  const wsWidth = currentWorkspaceWidth()
-  const widened = preferredDesignPanelWidth(rightPanelRatioToWidth(rightPanelWidthRatio, wsWidth), wsWidth)
-  if (widened !== null) setRightPanelWidthPx(widened, { updateRatio: true })
-  for (const path of reuse ? files.slice(-1) : files) openWorkspaceFilePath(path)
-}))
+  },
+  widenOfficePanel: calc => {
+    const wsWidth = currentWorkspaceWidth()
+    const widened = calc(rightPanelRatioToWidth(rightPanelWidthRatio, wsWidth), wsWidth)
+    if (widened !== null) setRightPanelWidthPx(widened, { updateRatio: true })
+  },
+  openFile: openWorkspaceFilePath,
+})))
 klausApi.on.deepLinkOpenTeamIssue?.((payload: unknown) => { openTeamIssueDeepLink(payload) })
 // A clicked add-me link: queue the invite and show the friends page; the page
 // consumes the queue when its island mounts (or immediately, if already up).
@@ -20275,6 +20281,10 @@ window.syncArtifactsToggleVisibility = syncArtifactsToggleVisibility
 function openArtifactsPanel(mode: string = 'monitor') {
   if (!artifactsPanel) return
   responsiveLayoutState.autoClosedPanel = false
+  const wasCollapsed = artifactsPanel.classList.contains('collapsed')
+  if (wasCollapsed && window.KlausPanelTabs?.isMaximized?.()) {
+    window.KlausPanelTabs.setMaximized(false)
+  }
   const nextMode = normalizePanelMode(mode)
   setArtifactsPanelMode(nextMode)
   artifactsPanel.classList.remove('collapsed')
@@ -20313,6 +20323,9 @@ window.closeArtifactsPanel = closeArtifactsPanel
 function closeArtifactsPanel() {
   if (!artifactsPanel) return
   responsiveLayoutState.autoClosedPanel = false
+  if (window.KlausPanelTabs?.isMaximized?.()) {
+    window.KlausPanelTabs.setMaximized(false)
+  }
   const mode = artifactsPanel.getAttribute('data-mode') || 'monitor'
   // Diff / workspace surfaces live inside the panel now: collapsing the
   // panel must exit the surface too, otherwise an active-but-invisible

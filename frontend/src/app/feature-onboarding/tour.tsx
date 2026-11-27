@@ -29,7 +29,7 @@ const HOLE_PADDING = 6
  *  A page's own island renders well inside this window; a control that is absent
  *  because the user is not signed in to that feature never appears at all, and
  *  waiting longer for it would only lengthen the gap. */
-const ANCHOR_RETRY_MS = 300
+const ANCHOR_RETRY_MS = 450
 
 interface Box { top: number; left: number; width: number; height: number }
 
@@ -38,12 +38,23 @@ function sameBox(a: Box | null, b: Box): boolean {
     && a!.width === b.width && a!.height === b.height
 }
 
-/** Measure a step's anchor, or null while it is absent or not laid out. */
+export function isAnchorBoxVisibleInViewport(
+  rect: { top: number; left: number; width: number; height: number },
+  viewportWidth: number,
+  viewportHeight: number,
+): boolean {
+  if (rect.width <= 0 || rect.height <= 0) return false
+  if (viewportWidth > 0 && (rect.left + rect.width <= 0 || rect.left >= viewportWidth)) return false
+  if (viewportHeight > 0 && (rect.top + rect.height <= 0 || rect.top >= viewportHeight)) return false
+  return true
+}
+
+/** Measure a step's anchor, or null while it is absent, hidden, or still off-screen. */
 function measureAnchor(step: TourStep): Box | null {
   const element = document.getElementById(step.anchor)
   if (!element) return null
   const rect = element.getBoundingClientRect()
-  if (!rect.width && !rect.height) return null
+  if (!isAnchorBoxVisibleInViewport(rect, window.innerWidth, window.innerHeight)) return null
   return {
     top: rect.top - HOLE_PADDING,
     left: rect.left - HOLE_PADDING,
@@ -101,6 +112,8 @@ export function FeatureTour({ entry, onFinish }: {
   const [box, setBox] = useState<Box | null>(null)
   const [bubbleBox, setBubbleBox] = useState<Box | null>(null)
   const bubbleRef = useRef<HTMLDivElement>(null)
+  const boxRef = useRef<Box | null>(null)
+  boxRef.current = box
   const finished = useRef(false)
 
   const finish = useCallback((completed: boolean) => {
@@ -119,6 +132,10 @@ export function FeatureTour({ entry, onFinish }: {
     if (!step) return undefined
     let cancelled = false
     const started = Date.now()
+    setBox(current => {
+      const immediate = measureAnchor(step)
+      return immediate && sameBox(current, immediate) ? current : null
+    })
     const attempt = () => {
       if (cancelled) return
       const measured = measureAnchor(step)
@@ -145,18 +162,34 @@ export function FeatureTour({ entry, onFinish }: {
     if (!step) return undefined
     const remeasure = () => {
       const measured = measureAnchor(step)
-      if (!measured) return
+      if (!measured) {
+        if (boxRef.current) finish(false)
+        return
+      }
       setBox(current => (sameBox(current, measured) ? current : measured))
     }
     window.addEventListener('resize', remeasure)
-    // Capturing, because the surfaces a step points at scroll inside their own
-    // containers rather than the window.
+    // Capturing, because the surfaces a step points at scroll or transition
+    // inside their own containers rather than the window.
     window.addEventListener('scroll', remeasure, true)
+    window.addEventListener('transitionend', remeasure, true)
+    window.addEventListener('klaus:panel-tabs-change', remeasure)
+    let observer: ResizeObserver | null = null
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(remeasure)
+      const anchor = document.getElementById(step.anchor)
+      const panel = document.getElementById('artifacts-panel')
+      if (anchor) observer.observe(anchor)
+      if (panel && panel !== anchor) observer.observe(panel)
+    }
     return () => {
       window.removeEventListener('resize', remeasure)
       window.removeEventListener('scroll', remeasure, true)
+      window.removeEventListener('transitionend', remeasure, true)
+      window.removeEventListener('klaus:panel-tabs-change', remeasure)
+      observer?.disconnect()
     }
-  }, [step])
+  }, [step, finish])
 
   // Escape leaves the walkthrough. Exiting counts as done: the user has declined,
   // and replaying on their next visit turns a dismissal into a recurring

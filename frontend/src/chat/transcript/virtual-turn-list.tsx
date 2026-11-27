@@ -63,6 +63,20 @@ function borderBoxHeight(entry: ResizeObserverEntry): number {
   return box ? box.blockSize : entry.contentRect.height
 }
 
+function borderBoxWidth(entry: ResizeObserverEntry): number {
+  const box = Array.isArray(entry.borderBoxSize) ? entry.borderBoxSize[0] : entry.borderBoxSize as unknown as ResizeObserverSize | undefined
+  return box ? box.inlineSize : entry.contentRect.width
+}
+
+/** True when hidden (`display: none`) or collapsed to zero inline width (`flex: 0 0 0` while maximized). */
+export function hasCollapsedInlineSize(element: HTMLElement | null | undefined): boolean {
+  if (!element) return true
+  const rects = element.getClientRects()
+  if (rects.length === 0) return true
+  const rect = rects[0]!
+  return rect.height > 0 && rect.width <= 0
+}
+
 function overflowBelowViewport(scrollEl: HTMLElement, element: HTMLElement | null): number {
   return element == null ? 0 : element.getBoundingClientRect().bottom - scrollEl.getBoundingClientRect().bottom
 }
@@ -159,7 +173,7 @@ export function VirtualTurnList({
   }
 
   const updateWindow = (distanceFromBottomPx: number, viewportHeightPx: number) => {
-    if (listRef.current?.getClientRects().length === 0) return
+    if (hasCollapsedInlineSize(listRef.current) || hasCollapsedInlineSize(scrollEl)) return
     if (pendingRef.current != null || viewportHeightPx <= 0) return
     const current = windowRef.current
     const next = nextWindowState(current, distanceFromBottomPx, currentLayout(), viewportHeightPx)
@@ -182,7 +196,7 @@ export function VirtualTurnList({
   /** Accept new row heights and keep the reading anchor still. Returns true when geometry changed. */
   const measure = (changes: Measured, sync = true, mode: 'measured' | 'controller' = 'measured'): boolean => {
     const current = currentLayout()
-    if (scrollEl.getClientRects().length === 0 || listRef.current?.getClientRects().length === 0) return false
+    if (hasCollapsedInlineSize(scrollEl) || hasCollapsedInlineSize(listRef.current)) return false
     const pending = pendingRef.current
     const heights = heightsRef.current
     let next = heights
@@ -289,13 +303,18 @@ export function VirtualTurnList({
       let followChanged = false
       for (const record of records) {
         const key = rowKeys.current.get(record.target)
-        if (key != null) changes.set(key, { element: record.target as HTMLElement, heightPx: borderBoxHeight(record) })
+        if (key != null) {
+          const height = borderBoxHeight(record), width = borderBoxWidth(record)
+          if (height > 0 && width <= 0) continue
+          changes.set(key, { element: record.target as HTMLElement, heightPx: height })
+        }
         else if (followElements.current.has(record.target)) {
-          const height = borderBoxHeight(record)
+          const height = borderBoxHeight(record), width = borderBoxWidth(record)
+          if (height > 0 && width <= 0) continue
           if (followElements.current.get(record.target) !== height) { followElements.current.set(record.target, height); followChanged = true }
         }
       }
-      measureRef.current(changes)
+      if (changes.size > 0) measureRef.current(changes)
       if (followChanged) runtime.current.notifyFollowContent()
     })
     return observerRef.current
@@ -357,8 +376,8 @@ export function VirtualTurnList({
     const changes: Measured = new Map()
     for (const [key, element] of observed) {
       if (rowElements.current.get(key) !== element) continue
-      const height = element.getBoundingClientRect().height
-      if (height > 0) changes.set(key, { element, heightPx: height })
+      const rect = element.getBoundingClientRect()
+      if (rect.height > 0 && rect.width > 0) changes.set(key, { element, heightPx: rect.height })
     }
     if (changes.size > 0) {
       if (measure(changes, false, 'controller')) {
@@ -412,7 +431,7 @@ export function VirtualTurnList({
   const reportHistoryViewport = (distance: number) => {
     if (!onHistoryViewportChange) return
     if (distance > BOTTOM_TOLERANCE_PX || scrollRequestRef.current != null || pendingRef.current != null
-      || listRef.current?.getClientRects().length === 0) { onHistoryViewportChange(null); return }
+      || hasCollapsedInlineSize(listRef.current) || hasCollapsedInlineSize(scrollEl)) { onHistoryViewportChange(null); return }
     const geometry = currentLayout()
     const visible = turnRangeForDistance(geometry, Math.max(0, distance - bottomGap()), viewportHeight(), 0)
     onHistoryViewportChange(geometry.turnKeys.slice(visible.startIndex, visible.endIndex))
@@ -425,11 +444,22 @@ export function VirtualTurnList({
 
   // Reader scrolling and viewport resizes.
   useLayoutEffect(() => {
+    let collapsedInline = hasCollapsedInlineSize(scrollEl) || hasCollapsedInlineSize(listRef.current)
     const viewport = new ResizeObserver(records => {
       const record = records.find(item => item.target === scrollEl)
       if (record) {
         const height = borderBoxHeight(record)
+        const nowCollapsed = (height > 0 && borderBoxWidth(record) <= 0) || hasCollapsedInlineSize(listRef.current)
         viewportHeightRef.current = height
+        if (collapsedInline && !nowCollapsed) {
+          const changes: Measured = new Map()
+          for (const [key, element] of rowElements.current) {
+            const rect = element.getBoundingClientRect()
+            if (rect.height > 0 && rect.width > 0) changes.set(key, { element, heightPx: rect.height })
+          }
+          if (changes.size > 0) measureRef.current(changes, false, 'controller')
+        }
+        collapsedInline = nowCollapsed
         runtime.current.updateWindow(windowRef.current.distanceFromBottomPx, height)
         if (pendingRef.current == null) runtime.current.restoreDistance()
       }
