@@ -10,6 +10,7 @@ import type { ThreadToolsService } from '../services/thread-tools';
 import type { MediaFiles } from '../services/media-files';
 import type { FileService } from '../services/files';
 import type { DigramService } from '../digram/service';
+import type { ComposerPredictions } from '../services/composer-predictions';
 import { mobileMediaPreview } from '../services/mobile/previews';
 import { object, string, type JsonObject } from '../services/service-types';
 
@@ -34,6 +35,7 @@ export function createMobileRuntime(deps: {
   media?: Pick<MediaFiles, 'grant' | 'respond'>;
   files?: Pick<FileService, 'inlineVisualizationContent'>;
   digram?: Pick<DigramService, 'store' | 'icon'>;
+  composerPredictions?: Pick<ComposerPredictions, 'allocateOwnerId' | 'availability' | 'source' | 'predict' | 'cancel' | 'detachOwner'>;
   deviceStatus?: () => Promise<Record<string, string>>;
   unreadChanged?: () => void;
   isDesktopViewingSession?: (sessionId: string, remoteOrigin: boolean) => boolean;
@@ -108,6 +110,7 @@ export function createMobileRuntime(deps: {
       }
       return { document, icons };
     } : undefined,
+    composerPredictions: deps.composerPredictions,
     threadRequest: deps.threadTools ? async (name, payload, context) => {
       const current = deps.sessions.engine();
       const assertCurrent = (): void => {

@@ -18,7 +18,7 @@ import { MediaFiles } from '../main/services/media-files';
 import { mobileMediaPreview } from '../main/services/mobile/previews';
 import { pathInside } from '../main/services/workspaces';
 
-export async function mobileFixture(options: Pick<MobileBridgeDeps, 'sessionInterestChanged' | 'connectionChanged' | 'friendMessage' | 'friendRevoked' | 'friendConnected' | 'friendDisconnected' | 'threadRequest' | 'inlineVisualizationPreview' | 'mediaPreview' | 'diagramPreview' | 'unreadChanged' | 'isDesktopViewingSession' | 'socketHeartbeatMs' | 'socketPongTimeoutMs' | 'log' | 'diagnosticsEnabled' | 'catalogPage' | 'catalogRow' | 'catalogVisible' | 'ensureEngineOwner' | 'composerRetryDelaysMs'> & { acknowledgeFriendHello?: boolean } = {}) {
+export async function mobileFixture(options: Pick<MobileBridgeDeps, 'sessionInterestChanged' | 'connectionChanged' | 'friendMessage' | 'friendRevoked' | 'friendConnected' | 'friendDisconnected' | 'threadRequest' | 'inlineVisualizationPreview' | 'mediaPreview' | 'diagramPreview' | 'composerPredictions' | 'unreadChanged' | 'isDesktopViewingSession' | 'socketHeartbeatMs' | 'socketPongTimeoutMs' | 'log' | 'diagnosticsEnabled' | 'catalogPage' | 'catalogRow' | 'catalogVisible' | 'ensureEngineOwner' | 'composerRetryDelaysMs'> & { acknowledgeFriendHello?: boolean } = {}) {
   const root = await realpath(await mkdtemp(join(tmpdir(), 'klaus-mobile-fixture-')));
   const attachments = new AttachmentService(new WorkspaceStore({ configRoot: root, push: () => {}, onSessionWorkdirChanged: () => {}, pickDirectory: async () => null }));
   const media = new MediaFiles(async (path, sessionId) => ['s1', 's2'].includes(sessionId) && pathInside(path, root));
@@ -54,6 +54,7 @@ export async function mobileFixture(options: Pick<MobileBridgeDeps, 'sessionInte
   const histories = new Map<string, Json[]>([['s1', []], ['s2', [{ type: 'user', text: 'existing' }]]]);
   const followStreams = new Map<string, { streamId: string; revision: number }>();
   let model = 'auto', level = 'medium', authMode = 'custom', style = 'default', followUpMode = 'queue';
+  const kvStore = new Map<string, string>();
   const commands: JsonObject[] = [{ name: 'run-skill', source: 'skill', description: 'Fixture\n skill' }, { name: 'plugin:cmd', source: 'plugin' }, { name: 'mcp-check', source: 'mcp' }, { name: 'plain' }, { name: 'plain' }, { name: '../invalid' }, { name: 'compact', type: 'local', description: 'CLI-only compaction entry point' }];
   let intercept: ((channel: string, payload: JsonObject, context: MobileCallContext) => Promise<Json | undefined>) | undefined;
   const bridge = new MobileBridgeService({ configRoot: root, relayURL, env: {}, account: () => account, engineOwner: () => ownerAvailable ? owner : undefined,
@@ -69,6 +70,7 @@ export async function mobileFixture(options: Pick<MobileBridgeDeps, 'sessionInte
     mediaPreview: options.mediaPreview ?? ((sessionId, path, signal, range) => mobileMediaPreview(media, sessionId, path, signal, range)),
     inlineVisualizationPreview: options.inlineVisualizationPreview,
     diagramPreview: options.diagramPreview,
+    composerPredictions: options.composerPredictions,
     unreadChanged: options.unreadChanged,
     isDesktopViewingSession: options.isDesktopViewingSession,
     authorizationExpired: () => { authorizationExpired++; },
@@ -99,8 +101,19 @@ export async function mobileFixture(options: Pick<MobileBridgeDeps, 'sessionInte
         case 'agents:snapshot': return { tasks: {} };
         case 'permission:pending': case 'elicit:pending': case 'question:pending': return [];
         case 'tasks:list': return { available: true, tasks: [] };
-        case 'settings:kv:get': return payload.key === 'follow_up_queue_mode' ? followUpMode : authMode;
-        case 'settings:kv:set': if (payload.key === 'follow_up_queue_mode') followUpMode = string(payload.value); else authMode = string(payload.value); return true;
+        case 'settings:kv:get': {
+          const key = string(payload.key);
+          if (key === 'follow_up_queue_mode') return followUpMode;
+          if (key === 'auth_mode' || !key) return authMode;
+          return kvStore.has(key) ? kvStore.get(key)! : null;
+        }
+        case 'settings:kv:set': {
+          const key = string(payload.key), value = string(payload.value);
+          if (key === 'follow_up_queue_mode') followUpMode = value;
+          else if (key === 'auth_mode' || !key) authMode = value;
+          else kvStore.set(key, value);
+          return true;
+        }
         case 'engine:slashCommands': return commands;
         case 'session:get-main-model': return { mode: model, source: authMode, resolvedMode: model === 'auto' ? authMode + ':fixture' : model };
         case 'session:get-ultra-mode': return { enabled: false };

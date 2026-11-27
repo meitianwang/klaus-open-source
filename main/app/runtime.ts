@@ -471,7 +471,10 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       const terminal = value?.type === 'done' || value?.type === 'interrupted' || value?.type === 'api_error' && value.terminal === true;
       if (terminal && typeof value?.sessionId === 'string' && typeof value.turnId === 'string') {
         // The owner prepares live predictions even when another chat is visible.
-        void composerPredictions?.predict(value.sessionId, value.turnId, 'live', sessionMainWindow(value.sessionId).webContents.id).catch(error => log.write('prediction-live', String(error)));
+        const targetWindow = sessionMainWindow(value.sessionId);
+        if (!targetWindow.isDestroyed() && !targetWindow.webContents.isDestroyed()) {
+          void composerPredictions?.predict(value.sessionId, value.turnId, 'live', targetWindow.webContents.id).catch(error => log.write('prediction-live', String(error)));
+        }
       }
     }
     notifications?.observeChat(events);
@@ -2379,7 +2382,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
       const owner = mainWindows.get(ownerId);
       return !!owner && !owner.isDestroyed() && owner.isVisible() && !owner.isMinimized() && (!remoteOrigin || owner.isFocused());
     }),
-    friendMessage: (message, signal) => friends!.receive(message, signal), media, files, digram, configRoot, relayURL: account.serverUrl,
+    friendMessage: (message, signal) => friends!.receive(message, signal), media, files, digram, composerPredictions, configRoot, relayURL: account.serverUrl,
     hostname: profileScopedDevice ? `${hostname()} (dev preview)` : undefined,
     friendRevoked: friendshipId => friends!.revokeIncoming(friendshipId),
     friendDisconnected: () => friends!.transportDisconnected(),

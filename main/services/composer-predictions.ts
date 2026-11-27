@@ -1,6 +1,8 @@
 import { kvGet, isFailure } from './settings';
 
 export const COMPOSER_PREDICTIONS_ENABLED_KEY = 'composer_predictions_enabled';
+export const COMPOSER_PREDICTIONS_ACCEPTED_KEY = 'composer_predictions_has_accepted';
+const EXTERNAL_OWNER_ID_BASE = 1_000_000_000;
 export const PREDICTIONS_CONFIG_URL = 'https://chatgpt.com/backend-api/wham/predictions/config';
 const CONFIG_TTL_MS = 300_000;
 export const PREDICTION_RESPONSE_SCHEMA = {
@@ -177,8 +179,14 @@ export class ComposerPredictions {
   private readonly callerRevisions = new Map<string, number>();
   private readonly retiringOwners = new Set<number>();
   private revision = 0;
+  private nextExternalOwnerId = EXTERNAL_OWNER_ID_BASE;
   private closed = false;
   constructor(private readonly deps: ComposerPredictionsDeps) {}
+
+  allocateOwnerId(): number {
+    this.nextExternalOwnerId += 1;
+    return this.nextExternalOwnerId;
+  }
 
   async availability(): Promise<PredictionAvailability> {
     if (this.closed) return { available: false, reason: 'closed' };

@@ -5,6 +5,7 @@ import type { Json } from '../../ipc/contract';
 import { isHiddenBuiltinSlashCommand } from '../../../contracts/slash-command-visibility';
 import { object, string, type JsonObject } from '../service-types';
 import { FOLLOW_UP_MODE_KEY } from './follow-ups';
+import { COMPOSER_PREDICTIONS_ACCEPTED_KEY, COMPOSER_PREDICTIONS_ENABLED_KEY } from '../composer-predictions';
 import { MOBILE_AUTH_MODES, MOBILE_FEATURES, nonempty, optionText, pathBase, type MobileCall } from './protocol';
 import { modelOptionsForValue, pickCursorModelMetadata } from '../../../shared/cursor-model-catalog';
 
@@ -171,7 +172,11 @@ export class MobileProjection {
       }
     }
     const mode = await this.call('settings:kv:get', { key: FOLLOW_UP_MODE_KEY });
-    return { followUpMode: mode === 'steer' ? 'steer' : 'queue', mainModel: nonempty(main.mode), thinkingLevel: nonempty(thinking.level), fastMode: fast.enabled === true, fastModeSupported: fast.supported === true,
+    const predictionsRaw = await this.call('settings:kv:get', { key: COMPOSER_PREDICTIONS_ENABLED_KEY });
+    const predictionsAcceptedRaw = await this.call('settings:kv:get', { key: COMPOSER_PREDICTIONS_ACCEPTED_KEY });
+    const composerPredictionsEnabled = predictionsRaw !== 'off' && predictionsRaw !== 'false' && predictionsRaw !== '0';
+    const composerPredictionsAccepted = predictionsAcceptedRaw === 'on' || predictionsAcceptedRaw === 'true' || predictionsAcceptedRaw === '1';
+    return { followUpMode: mode === 'steer' ? 'steer' : 'queue', composerPredictionsEnabled, composerPredictionsAccepted, mainModel: nonempty(main.mode), thinkingLevel: nonempty(thinking.level), fastMode: fast.enabled === true, fastModeSupported: fast.supported === true,
       ...(fast.billing === 'extraCredits' ? { fastModeBilling: 'extraCredits' } : {}), authMode: await this.authMode(), outputStyle: styles.current,
       mainModelOptions: modelOptionsForValue(options, string(main.mode)), authModeOptions: MOBILE_AUTH_MODES.map(value => ({ value, label: ({ subscription: 'Claude Subscription', custom: 'Custom', codex: 'Codex', cursor: 'Cursor', qoder: 'Qoder', qwenwork: 'QwenWork', workbuddy: 'WorkBuddy', antigravity: 'Antigravity', trae: 'TRAE CN', kiro: 'Kiro', kimi: 'Kimi', bailian: 'Bailian Token Plan', minimax: 'MiniMax M Plan', zhipu: 'Zhipu Coding Plan', ark: 'Ark Coding Plan' } as Record<string, string>)[value] ?? value })), outputStyleOptions: styles.options };
   }

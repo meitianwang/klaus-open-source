@@ -32,6 +32,7 @@ import { INLINE_VIS_MAX_BYTES } from '../../../contracts/inline-visualization';
 import { applyModelPreference, MobileModelConfigProjection, modelConfigSession, modelConfigUpdate, modelPreference, type MobileModelPreference } from './model-config';
 import { mobileNewChatBranch, mobileNewChatContext, mobileNewChatRun, type MobileNewChatRun } from './new-chat';
 import { FOLLOW_UP_MODE_KEY, followUpMode, followUpPayload, uploadFollowUpMedia, mobileFollowUpIntent, MobileFollowUpControls, payloadFingerprint, type MobileFollowUpIntent } from './follow-ups';
+import { COMPOSER_PREDICTIONS_ACCEPTED_KEY, COMPOSER_PREDICTIONS_ENABLED_KEY, type ComposerPredictions } from '../composer-predictions';
 import { compactMobileEngineEvent, compactMobileEngineFrames, compactMobileHistory } from './transcript-compact';
 
 export interface MobileThreadContext {
@@ -68,17 +69,18 @@ export interface MobileBridgeDeps {
   mediaPreview?: (sessionId: string, path: string, signal: AbortSignal, options?: { offset?: unknown; length?: unknown }) => Promise<JsonObject>;
   inlineVisualizationPreview?: (sessionId: string, path: string) => Promise<JsonObject>;
   diagramPreview?: (sessionId: string, id: string) => JsonObject | Promise<JsonObject>;
+  composerPredictions?: Pick<ComposerPredictions, 'allocateOwnerId' | 'availability' | 'source' | 'predict' | 'cancel' | 'detachOwner'>;
   unreadChanged?: () => void;
   isDesktopViewingSession?: (sessionId: string, remoteOrigin: boolean) => boolean;
 }
 interface TaskFollowState { snapshotting: boolean; revision: number; pending: JsonObject[]; pendingBytes: number; generation: number }
 /** Byte ceiling for one peer's write queue; the envelope count is the primary bound. */
 const SEND_QUEUE_BYTES = 64 * 1024 * 1024;
-interface Peer { socket: WebSocket; subscriptions: Set<string>; follows: Map<string, TaskFollowState>; followRequests: Map<string, AbortController>; controller: AbortController; tail: Promise<void>; queuedBytes: number; queuedMessages: number; sendTail: Promise<void>; sendQueuedBytes: number; sendQueuedMessages: number; ready: boolean; outbound: JsonObject[]; outboundBytes: number; clientId?: string; delivery?: ReliableDelivery; /** Framing this peer advertised; absent means the level 2 shape. */ chunking: ChunkingProfile; lastActivityAt: number; /** Frames are admitted in call order even across a full queue. */ admissionTail: Promise<void>; admissionPending: number; capacityWaiters: Array<() => void>; catalogSync: boolean; catalogRequest?: AbortController; composerRefresh?: Promise<void>; composerRetry?: NodeJS.Timeout; composerAttempt: number; diagnostics: MobileLoadDiagnostics }
+interface Peer { socket: WebSocket; predictionOwnerId: number; subscriptions: Set<string>; follows: Map<string, TaskFollowState>; followRequests: Map<string, AbortController>; controller: AbortController; tail: Promise<void>; queuedBytes: number; queuedMessages: number; sendTail: Promise<void>; sendQueuedBytes: number; sendQueuedMessages: number; ready: boolean; outbound: JsonObject[]; outboundBytes: number; clientId?: string; delivery?: ReliableDelivery; /** Framing this peer advertised; absent means the level 2 shape. */ chunking: ChunkingProfile; lastActivityAt: number; /** Frames are admitted in call order even across a full queue. */ admissionTail: Promise<void>; admissionPending: number; capacityWaiters: Array<() => void>; catalogSync: boolean; catalogRequest?: AbortController; composerRefresh?: Promise<void>; composerRetry?: NodeJS.Timeout; composerAttempt: number; diagnostics: MobileLoadDiagnostics }
 interface DraftPromotion { createdAt: number; fingerprint: string; owner: MobileEngineOwner; task?: Promise<JsonObject>; settled: boolean; ownedSessionId?: string; ownedWorktreePath?: string; cleanupFailures?: JsonObject[] }
 interface RecentSend { createdAt: number; requestId: string; fingerprint: string; completion: Promise<JsonObject>; settled: boolean }
 interface PendingMobileMessage { sessionId: string; clientMessageId: string; clientSeq?: number }
-interface Run { server: Server; ws: WebSocketServer; controller: AbortController; sockets: Set<Socket>; peers: Set<Peer>; jobs: Set<Promise<unknown>>; config: MobileSettings; account?: MobileAccount; port: number; relay?: MobileRelay; recent: Map<string, RecentSend>; pendingSendBytes: number; pendingSendCount: number; promotions: Map<string, DraftPromotion>; followUps: MobileFollowUpControls; deliveries: ReliableDeliveryStore; catalog?: MobileCatalog; stateRefresh?: Promise<void>; stateRefreshAgain: boolean; idleSweep?: NodeJS.Timeout; stateIncludeSessions?: boolean; modelRefresh?: Promise<void>; modelRefreshAgain?: boolean; modelRevision?: number }
+interface Run { server: Server; ws: WebSocketServer; controller: AbortController; sockets: Set<Socket>; peers: Set<Peer>; jobs: Set<Promise<unknown>>; config: MobileSettings; account?: MobileAccount; port: number; relay?: MobileRelay; recent: Map<string, RecentSend>; pendingSendBytes: number; pendingSendCount: number; promotions: Map<string, DraftPromotion>; followUps: MobileFollowUpControls; deliveries: ReliableDeliveryStore; catalog?: MobileCatalog; stateRefresh?: Promise<void>; stateRefreshAgain: boolean; idleSweep?: NodeJS.Timeout; stateIncludeSessions?: boolean; modelRefresh?: Promise<void>; modelRefreshAgain?: boolean; modelRevision?: number; livePredictionOwnerId: number }
 interface PendingInteraction { owner: MobileEngineOwner; sessionId: string | null; toolName?: string | null; resolving?: boolean }
 type InteractionKind = 'permission' | 'elicit';
 const MAX_UNPROTECTED_FOLLOWS = 64;
@@ -122,10 +124,17 @@ export class MobileBridgeService {
   private readonly elicitations = new Map<string, PendingInteraction>();
   private readonly questions = new Map<string, { owner: MobileEngineOwner; sessionId: string }>();
   private observedOwner?: MobileEngineOwner;
+  private nextPredictionOwnerId = 2_000_000_000;
   constructor(private readonly deps: MobileBridgeDeps) {
     this.settings = new MobileSettingsStore(deps.configRoot, deps.relayURL, deps.env);
     this.taskStreams = new MobileTaskStreams((sessionId, frame) => this.broadcastTaskPatch(sessionId, frame), id => this.protectedFollow(id));
     this.reloadUnreadFromStore();
+  }
+  private allocatePredictionOwnerId(): number {
+    return this.deps.composerPredictions?.allocateOwnerId() ?? ++this.nextPredictionOwnerId;
+  }
+  private peerReceivesSession(peer: Peer, sessionId: string): boolean {
+    return !peer.controller.signal.aborted && (peer.follows.has(sessionId) || peer.subscriptions.has(sessionId) || (!peer.follows.size && !peer.subscriptions.size));
   }
   private reloadUnreadFromStore(): boolean {
     const raw = kvGet(SIDEBAR_UNREAD_SESSIONS_KEY, this.deps.configRoot);
@@ -388,7 +397,7 @@ export class MobileBridgeService {
   private async start(config: MobileSettings): Promise<void> {
     const server = createServer(), ws = new WebSocketServer({ noServer: true, maxPayload: MOBILE_BODY_LIMIT, perMessageDeflate: false });
     const account = this.deps.account();
-    const run: Run = { server, ws, controller: new AbortController(), sockets: new Set(), peers: new Set(), jobs: new Set(), config, account: account ? { ...account } : undefined, port: 0, recent: new Map(), pendingSendBytes: 0, pendingSendCount: 0, promotions: new Map(), followUps: new MobileFollowUpControls(this.deps.configRoot), deliveries: new ReliableDeliveryStore(join(this.deps.configRoot, 'mobile-transport-v1.json')), stateRefreshAgain: false };
+    const run: Run = { server, ws, controller: new AbortController(), sockets: new Set(), peers: new Set(), jobs: new Set(), config, account: account ? { ...account } : undefined, port: 0, recent: new Map(), pendingSendBytes: 0, pendingSendCount: 0, promotions: new Map(), followUps: new MobileFollowUpControls(this.deps.configRoot), deliveries: new ReliableDeliveryStore(join(this.deps.configRoot, 'mobile-transport-v1.json')), stateRefreshAgain: false, livePredictionOwnerId: this.allocatePredictionOwnerId() };
     server.maxConnections = 128;
     server.requestTimeout = this.deps.requestTimeoutMs ?? 30_000; server.headersTimeout = Math.min(server.requestTimeout, 30_000);
     server.on('connection', socket => { run.sockets.add(socket); socket.on('close', () => run.sockets.delete(socket)); });
@@ -424,8 +433,11 @@ export class MobileBridgeService {
     this.deps.connectionChanged?.();
     if (!run) return;
     if (run.idleSweep) clearInterval(run.idleSweep);
-    run.controller.abort(); await run.relay?.close(); await run.catalog?.close();
+    run.controller.abort();
+    void this.deps.composerPredictions?.detachOwner(run.livePredictionOwnerId).catch(() => {});
+    await run.relay?.close(); await run.catalog?.close();
     const peers = [...run.peers].map(peer => {
+      void this.deps.composerPredictions?.detachOwner(peer.predictionOwnerId).catch(() => {});
       this.peerInterestChanged(peer);
       const followed = [...peer.follows.keys()]; peer.follows.clear();
       for (const sessionId of followed) this.taskStreams.unfollow(sessionId);
@@ -444,7 +456,9 @@ export class MobileBridgeService {
     if (!sameOwner(this.observedOwner, owner)) {
       if (this.observedOwner) {
         this.taskStreams.reset(); this.run?.catalog?.invalidate();
+        if (this.run) void this.deps.composerPredictions?.detachOwner(this.run.livePredictionOwnerId).catch(() => {});
         for (const peer of this.run?.peers ?? []) {
+          void this.deps.composerPredictions?.detachOwner(peer.predictionOwnerId).catch(() => {});
           this.peerInterestChanged(peer);
           for (const request of peer.followRequests.values()) request.abort();
           peer.followRequests.clear();
@@ -806,7 +820,7 @@ export class MobileBridgeService {
       }
       throw new MobileError(404, 'not_found', 'Not found');
     }
-    const match = /^\/api\/mobile\/(sessions|permissions|elicitations)\/([^/]+)\/(history|summary|work-mode|messages|stop|continue|respond|rename|pin|archive|workdir|delete|export|fork|debug-report|media|file-preview|inline-visualization|background-processes|stop-background-process)$/u.exec(path);
+    const match = /^\/api\/mobile\/(sessions|permissions|elicitations)\/([^/]+)\/(history|summary|work-mode|messages|stop|continue|respond|rename|pin|archive|workdir|delete|export|fork|debug-report|media|file-preview|inline-visualization|background-processes|stop-background-process|prediction-source|prediction|prediction-cancel)$/u.exec(path);
     if (!match) throw new MobileError(404, 'not_found', 'Not found');
     const id = this.pathIdentity(match[2]!);
     const action = match[3]!;
@@ -862,6 +876,44 @@ export class MobileBridgeService {
       const body: JsonObject = { sessionId: id, shellId: required(payload.shellId, 'shellId') };
       if (payload.signal !== undefined) body.signal = required(payload.signal, 'signal');
       return result(202, { ok: true, ...(object(await call('session:stop-background-process', body))) });
+    }
+    if (action === 'prediction-source') {
+      const account = run.account;
+      const httpOwnerId = this.allocatePredictionOwnerId();
+      const abort = () => { void this.deps.composerPredictions?.detachOwner(httpOwnerId).catch(() => {}); };
+      signal.addEventListener('abort', abort, { once: true });
+      try {
+        const reply = this.deps.composerPredictions
+          ? await this.deps.composerPredictions.source(id, httpOwnerId)
+          : { turnId: null, reason: 'engine_unavailable' };
+        this.assertReadCurrent(run, owner, signal, account);
+        return result(200, { sessionId: id, turnId: reply.turnId, ...(reply.reason ? { reason: reply.reason } : {}) });
+      } finally {
+        signal.removeEventListener('abort', abort);
+        abort();
+      }
+    }
+    if (action === 'prediction') {
+      const account = run.account;
+      const turnId = required(payload.turnId, 'turnId');
+      const rawTrigger = string(payload.trigger);
+      if (rawTrigger !== 'live' && rawTrigger !== 'catch_up') throw badRequest('trigger must be live or catch_up');
+      const httpOwnerId = this.allocatePredictionOwnerId();
+      const abort = () => { void this.deps.composerPredictions?.detachOwner(httpOwnerId).catch(() => {}); };
+      signal.addEventListener('abort', abort, { once: true });
+      try {
+        const reply = this.deps.composerPredictions
+          ? await this.deps.composerPredictions.predict(id, turnId, rawTrigger, httpOwnerId)
+          : { suggestion: null, reason: 'engine_unavailable' };
+        this.assertReadCurrent(run, owner, signal, account);
+        return result(200, { sessionId: id, turnId, suggestion: reply.suggestion, ...(reply.reason ? { reason: reply.reason } : {}) });
+      } finally {
+        signal.removeEventListener('abort', abort);
+        abort();
+      }
+    }
+    if (action === 'prediction-cancel') {
+      return result(200, { ok: true, sessionId: id });
     }
     const base: JsonObject = { ok: true, sessionId: id };
     switch (action) {
@@ -1235,9 +1287,16 @@ export class MobileBridgeService {
       if (run && owner) this.scheduleState(run, owner);
       return;
     }
-    if (key === FOLLOW_UP_MODE_KEY) {
-      const run = this.run;
-      if (run) for (const peer of run.peers) if (peer.ready) this.scheduleComposer(run, peer);
+    if (key === FOLLOW_UP_MODE_KEY || key === COMPOSER_PREDICTIONS_ENABLED_KEY || key === COMPOSER_PREDICTIONS_ACCEPTED_KEY) {
+      const run = this.run, owner = this.deps.engineOwner();
+      if (run) {
+        for (const peer of run.peers) if (peer.ready) this.scheduleComposer(run, peer);
+        if (owner && run.peers.size) {
+          this.track(run, this.projection(this.call(run, owner)).runtimeConfig(null).then(runtimeConfig => {
+            if (this.run === run && !run.controller.signal.aborted) this.broadcast(run, { type: 'runtime_config_changed', runtimeConfig });
+          }).catch(() => {}));
+        }
+      }
       return;
     }
     if (!['composer.main_model', 'composer.thinking_level', 'composer.ultra_mode', 'composer.orchestration_mode', 'modelProviders', 'auth_mode'].includes(key) && !isFastModePreferenceKey(key) && !key.startsWith('model_tiers:') && !key.startsWith('model_catalog:')) return;
@@ -1290,7 +1349,11 @@ export class MobileBridgeService {
     const mode = payload.authMode === undefined ? undefined : authMode(payload.authMode);
     const style = payload.outputStyle === undefined ? undefined : optionText(payload.outputStyle);
     const followMode = payload.followUpMode === undefined ? undefined : followUpMode(payload.followUpMode);
+    const predictionsEnabled = payload.composerPredictionsEnabled;
+    const predictionsAccepted = payload.composerPredictionsAccepted;
     if (payload.outputStyle !== undefined && !style) throw badRequest('outputStyle is invalid');
+    if (predictionsEnabled !== undefined && typeof predictionsEnabled !== 'boolean') throw badRequest('composerPredictionsEnabled must be a boolean');
+    if (predictionsAccepted !== undefined && typeof predictionsAccepted !== 'boolean') throw badRequest('composerPredictionsAccepted must be a boolean');
     const changesModel = model !== undefined || level !== undefined;
     const sessionId = changesModel || Object.hasOwn(payload, 'sessionId') ? modelConfigSession(payload.sessionId, true) : null;
     if (sessionId) await this.knownSession(call, sessionId);
@@ -1308,6 +1371,14 @@ export class MobileBridgeService {
     if (followMode !== undefined) {
       const saved = await call('settings:kv:set', { key: FOLLOW_UP_MODE_KEY, value: followMode });
       if (saved !== true && object(saved).ok !== true) throw new MobileError(409, 'runtime_configuration_rejected', 'Desktop did not accept the follow-up mode');
+    }
+    if (predictionsEnabled !== undefined) {
+      const saved = await call('settings:kv:set', { key: COMPOSER_PREDICTIONS_ENABLED_KEY, value: predictionsEnabled ? 'on' : 'off' });
+      if (saved !== true && object(saved).ok !== true) throw new MobileError(409, 'runtime_configuration_rejected', 'Desktop did not accept the prediction preference');
+    }
+    if (predictionsAccepted !== undefined) {
+      const saved = await call('settings:kv:set', { key: COMPOSER_PREDICTIONS_ACCEPTED_KEY, value: predictionsAccepted ? 'on' : 'off' });
+      if (saved !== true && object(saved).ok !== true) throw new MobileError(409, 'runtime_configuration_rejected', 'Desktop did not accept the prediction hint state');
     }
     if (style) {
       const answer = object(await call('settings:output-styles:set', { style }));
@@ -1335,7 +1406,7 @@ export class MobileBridgeService {
     if (pending.sessionId) this.taskStreams.publish(pending.sessionId, frame);
   }
   private peer(run: Run, socket: WebSocket, catalogSync = false): void {
-    const peer: Peer = { socket, subscriptions: new Set(), follows: new Map(), followRequests: new Map(), controller: new AbortController(), tail: Promise.resolve(), queuedBytes: 0, queuedMessages: 0, sendTail: Promise.resolve(), sendQueuedBytes: 0, sendQueuedMessages: 0, ready: false, outbound: [], outboundBytes: 0, chunking: 'legacy', lastActivityAt: Date.now(), admissionTail: Promise.resolve(), admissionPending: 0, capacityWaiters: [], catalogSync, composerAttempt: 0,
+    const peer: Peer = { socket, predictionOwnerId: this.allocatePredictionOwnerId(), subscriptions: new Set(), follows: new Map(), followRequests: new Map(), controller: new AbortController(), tail: Promise.resolve(), queuedBytes: 0, queuedMessages: 0, sendTail: Promise.resolve(), sendQueuedBytes: 0, sendQueuedMessages: 0, ready: false, outbound: [], outboundBytes: 0, chunking: 'legacy', lastActivityAt: Date.now(), admissionTail: Promise.resolve(), admissionPending: 0, capacityWaiters: [], catalogSync, composerAttempt: 0,
       diagnostics: new MobileLoadDiagnostics(event => this.deps.log?.('load_diagnostic', event), undefined,
         { enabled: () => this.deps.diagnosticsEnabled?.() === true }) }; run.peers.add(peer);
     const signal = AbortSignal.any([run.controller.signal, peer.controller.signal]);
@@ -1395,6 +1466,7 @@ export class MobileBridgeService {
     socket.on('error', () => {}); socket.once('close', code => {
       this.deps.log?.('peer_closed', { code, reliable: !!peer.delivery, queuedMessages: peer.queuedMessages });
       peer.diagnostics.close();
+      void this.deps.composerPredictions?.detachOwner(peer.predictionOwnerId).catch(() => {});
       this.peerInterestChanged(peer);
       const followed = [...peer.follows.keys()]; peer.follows.clear();
       for (const sessionId of followed) this.taskStreams.unfollow(sessionId);
@@ -1656,6 +1728,82 @@ export class MobileBridgeService {
         ...(requestId ? { requestId } : {}),
         ...(body.activity !== undefined ? { activity: body.activity } : {}),
       });
+      return;
+    }
+    if (type === 'composer_prediction_source') {
+      const id = required(payload.sessionId, 'sessionId');
+      const requestId = nonempty(payload.requestId);
+      const signal = AbortSignal.any([peer.controller.signal, run.controller.signal]);
+      const readCall = this.call(run, owner, signal);
+      this.track(run, (async () => {
+        await this.knownSession(readCall, id);
+        const predictionSource = this.deps.composerPredictions
+          ? await this.deps.composerPredictions.source(id, peer.predictionOwnerId)
+          : { turnId: null, reason: 'engine_unavailable' };
+        signal.throwIfAborted();
+        if (this.run !== run || !sameOwner(owner, this.deps.engineOwner())) throw new MobileError(409, 'engine_replaced', 'Desktop engine changed; retry the request');
+        this.sendPeer(peer, {
+          type: 'action_result',
+          action: type,
+          ok: true,
+          sessionId: id,
+          ...(requestId ? { requestId } : {}),
+          predictionSource: {
+            turnId: predictionSource.turnId,
+            ...(predictionSource.reason ? { reason: predictionSource.reason } : {}),
+          },
+        });
+      })().catch(error => {
+        if (!signal.aborted) this.socketError(peer, error, { ...payload, type });
+      }));
+      return;
+    }
+    if (type === 'composer_prediction') {
+      const id = required(payload.sessionId, 'sessionId');
+      const turnId = required(payload.turnId, 'turnId');
+      const rawTrigger = string(payload.trigger);
+      if (rawTrigger !== 'live' && rawTrigger !== 'catch_up') throw badRequest('trigger must be live or catch_up');
+      const requestId = nonempty(payload.requestId);
+      const signal = AbortSignal.any([peer.controller.signal, run.controller.signal]);
+      const readCall = this.call(run, owner, signal);
+      this.track(run, (async () => {
+        await this.knownSession(readCall, id);
+        const prediction = this.deps.composerPredictions
+          ? await this.deps.composerPredictions.predict(id, turnId, rawTrigger, peer.predictionOwnerId)
+          : { suggestion: null, reason: 'engine_unavailable' };
+        signal.throwIfAborted();
+        if (this.run !== run || !sameOwner(owner, this.deps.engineOwner())) throw new MobileError(409, 'engine_replaced', 'Desktop engine changed; retry the request');
+        this.sendPeer(peer, {
+          type: 'action_result',
+          action: type,
+          ok: true,
+          sessionId: id,
+          turnId,
+          ...(requestId ? { requestId } : {}),
+          prediction: {
+            suggestion: prediction.suggestion,
+            ...(prediction.reason ? { reason: prediction.reason } : {}),
+          },
+        });
+      })().catch(error => {
+        if (!signal.aborted) this.socketError(peer, error, { ...payload, type });
+      }));
+      return;
+    }
+    if (type === 'composer_prediction_cancel') {
+      const id = required(payload.sessionId, 'sessionId');
+      const requestId = nonempty(payload.requestId);
+      this.track(run, Promise.resolve(this.deps.composerPredictions?.cancel(id, peer.predictionOwnerId)).then(() => {
+        if (!peer.controller.signal.aborted && this.run === run) {
+          this.sendPeer(peer, {
+            type: 'action_result',
+            action: type,
+            ok: true,
+            sessionId: id,
+            ...(requestId ? { requestId } : {}),
+          });
+        }
+      }).catch(() => {}));
       return;
     }
     if (!['subscribe', 'send_message', 'stop_generation', 'continue_generation', 'rename_session', 'delete_session', 'fork_session'].includes(type)) throw new MobileError(400, 'unknown_message_type', 'Unknown message type');
@@ -2051,6 +2199,29 @@ export class MobileBridgeService {
     }
     if (id && (started || settled || type === 'session_title_updated')) run.catalog?.invalidate(id);
     if (started || settled || type === 'session_title_updated') this.scheduleState(run, owner, !started);
+    if (id && settled && this.deps.composerPredictions) {
+      const turnId = nonempty(event.turnId);
+      if (turnId && [...run.peers].some(peer => this.peerReceivesSession(peer, id))) {
+        const predictions = this.deps.composerPredictions;
+        this.track(run, predictions.predict(id, turnId, 'live', run.livePredictionOwnerId).then(reply => {
+          if (this.run !== run || run.controller.signal.aborted || !sameOwner(owner, this.deps.engineOwner())) return;
+          if (reply.reason === 'cancelled' || reply.reason === 'closed') return;
+          this.broadcast(
+            run,
+            {
+              type: 'composer_prediction',
+              sessionId: id,
+              turnId,
+              suggestion: reply.suggestion,
+              ...(reply.reason ? { reason: reply.reason } : {}),
+            },
+            id,
+            peer => this.peerReceivesSession(peer, id),
+            true,
+          );
+        }).catch(() => {}));
+      }
+    }
   }
   publishPermissionRequest(card: JsonObject, owner: MobileEngineOwner): void {
     this.publishInteraction(card, owner, 'permission');
