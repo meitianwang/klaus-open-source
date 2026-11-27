@@ -199,6 +199,10 @@ import {
   evaluateWindowResizeAutoCollapse,
 } from './panel-layout'
 import {
+  mountMaximizedComposer,
+  type MaximizedComposerController,
+} from './panels/maximized-composer'
+import {
   classifySessionModuleOwner,
   decidePrimaryRailClick,
   extensionButtonIdForView,
@@ -3681,7 +3685,8 @@ if (composerTokenLayerEl && composerSlashMirrorEl.parentElement !== composerToke
 // every `welcomeEl.style.display = ...` call site without touching each one.
 const welcomeComposerSlotEl = document.getElementById('welcome-composer-slot')
 const composerHomeAnchorEl = document.getElementById('composer-home-anchor')
-function syncComposerDock() {
+let maximizedComposer: MaximizedComposerController | null = null
+function restoreComposerHomeDock() {
   if (!welcomeComposerSlotEl || !composerHomeAnchorEl?.parentElement || !inputWrapperEl || !welcomeEl) return
   const welcomeVisible = welcomeEl.style.display !== 'none'
   const alreadyDocked = welcomeVisible
@@ -3698,6 +3703,10 @@ function syncComposerDock() {
   const btwPanel = document.getElementById('btw-panel')
   if (btwPanel) inputWrapperEl.parentElement?.insertBefore(btwPanel, inputWrapperEl)
   if (hadFocus) inputEl.focus()
+}
+function syncComposerDock() {
+  if (maximizedComposer?.ownsComposerDock()) return
+  restoreComposerHomeDock()
 }
 if (welcomeEl) {
   new MutationObserver(syncComposerDock).observe(welcomeEl, { attributes: true, attributeFilter: ['style'] })
@@ -9564,6 +9573,7 @@ function syncArchivedSessionUi() {
   if (followUpQueueEl && archived) followUpQueueEl.hidden = true
   // 归档态翻转时同步 rewind/delete 按钮的可用态（前置能力提示）。
   syncMessageActionAvailability()
+  maximizedComposer?.refresh()
 }
 
 archivedSessionContinueEl?.addEventListener('click', () => {
@@ -11554,6 +11564,7 @@ async function submitRunningFollowUp({ invert = false } = {}) {
   const reinsertAnchors = takeEditedQueueReinsert(targetSessionId)
   if (action === 'steer') {
     const accepted = await steerFollowUp(targetSessionId, payload)
+    if (accepted) maximizedComposer?.noteSubmitted()
     if (!accepted) {
       // A definitive refusal retains the original request without replacing newer input.
       if (window.currentSessionId === targetSessionId && JSON.stringify(composedInputDraft()) === clearedDraft
@@ -11571,6 +11582,7 @@ async function submitRunningFollowUp({ invert = false } = {}) {
     }
   } else {
     const queued = await queueFollowUp(targetSessionId, payload, reinsertAnchors)
+    if (queued.status !== 'refused') maximizedComposer?.noteSubmitted()
     if (queued.status === 'refused') {
       // An uncertain admission still belongs to its original durable identity.
       // Only a refusal may restore a draft, and only while that composer is empty.
@@ -12017,7 +12029,7 @@ async function send(options: ComposerSendOptions = {}) {
   const sessionId = window.currentSessionId || null
   const compactInstructions = pendingFiles.length === 0 ? parseCompactSlashInput(composedInputText()) : null
   if (compactInstructions !== null) {
-    await triggerCompact(compactInstructions, sessionId, { accepted: () => { setComposerText(''); autoResize(); hideSlashMenu(); hideComposerPlusMenu() } })
+    await triggerCompact(compactInstructions, sessionId, { accepted: () => { setComposerText(''); autoResize(); hideSlashMenu(); hideComposerPlusMenu(); maximizedComposer?.noteSubmitted() } })
     return
   }
   if (creatingGoalSessions.has(sessionId) || preparingSubmissions.has(sessionId)) return
@@ -12094,11 +12106,12 @@ async function sendMessage(options: ComposerSendOptions = {}) {
   const btwQuestion = pendingFiles.length === 0 ? parseBtwSlashInput(text) : null
   if (btwQuestion !== null) {
     await submitBtwQuestion(btwQuestion)
+    maximizedComposer?.noteSubmitted()
     return
   }
   const compactInstructions = pendingFiles.length === 0 ? parseCompactSlashInput(text) : null
   if (compactInstructions !== null) {
-    await triggerCompact(compactInstructions, sourceSessionId, { accepted: () => { setComposerText(''); autoResize(); hideSlashMenu(); hideComposerPlusMenu() } })
+    await triggerCompact(compactInstructions, sourceSessionId, { accepted: () => { setComposerText(''); autoResize(); hideSlashMenu(); hideComposerPlusMenu(); maximizedComposer?.noteSubmitted() } })
     return
   }
   if (goalMode && !composerGoalEligible()) { denyComposerGoalAttempt(); return }
@@ -12335,6 +12348,7 @@ async function sendMessage(options: ComposerSendOptions = {}) {
           if (pending) acceptPendingComposerSubmission(pending)
           if (!sourceSessionId) addSessionHistory(sessionId, draft, true)
           options.onAccepted?.()
+          maximizedComposer?.noteSubmitted()
           goalSubmissionReceipts.forget(sessionId)
           draftOnlySessionIds.delete(sessionId)
           forgetRunModeForDraft(sessionId)
@@ -12466,6 +12480,7 @@ async function sendMessage(options: ComposerSendOptions = {}) {
   if (!submissionError) {
     if (!sourceSessionId) addSessionHistory(targetSessionId, draft, true)
     options.onAccepted?.()
+    maximizedComposer?.noteSubmitted()
   }
   // 语音学习闭环：本轮草稿含语音插入时，把「上屏 vs 最终发送」交给主进程
   // fire-and-forget 抽取热词/语音记忆（未编辑时主进程自行跳过）。
@@ -16551,6 +16566,25 @@ function handleChatEvent(event: ChatEvent) {
     const turnId = typeof event.turnId === 'string' && event.turnId ? event.turnId : undefined
     if (event.sessionId === window.currentSessionId) {
       void composerPredictions?.refresh(turnId ? 'live' : 'catch_up', turnId)
+      const streamUnits = getSessionStream(event.sessionId).liveUnits
+      let replyPreview = ''
+      for (let idx = streamUnits.length - 1; idx >= 0; idx--) {
+        const unit = streamUnits[idx]
+        if (unit?.type === 'live-text' && unit.phase !== 'commentary' && unit.text.trim()) {
+          replyPreview = unit.text
+          break
+        }
+      }
+      if (!replyPreview) {
+        for (let idx = streamUnits.length - 1; idx >= 0; idx--) {
+          const unit = streamUnits[idx]
+          if (unit?.type === 'live-text' && unit.text.trim()) {
+            replyPreview = unit.text
+            break
+          }
+        }
+      }
+      maximizedComposer?.noteTurnCompleted(event.sessionId, replyPreview)
     }
     for (const runtime of sidePaneRuntimes.values()) {
       if (runtime.sessionId === event.sessionId) runtime.refreshPredictions?.(turnId ? 'live' : 'catch_up', turnId)
@@ -17225,6 +17259,7 @@ function updateSendBtn() {
     return
   }
   voiceChatUi?.refresh()
+  maximizedComposer?.refresh()
   composerPredictions?.paint()
   composerContinueSessionId = window.currentSessionId || null
   composerContinueOffered = composerContinueMode()
@@ -17311,6 +17346,11 @@ inputEl.addEventListener('keydown', (e) => {
   // history browsing all over this composer, and a stray press must not be able to
   // kill a Turn. Anything with something of its own to dismiss is handled above,
   // so reaching here means Escape had nothing else to do.
+  if (e.key === 'Escape' && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && maximizedComposer?.handleEscape()) {
+    e.preventDefault()
+    e.stopPropagation()
+    return
+  }
   if (e.key === 'Escape' && busy) {
     const sessionId = window.currentSessionId || currentPendingComposerSubmission()?.viewId || ''
     if (sessionId && !stoppingSessions.has(sessionId)) {
@@ -17692,6 +17732,7 @@ function setCurrentNonChatView(view: string | null) {
   syncTopModeButtons()
   if (view === null) settleOpenUnreadSession()
   renderSessionList()
+  maximizedComposer?.refresh()
 }
 
 window.addEventListener('klaus:settings-visibility-change', (event) => {
@@ -17701,6 +17742,7 @@ window.addEventListener('klaus:settings-visibility-change', (event) => {
     return
   }
   syncPrimaryRailState()
+  maximizedComposer?.refresh()
 })
 
 btnNewChat.addEventListener('click', () => {
@@ -19461,6 +19503,9 @@ function handleComposerFileDrop(e: DragEvent) {
     } else if (ordinary.has(file)) addFiles([file])
   }
   if (!sideComposer && ready.size) { renderPreviews(); updateSendBtn() }
+  if (!sideComposer && orderedFiles.length > 0 && maximizedComposer?.isEligible()) {
+    maximizedComposer.expand({ focusInput: true })
+  }
 }
 document.addEventListener('drop', handleComposerFileDrop)
 
@@ -19977,6 +20022,7 @@ initWorkspacePanel({
 // ==================== 语音输入（已拆出至 src/chat/voice.ts） ====================
 initVoice({
   chatActive: () => voiceChatUi?.controller.snapshot().open === true,
+  beforeToggleStart: () => { maximizedComposer?.expand({ focusInput: true }) },
   mainComposerInsert: (trimmed) => {
     const existing = inputEl.value
     const needsSpace = existing && !/\s$/.test(existing)
@@ -20026,6 +20072,95 @@ voiceChatUi = mountVoiceChat({
   present: (eligible, sessionId, notice) => klausApi.voice.chat.present({ eligible, sessionId, ...(notice ? { notice } : {}) }),
   levels: (microphone, output, outputBands) => klausApi.voice.chat.levels({ microphone, output, outputBands }),
 })
+const appRootEl = document.getElementById('app')
+if (appRootEl && artifactsPanel && inputWrapperEl && inputEl) {
+  const activeStreamActivityLabel = (sessionId: string | null): string | null => {
+    if (!sessionId) return null
+    const stream = getSessionStream(sessionId)
+    if (stream.streamMode === 'responding') return tt('voice_chat_thinking')
+    const active = Object.values(stream.tools)
+      .filter(tool => tool.status === 'running' || tool.status === 'awaiting-approval')
+      .sort((a, b) => (a.startedAtMs || 0) - (b.startedAtMs || 0))
+    const tool = active.at(-1)
+    if (!tool) return tt('voice_chat_thinking')
+    const presentation = activityToolPresentation({ ...tool, state: tool.status === 'awaiting-approval' ? 'awaiting-approval' : 'running' })
+    const key = tool.status === 'awaiting-approval'
+      ? 'voice_chat_waiting'
+      : presentation.kind === 'exec'
+        ? 'voice_chat_command'
+        : presentation.kind === 'edit'
+          ? 'voice_chat_editing'
+          : presentation.kind === 'read'
+            ? 'voice_chat_reading'
+            : presentation.kind === 'search'
+              ? 'voice_chat_searching'
+              : null
+    const label = key ? tt(key) : activityToolDisplayName(tool.toolName)
+    return active.length > 1 ? `${label} · ${tt('voice_chat_more').replace('{count}', String(active.length - 1))}` : label
+  }
+  maximizedComposer = mountMaximizedComposer({
+    appRoot: appRootEl,
+    artifactsPanel,
+    inputWrapper: inputWrapperEl,
+    inputEl,
+    currentSessionId: () => window.currentSessionId || null,
+    inChatSurface: () => !currentNonChatView && !settingsVisibleIfAny(),
+    isArchivedSession: () => !!findKnownSession(window.currentSessionId)?.archived,
+    waitState: (sessionId) => {
+      const wait = sidebarSessionWait(sessionId)
+      return { count: wait.count, kind: wait.kind }
+    },
+    isRunning: () => busy || !!(window.currentSessionId && getSessionStream(window.currentSessionId).running),
+    runningLabel: () => activeStreamActivityLabel(window.currentSessionId || null),
+    draftText: () => composedInputText(),
+    attachmentCount: () => pendingFiles.length,
+    isVoiceActive: () => (document.getElementById('voice-input-btn')?.dataset.voiceState || 'idle') !== 'idle',
+    hasOpenComposerOverlay: () => !slashMenu.classList.contains('hidden')
+      || !!(btwPanelEl && !btwPanelEl.hidden)
+      || !!document.querySelector('.kls-select-panel:not(.hidden), .project-picker-popover, .ctx-pop:not(.hidden)'),
+    restoreHomeDock: restoreComposerHomeDock,
+    restoreSplitPanel: () => {
+      if (document.body.classList.contains('artifacts-maximized')) {
+        document.getElementById('artifacts-maximize-toggle')?.click()
+      }
+    },
+    scrollTranscriptToBottom: () => {
+      requestAnimationFrame(() => {
+        messagesEl.scrollTop = messagesEl.scrollHeight
+      })
+    },
+    stopTurn: () => {
+      const sid = window.currentSessionId || currentPendingComposerSubmission()?.viewId || ''
+      if (sid && !stoppingSessions.has(sid)) requestTurnStop(sid)
+    },
+    onExpand: () => {
+      autoResize()
+      updateSendBtn()
+    },
+    onDropFiles: (files) => {
+      addFiles(files)
+      renderPreviews()
+      updateSendBtn()
+    },
+    t: tt,
+    tCount: ttCount,
+  })
+  let maxComposerRefreshRaf = 0
+  const scheduleMaxComposerRefresh = () => {
+    if (maxComposerRefreshRaf) return
+    maxComposerRefreshRaf = requestAnimationFrame(() => {
+      maxComposerRefreshRaf = 0
+      maximizedComposer?.refresh()
+    })
+  }
+  const unsubscribeMaxComposerStream = chatStreamStore.subscribe(scheduleMaxComposerRefresh)
+  window.addEventListener('klaus:session-change', () => maximizedComposer?.refresh())
+  window.addEventListener('pagehide', () => {
+    if (maxComposerRefreshRaf) cancelAnimationFrame(maxComposerRefreshRaf)
+    unsubscribeMaxComposerStream()
+    maximizedComposer?.dispose()
+  }, { once: true })
+}
 for (const runtime of sidePaneRuntimes.values()) runtime.mountVoice?.()
 window.klausStopVoiceChatForSession = sessionId => voiceChatUi!.controller.stopForSession(sessionId)
 chatStreamStore.subscribe(() => voiceChatUi?.refresh())

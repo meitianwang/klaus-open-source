@@ -5,13 +5,13 @@ use std::time::Duration;
 #[cfg(unix)]
 use std::time::Instant;
 
+#[cfg(unix)]
+use klaus_native_core::pty::{Event, Pty, StartOptions};
 use klaus_native_core::{
     files::{fuzzy_score, SearchOptions},
     search_session::{QueryOptions, QueryResult, SessionOptions},
     Runtime,
 };
-#[cfg(unix)]
-use klaus_native_core::pty::{Event, Pty, StartOptions};
 
 fn search(root: &Path, id: &str, query: &str, limit: i32) -> SearchOptions {
     SearchOptions {
@@ -198,13 +198,19 @@ fn session_snapshot_is_frozen_while_a_one_shot_search_sees_changes() {
     let open = runtime
         .prepare_search_session(session("frozen", &[temp.path()], 5000))
         .unwrap();
-    assert_eq!(rels(&open.query(query("q1", "", 100)).unwrap()), ["a", "b", "c"]);
+    assert_eq!(
+        rels(&open.query(query("q1", "", 100)).unwrap()),
+        ["a", "b", "c"]
+    );
 
     std::fs::remove_file(temp.path().join("a")).unwrap();
     std::fs::write(temp.path().join("d"), "").unwrap();
 
     // The held snapshot is unchanged in both directions.
-    assert_eq!(rels(&open.query(query("q2", "", 100)).unwrap()), ["a", "b", "c"]);
+    assert_eq!(
+        rels(&open.query(query("q2", "", 100)).unwrap()),
+        ["a", "b", "c"]
+    );
     // A one-shot search over the same root rebuilds and reports the truth.
     let fresh = runtime
         .prepare_search(search(temp.path(), "fresh", "", 100))
@@ -212,7 +218,11 @@ fn session_snapshot_is_frozen_while_a_one_shot_search_sees_changes() {
         .run()
         .unwrap();
     assert_eq!(
-        fresh.hits.iter().map(|hit| hit.rel.as_str()).collect::<Vec<_>>(),
+        fresh
+            .hits
+            .iter()
+            .map(|hit| hit.rel.as_str())
+            .collect::<Vec<_>>(),
         ["b", "c", "d"]
     );
     assert_eq!(runtime.search_session_count(), 1);
@@ -236,7 +246,13 @@ fn session_reranks_one_snapshot_and_matches_one_shot_ranking() {
         .prepare_search_session(session("ranked", &[temp.path()], 5000))
         .unwrap();
 
-    for (text, limit) in [("", 100), ("main", 10), ("index", 40), ("été", 40), ("zzz", 40)] {
+    for (text, limit) in [
+        ("", 100),
+        ("main", 10),
+        ("index", 40),
+        ("été", 40),
+        ("zzz", 40),
+    ] {
         let via_session = open.query(query("q", text, limit)).unwrap();
         let one_shot = runtime
             .prepare_search(search(temp.path(), "one-shot", text, limit))
@@ -245,10 +261,17 @@ fn session_reranks_one_snapshot_and_matches_one_shot_ranking() {
             .unwrap();
         assert_eq!(
             rels(&via_session),
-            one_shot.hits.iter().map(|hit| hit.rel.as_str()).collect::<Vec<_>>(),
+            one_shot
+                .hits
+                .iter()
+                .map(|hit| hit.rel.as_str())
+                .collect::<Vec<_>>(),
             "session and one-shot ranking diverged for {text:?} limit {limit}"
         );
-        assert_eq!(via_session.scanned, one_shot.scanned, "scanned count diverged for {text:?}");
+        assert_eq!(
+            via_session.scanned, one_shot.scanned,
+            "scanned count diverged for {text:?}"
+        );
     }
 
     // A zero limit short-circuits without scoring, and a negative limit keeps
@@ -263,9 +286,16 @@ fn session_reranks_one_snapshot_and_matches_one_shot_ranking() {
         .unwrap();
     assert_eq!(
         rels(&negative),
-        negative_one_shot.hits.iter().map(|hit| hit.rel.as_str()).collect::<Vec<_>>()
+        negative_one_shot
+            .hits
+            .iter()
+            .map(|hit| hit.rel.as_str())
+            .collect::<Vec<_>>()
     );
-    assert!(rels(&negative).len() > 1, "a negative limit still returns rows");
+    assert!(
+        rels(&negative).len() > 1,
+        "a negative limit still returns rows"
+    );
     assert!(runtime.stop_search_session("ranked"));
 }
 
@@ -280,11 +310,16 @@ fn session_serves_repeated_queries_without_mutating_state() {
         .prepare_search_session(session("repeat", &[temp.path()], 5000))
         .unwrap();
     for round in 0..20 {
-        let result = open.query(query(&format!("op-{round}"), "alpha", 10)).unwrap();
+        let result = open
+            .query(query(&format!("op-{round}"), "alpha", 10))
+            .unwrap();
         assert_eq!(rels(&result), ["alpha.txt"]);
         assert_eq!(result.operation_id, format!("op-{round}"));
     }
-    assert!(open.drained(), "a completed query leaves no registered operation");
+    assert!(
+        open.drained(),
+        "a completed query leaves no registered operation"
+    );
     assert!(open.pending_operations().is_empty());
 }
 
@@ -321,7 +356,11 @@ fn session_merges_roots_and_tags_the_origin_of_each_hit() {
     // order and a satisfied budget stops before the next root is ranked.
     let capped = open.query(query("capped", "notes", 1)).unwrap();
     assert_eq!(
-        capped.hits.iter().map(|hit| hit.root_index).collect::<Vec<_>>(),
+        capped
+            .hits
+            .iter()
+            .map(|hit| hit.root_index)
+            .collect::<Vec<_>>(),
         [0]
     );
     // A negative limit is primary-root only, matching the one-shot handler:
@@ -363,7 +402,11 @@ fn session_admission_is_bounded_and_rejects_duplicates() {
             .code,
         "INVALID_ROOT"
     );
-    assert_eq!(runtime.search_session_count(), 4, "a refused session is not registered");
+    assert_eq!(
+        runtime.search_session_count(),
+        4,
+        "a refused session is not registered"
+    );
     assert_eq!(
         runtime.search_session("missing").unwrap_err().code,
         "RESOURCE_NOT_FOUND"
@@ -442,7 +485,10 @@ fn session_query_deadline_is_per_query_and_a_truncated_snapshot_is_reported() {
     // A session that sat idle still answers: the deadline is armed per query,
     // not at creation.
     std::thread::sleep(Duration::from_millis(5));
-    assert_eq!(rels(&open.query(query("after-idle", "a", 10)).unwrap()), ["a.txt"]);
+    assert_eq!(
+        rels(&open.query(query("after-idle", "a", 10)).unwrap()),
+        ["a.txt"]
+    );
     let info = open.info();
     assert!(!info.truncated, "a small tree is not truncated");
     assert!(info.scanned > 0);
@@ -463,10 +509,22 @@ fn shutdown_stops_sessions_and_seals_their_admission() {
     assert_eq!(runtime.search_session_count(), 1);
 
     let report = runtime.prepare_shutdown(1000).unwrap().run();
-    assert!(report.complete, "a drained session does not hold shutdown open");
-    assert_eq!(runtime.search_session_count(), 0, "shutdown deregisters sessions");
+    assert!(
+        report.complete,
+        "a drained session does not hold shutdown open"
+    );
+    assert_eq!(
+        runtime.search_session_count(),
+        0,
+        "shutdown deregisters sessions"
+    );
     assert!(held.stopped());
-    assert_eq!(held.query(query("after-shutdown", "a", 10)).unwrap_err().code, "CLOSED");
+    assert_eq!(
+        held.query(query("after-shutdown", "a", 10))
+            .unwrap_err()
+            .code,
+        "CLOSED"
+    );
     // Admission is permanently sealed, exactly as it is for one-shot searches.
     assert_eq!(
         runtime
@@ -770,4 +828,129 @@ fn failed_spawn_is_observable_and_releasable() {
     assert!(resource.is_done());
     assert!(runtime.release_pty("bad-command"));
     assert_eq!(runtime.counts(), (0, 0));
+}
+
+#[cfg(unix)]
+struct KillOnDrop(libc::pid_t);
+
+#[cfg(unix)]
+impl Drop for KillOnDrop {
+    fn drop(&mut self) {
+        if self.0 > 1 {
+            unsafe {
+                libc::kill(-self.0, libc::SIGKILL);
+                libc::kill(self.0, libc::SIGKILL);
+            }
+        }
+    }
+}
+
+#[cfg(unix)]
+fn parse_bg_pid(text: &str) -> Option<libc::pid_t> {
+    text.match_indices("BG=").find_map(|(idx, _)| {
+        let rest = &text[idx + 3..];
+        let digits: String = rest.chars().take_while(|ch| ch.is_ascii_digit()).collect();
+        digits.parse::<libc::pid_t>().ok().filter(|&pid| pid > 1)
+    })
+}
+
+#[cfg(unix)]
+async fn wait_for_pid_exit(pid: libc::pid_t, timeout: Duration) -> bool {
+    let deadline = Instant::now() + timeout;
+    while Instant::now() < deadline {
+        let rc = unsafe { libc::kill(pid, 0) };
+        if rc == -1 && std::io::Error::last_os_error().raw_os_error() == Some(libc::ESRCH) {
+            return true;
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    false
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn close_terminates_background_process_groups_in_terminal_session() {
+    let temp = tempfile::tempdir().unwrap();
+    let runtime = Runtime::default();
+    let options = StartOptions {
+        resource_id: "bg-close".into(),
+        cwd: temp.path().into(),
+        command: "/bin/sh".into(),
+        args: vec![
+            "-c".into(),
+            "perl -e 'setpgrp(0, 0); $| = 1; printf \"BG=%d\\n\", $$; sleep 60' </dev/null & sleep 60".into(),
+        ],
+        env: vec![],
+        cols: 80,
+        rows: 24,
+        deadline_ms: 5000,
+    };
+    let resource = runtime.start_pty(options).unwrap();
+    resource.wait_ready().unwrap();
+
+    let mut collected = Vec::new();
+    let bg_pid = loop {
+        let event = tokio::time::timeout(Duration::from_secs(5), resource.next_event())
+            .await
+            .unwrap()
+            .unwrap()
+            .expect("expected BG pid output before EOF");
+        collected.extend_from_slice(&event.data);
+        if let Some(pid) = parse_bg_pid(&String::from_utf8_lossy(&collected)) {
+            break pid;
+        }
+    };
+    let _guard = KillOnDrop(bg_pid);
+    assert_eq!(unsafe { libc::kill(bg_pid, 0) }, 0);
+    assert_eq!(unsafe { libc::getpgid(bg_pid) }, bg_pid);
+
+    let consumer = Arc::clone(&resource);
+    let draining =
+        tokio::spawn(async move { while consumer.next_event().await.unwrap().is_some() {} });
+    let report = resource.close(2000).unwrap();
+    assert!(report.complete, "{report:?}");
+    draining.await.unwrap();
+    assert!(
+        wait_for_pid_exit(bg_pid, Duration::from_secs(5)).await,
+        "background process group {bg_pid} survived terminal close"
+    );
+}
+
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shell_exit_terminates_background_process_groups_without_stalling_eof() {
+    let temp = tempfile::tempdir().unwrap();
+    let runtime = Runtime::default();
+    let options = StartOptions {
+        resource_id: "bg-exit".into(),
+        cwd: temp.path().into(),
+        command: "/bin/sh".into(),
+        args: vec![
+            "-c".into(),
+            "perl -e 'setpgrp(0, 0); $| = 1; printf \"BG=%d\\n\", $$; sleep 60' & sleep 0.2; exit 5".into(),
+        ],
+        env: vec![],
+        cols: 80,
+        rows: 24,
+        deadline_ms: 5000,
+    };
+    let resource = runtime.start_pty(options).unwrap();
+    resource.wait_ready().unwrap();
+
+    let events = drain(&resource).await;
+    let text = String::from_utf8_lossy(
+        &events
+            .iter()
+            .flat_map(|event| event.data.iter().copied())
+            .collect::<Vec<_>>(),
+    )
+    .into_owned();
+    let bg_pid = parse_bg_pid(&text).unwrap_or_else(|| panic!("missing BG pid in {text:?}"));
+    let _guard = KillOnDrop(bg_pid);
+    assert_eq!(events.last().unwrap().exit_code, 5);
+    assert!(
+        wait_for_pid_exit(bg_pid, Duration::from_secs(5)).await,
+        "background process group {bg_pid} survived shell exit"
+    );
+    assert!(resource.close(200).unwrap().complete);
 }

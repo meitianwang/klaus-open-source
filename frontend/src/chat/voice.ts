@@ -29,7 +29,7 @@ interface KlausVoiceApi {
 }
 const api = () => (window as unknown as { klaus: KlausVoiceApi }).klaus.voice
 const alert = (message: string) => (window as unknown as { klausDialog: { alert(message: string): Promise<void> } }).klausDialog.alert(message)
-export interface VoiceDeps { mainComposerInsert(text: string): void; chatActive?(): boolean }
+export interface VoiceDeps { mainComposerInsert(text: string): void; chatActive?(): boolean; beforeToggleStart?(): void }
 let deps!: VoiceDeps
 const buttons: HTMLElement[] = []
 type State = 'idle' | 'starting' | 'recording' | 'transcribing' | 'cancelling'
@@ -302,7 +302,7 @@ export function initVoice(injected: VoiceDeps): void {
   // rather than a command a user would expect to find in the shortcuts list.
   bindCommandHandler('composerToggleVoice', () => {
     if (state === 'recording') { voiceStop(); return true }
-    if (state === 'idle') { void voiceStart(null); return true }
+    if (state === 'idle') { deps.beforeToggleStart?.(); void voiceStart(null); return true }
     return false
   })
   document.addEventListener('keydown', event => {

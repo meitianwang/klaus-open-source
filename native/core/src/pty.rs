@@ -609,6 +609,10 @@ impl Pty {
                 }
             }
             if status.is_none() {
+                #[cfg(unix)]
+                if has_exited_without_reap(pid) {
+                    signal_session_members(pid, libc::SIGKILL);
+                }
                 match child.try_wait() {
                     Ok(value) => status = value,
                     Err(error) => {
@@ -792,10 +796,9 @@ fn signal_owned(master: &dyn portable_pty::MasterPty, pid: u32, signal: i32) {
     if pid <= 1 || pid > i32::MAX as u32 {
         return;
     }
-    let pid = pid as i32;
+    let raw_pid = pid as i32;
     let app_group = unsafe { libc::getpgrp() };
     // The kernel restricts this controlling terminal's foreground group to its own session.
-    // getsid(child) is not a portable check: implementations may restrict inspection across sessions.
     let foreground = master
         .process_group_leader()
         .filter(|group| *group > 1 && *group != app_group);
@@ -804,14 +807,203 @@ fn signal_owned(master: &dyn portable_pty::MasterPty, pid: u32, signal: i32) {
             libc::kill(-group, signal);
         }
     }
-    if pid != app_group && foreground != Some(pid) && unsafe { libc::getpgid(pid) } == pid {
+    if raw_pid != app_group
+        && foreground != Some(raw_pid)
+        && unsafe { libc::getpgid(raw_pid) } == raw_pid
+    {
         unsafe {
-            libc::kill(-pid, signal);
+            libc::kill(-raw_pid, signal);
         }
     }
-    // This child has not been reaped, so its PID cannot have been recycled.
+    // This child has not been reaped, so its PID and session ID cannot have been recycled.
+    signal_session_members(pid, signal);
     unsafe {
-        libc::kill(pid, signal);
+        libc::kill(raw_pid, signal);
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn siginfo_pid(info: &libc::siginfo_t) -> libc::pid_t {
+    unsafe { info.si_pid() }
+}
+
+#[cfg(all(unix, not(target_os = "linux")))]
+fn siginfo_pid(info: &libc::siginfo_t) -> libc::pid_t {
+    info.si_pid
+}
+
+#[cfg(unix)]
+fn has_exited_without_reap(pid: u32) -> bool {
+    if pid <= 1 || pid > i32::MAX as u32 {
+        return false;
+    }
+    let expected = pid as libc::pid_t;
+    loop {
+        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+        let rc = unsafe {
+            libc::waitid(
+                libc::P_PID,
+                pid as libc::id_t,
+                &mut info,
+                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
+            )
+        };
+        if rc == 0 {
+            return siginfo_pid(&info) == expected;
+        }
+        if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+            continue;
+        }
+        return false;
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn session_member_pids(sid: libc::pid_t) -> Vec<libc::pid_t> {
+    extern "C" {
+        fn proc_listallpids(buffer: *mut libc::c_void, buffersize: libc::c_int) -> libc::c_int;
+    }
+
+    let estimate = unsafe { proc_listallpids(std::ptr::null_mut(), 0) };
+    if estimate <= 0 {
+        return Vec::new();
+    }
+    let capacity = (estimate as usize).saturating_add(128);
+    let mut all = vec![0 as libc::pid_t; capacity];
+    let byte_len = i32::try_from(capacity.saturating_mul(std::mem::size_of::<libc::pid_t>()))
+        .unwrap_or(i32::MAX);
+    let filled = unsafe { proc_listallpids(all.as_mut_ptr().cast::<libc::c_void>(), byte_len) };
+    if filled <= 0 {
+        return Vec::new();
+    }
+    all.truncate((filled as usize).min(capacity));
+    let mut members: Vec<libc::pid_t> = all
+        .into_iter()
+        .filter(|&member| member > 1 && unsafe { libc::getsid(member) } == sid)
+        .collect();
+    members.sort_unstable();
+    members.dedup();
+    members
+}
+
+#[cfg(target_os = "linux")]
+fn session_member_pids(sid: libc::pid_t) -> Vec<libc::pid_t> {
+    let Ok(entries) = std::fs::read_dir("/proc") else {
+        return Vec::new();
+    };
+    let mut members = Vec::new();
+    for entry in entries.flatten() {
+        let Some(member) = entry
+            .file_name()
+            .to_str()
+            .and_then(|text| text.parse::<libc::pid_t>().ok())
+        else {
+            continue;
+        };
+        if member > 1 && unsafe { libc::getsid(member) } == sid {
+            members.push(member);
+        }
+    }
+    members.sort_unstable();
+    members.dedup();
+    members
+}
+
+#[cfg(all(unix, not(any(target_os = "macos", target_os = "linux"))))]
+fn session_member_pids(_sid: libc::pid_t) -> Vec<libc::pid_t> {
+    Vec::new()
+}
+
+#[cfg(unix)]
+fn signal_verified_member(member: libc::pid_t, sid: libc::pid_t, signal: i32) {
+    if member <= 1 {
+        return;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let pidfd = unsafe {
+            libc::syscall(
+                libc::SYS_pidfd_open,
+                member as libc::c_int,
+                0 as libc::c_uint,
+            )
+        };
+        if pidfd >= 0 {
+            let pidfd = pidfd as libc::c_int;
+            if unsafe { libc::getsid(member) } == sid {
+                unsafe {
+                    libc::syscall(
+                        libc::SYS_pidfd_send_signal,
+                        pidfd,
+                        signal,
+                        std::ptr::null::<libc::siginfo_t>(),
+                        0 as libc::c_uint,
+                    );
+                }
+            }
+            unsafe {
+                libc::close(pidfd);
+            }
+            return;
+        }
+    }
+    if unsafe { libc::getsid(member) } == sid {
+        unsafe {
+            libc::kill(member, signal);
+        }
+    }
+}
+
+#[cfg(unix)]
+fn signal_session_members(pid: u32, signal: i32) {
+    if pid <= 1 || pid > i32::MAX as u32 {
+        return;
+    }
+    let sid = pid as libc::pid_t;
+    let app_sid = unsafe { libc::getsid(0) };
+    if app_sid <= 0 || sid == app_sid {
+        return;
+    }
+    let app_group = unsafe { libc::getpgrp() };
+    let max_passes = if signal == libc::SIGKILL { 8 } else { 1 };
+    let mut previous = Vec::new();
+    let mut unchanged_passes = 0usize;
+
+    for _ in 0..max_passes {
+        let mut members = session_member_pids(sid);
+        members.retain(|&member| member != sid);
+        if members.is_empty() {
+            break;
+        }
+        let mut groups = Vec::new();
+        for &member in &members {
+            let pgid = unsafe { libc::getpgid(member) };
+            if pgid > 1 && pgid != sid && pgid != app_group && !groups.contains(&pgid) {
+                groups.push(pgid);
+            }
+        }
+        for pgid in groups {
+            if let Some(neg) = pgid.checked_neg() {
+                unsafe {
+                    libc::kill(neg, signal);
+                }
+            }
+        }
+        for &member in &members {
+            signal_verified_member(member, sid, signal);
+        }
+        if max_passes == 1 {
+            break;
+        }
+        if members == previous {
+            unchanged_passes += 1;
+            if unchanged_passes >= 2 {
+                break;
+            }
+        } else {
+            unchanged_passes = 0;
+            previous = members;
+        }
     }
 }
 
