@@ -11,7 +11,7 @@ export const MEDIA_SCHEME = 'klaus-media';
 const LEGACY_CACHE_TOKEN = /^[A-Za-z0-9._-]{1,64}$/;
 const TYPES: Record<string, string> = {
   png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif', webp: 'image/webp',
-  svg: 'image/svg+xml', bmp: 'image/bmp', avif: 'image/avif', ico: 'image/x-icon', pdf: 'application/pdf',
+  svg: 'image/svg+xml', bmp: 'image/bmp', avif: 'image/avif', ico: 'image/x-icon', heic: 'image/heic', heif: 'image/heif', pdf: 'application/pdf',
   mp3: 'audio/mpeg', wav: 'audio/wav', m4a: 'audio/mp4', aac: 'audio/aac', flac: 'audio/flac',
   ogg: 'audio/ogg', oga: 'audio/ogg', opus: 'audio/ogg', wma: 'audio/x-ms-wma',
   mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime', m4v: 'video/mp4', ogv: 'video/ogg', '3gp': 'video/3gpp',
@@ -207,6 +207,7 @@ export class MediaFiles {
         const headers = new Headers({
           'Content-Type': contentType,
           'Content-Length': String(info.size), 'Accept-Ranges': 'bytes', 'Cache-Control': 'no-store',
+          'ETag': `W/"${info.size}-${Math.trunc(info.mtimeMs)}"`,
           'Access-Control-Allow-Origin': preview && origin === 'null' ? 'null' : 'klaus-app://app', 'Vary': 'Origin',
           'Content-Security-Policy': preview && HTML_TYPES[extname(path).slice(1).toLowerCase()] ? preview.grant.preview?.widget ? widgetPolicy() : previewPolicy(preview.token) : "default-src 'none'; sandbox",
           'X-Content-Type-Options': 'nosniff', ...(preview ? { 'Referrer-Policy': 'no-referrer' } : {}),

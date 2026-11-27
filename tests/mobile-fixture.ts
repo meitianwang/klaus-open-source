@@ -66,7 +66,7 @@ export async function mobileFixture(options: Pick<MobileBridgeDeps, 'sessionInte
     diagnosticsEnabled: options.diagnosticsEnabled,
     threadRequest: options.threadRequest,
     catalogPage: options.catalogPage, catalogRow: options.catalogRow, catalogVisible: options.catalogVisible,
-    mediaPreview: options.mediaPreview ?? ((sessionId, path, signal) => mobileMediaPreview(media, sessionId, path, signal)),
+    mediaPreview: options.mediaPreview ?? ((sessionId, path, signal, range) => mobileMediaPreview(media, sessionId, path, signal, range)),
     inlineVisualizationPreview: options.inlineVisualizationPreview,
     diagramPreview: options.diagramPreview,
     unreadChanged: options.unreadChanged,

@@ -1893,6 +1893,65 @@ void (async () => {
         headers: { 'content-type': 'image/png', 'content-length': String(MOBILE_MEDIA_PREVIEW_LIMIT + 1) },
       }) }, 's1', path, new AbortController().signal), /16 MiB/);
       assert.equal(cancelled, true);
+
+      const largeVideoPath = join(f.root, 'video.mp4');
+      const largeSize = MOBILE_MEDIA_PREVIEW_LIMIT + 1024 * 1024 + 321;
+      const largeBytes = Buffer.alloc(largeSize);
+      for (let i = 0; i < largeSize; i += 4096) largeBytes.writeUInt32BE(i >>> 0, i);
+      largeBytes[largeSize - 1] = 0x5a;
+      await writeFile(largeVideoPath, largeBytes);
+
+      const autoDenied = await f.request('POST', '/api/mobile/sessions/s1/media', { path: largeVideoPath });
+      assert.equal(autoDenied.status, 413);
+      assert.equal(object(autoDenied.body.error).type, 'media_too_large');
+
+      const probe = await f.request('POST', '/api/mobile/sessions/s1/media', { path: largeVideoPath, offset: 0, length: 0 });
+      assert.equal(probe.status, 200);
+      assert.equal(probe.body.mimeType, 'video/mp4');
+      assert.equal(probe.body.totalSize, largeSize);
+      assert.equal(probe.body.byteLength, 0);
+      assert.equal(probe.body.eof, false);
+      assert.equal(probe.body.data, '');
+      assert.equal(typeof probe.body.version, 'string');
+
+      const chunkSize = 6 * 1024 * 1024;
+      const assembled: Buffer[] = [];
+      let cursor = 0;
+      let chunkCount = 0;
+      while (true) {
+        const chunkRes = await f.request('POST', '/api/mobile/sessions/s1/media', { path: largeVideoPath, offset: cursor, length: chunkSize });
+        assert.equal(chunkRes.status, 200);
+        assert.equal(chunkRes.body.mimeType, 'video/mp4');
+        assert.equal(chunkRes.body.offset, cursor);
+        assert.equal(chunkRes.body.totalSize, largeSize);
+        assert.equal(chunkRes.body.version, probe.body.version);
+        const decoded = Buffer.from(String(chunkRes.body.data), 'base64');
+        assert.equal(decoded.byteLength, chunkRes.body.byteLength);
+        assembled.push(decoded);
+        cursor += decoded.byteLength;
+        chunkCount += 1;
+        if (chunkRes.body.eof === true) break;
+      }
+      assert.equal(chunkCount, 3);
+      assert.equal(Buffer.compare(Buffer.concat(assembled), largeBytes), 0);
+
+      const pastEnd = await f.request('POST', '/api/mobile/sessions/s1/media', { path: largeVideoPath, offset: largeSize, length: 1024 });
+      assert.equal(pastEnd.status, 200);
+      assert.equal(pastEnd.body.byteLength, 0);
+      assert.equal(pastEnd.body.eof, true);
+
+      const emptyVideoPath = join(f.root, 'empty.mp4');
+      await writeFile(emptyVideoPath, Buffer.alloc(0));
+      const emptyRange = await f.request('POST', '/api/mobile/sessions/s1/media', { path: emptyVideoPath, offset: 0, length: 4096 });
+      assert.equal(emptyRange.status, 200);
+      assert.equal(emptyRange.body.totalSize, 0);
+      assert.equal(emptyRange.body.byteLength, 0);
+      assert.equal(emptyRange.body.eof, true);
+      assert.equal(emptyRange.body.data, '');
+
+      assert.equal((await f.request('POST', '/api/mobile/sessions/s1/media', { path: largeVideoPath, offset: -1, length: 1024 })).status, 400);
+      assert.equal((await f.request('POST', '/api/mobile/sessions/s1/media', { path: largeVideoPath, offset: 0, length: -1 })).status, 400);
+      assert.equal((await f.request('POST', '/api/mobile/sessions/s1/media', { path: largeVideoPath, offset: 'bad', length: 1024 })).status, 400);
     } finally { await f.close(); await other.close(); }
   });
   await h.test('file and diagram previews retain the session identity and do not invoke renderer windows', async () => {

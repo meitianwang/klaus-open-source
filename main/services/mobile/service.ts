@@ -65,7 +65,7 @@ export interface MobileBridgeDeps {
   catalogRow?: (sessionId: string, context: MobileCallContext, priority?: 'interactive' | 'background') => Promise<JsonObject | null>;
   catalogVisible?: (sessionId: string) => boolean;
   threadRequest?: (name: RemoteThreadOperation, payload: JsonObject, context: MobileThreadContext) => Promise<JsonObject>;
-  mediaPreview?: (sessionId: string, path: string, signal: AbortSignal) => Promise<JsonObject>;
+  mediaPreview?: (sessionId: string, path: string, signal: AbortSignal, options?: { offset?: unknown; length?: unknown }) => Promise<JsonObject>;
   inlineVisualizationPreview?: (sessionId: string, path: string) => Promise<JsonObject>;
   diagramPreview?: (sessionId: string, id: string) => JsonObject | Promise<JsonObject>;
   unreadChanged?: () => void;
@@ -831,7 +831,10 @@ export class MobileBridgeService {
     await this.knownSession(call, id);
     if (action === 'media') {
       if (!this.deps.mediaPreview) throw new MobileError(501, 'media_preview_unavailable', 'Media preview is unavailable');
-      const preview = await this.deps.mediaPreview(id, required(payload.path, 'path'), signal);
+      const options = payload.offset !== undefined || payload.length !== undefined
+        ? { offset: payload.offset, length: payload.length }
+        : undefined;
+      const preview = await this.deps.mediaPreview(id, required(payload.path, 'path'), signal, options);
       signal.throwIfAborted();
       if (this.run !== run || !sameOwner(owner, this.deps.engineOwner())) throw new MobileError(409, 'engine_replaced', 'Desktop engine changed; retry the request');
       return result(200, preview);

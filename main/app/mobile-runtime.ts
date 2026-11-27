@@ -98,7 +98,7 @@ export function createMobileRuntime(deps: {
       assertCurrent();
       return deps.sessions.withEngineOwner(current!, signal, () => deps.sessions.followHistory(sessionId, undefined, { priority, source: 'thread', signal }, onHistory));
     },
-    mediaPreview: deps.media ? (sessionId, path, signal) => mobileMediaPreview(deps.media!, sessionId, path, signal) : undefined,
+    mediaPreview: deps.media ? (sessionId, path, signal, options) => mobileMediaPreview(deps.media!, sessionId, path, signal, options) : undefined,
     inlineVisualizationPreview: deps.files ? async (sessionId, path) => object(await deps.files!.inlineVisualizationContent({ sessionId, filePath: path })) : undefined,
     diagramPreview: deps.digram ? async (sessionId, id) => {
       const document = deps.digram!.store.load(id, sessionId), icons: JsonObject = {};
