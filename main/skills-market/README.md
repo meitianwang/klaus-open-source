@@ -43,7 +43,7 @@ free catalog anymore, the server hosts it. There is no working
 directory or application resource fallback.
 
 Create `PluginMarketplaceService` with `workspaces`, the existing `PluginService`,
-the existing named facade `request`, `seedDir`, and an awaited marketplace config
+the existing named facade `request`, and an awaited marketplace config
 invalidation callback. Register it with
 `registerPluginMarketplaceHandlers(registry, marketplaces)`. Do not pass the plugin
 mutation callback: this service saves one `marketplaces."<name>"` entry through
@@ -79,11 +79,9 @@ fails returns the durable-state flag (`installed` for skills, `saved` for
 marketplaces) with `reloadRequired: true`, and cannot trigger a local fallback.
 
 Remote marketplaces stay under the profile's `plugins/marketplaces` directory.
-Name/source/cache collisions, linked destinations, and seed-managed official
-content are refused before replacement. Git runs without a shell or interactive
-terminal prompts. The official mirror retains its `latest` commit plus
-`marketplaces/claude-plugins-official/` archive prefix and `.gcs-sha` sentinel.
-Matching sentinels still require a valid matching marketplace manifest.
+Name, source, and cache collisions and linked destinations are refused before
+replacement. Git runs without a shell or interactive terminal prompts. Discovery
+refreshes the first-party catalog without updating registered Git marketplaces.
 
 ## Reproducible gates
 

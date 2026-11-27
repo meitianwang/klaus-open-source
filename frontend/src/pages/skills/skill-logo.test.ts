@@ -17,6 +17,7 @@ const LOGO_SKILLS = [
   'computer-use',
   'cron-manager',
   'deep-research',
+  'docx',
   'frontend-design',
   'klaus-docs',
   'pdf',
@@ -24,6 +25,7 @@ const LOGO_SKILLS = [
   'skill-creator',
   'record-and-replay',
   'slash-command-creator',
+  'xlsx',
 ]
 
 let getSkillLogoSrc: (skill: any) => string

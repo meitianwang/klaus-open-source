@@ -83,7 +83,7 @@ export class McpBuiltinService {
           needsUv: (this.deps.platform ?? process.platform) === 'win32' && ['uv', 'uvx'].includes(String(object(entry.config).command)) };
         for (const key of ['category', 'nameZh', 'nameEn', 'descZh', 'descEn', 'iconSvg', 'link', 'auth']) row[key] = entry[key] ?? null;
         const device = object(entry.deviceAuth);
-        if (device.provider === 'github') row.deviceAuth = { provider: device.provider, registerUrl: device.registerUrl ?? null,
+        if (device.provider === 'github' || device.provider === 'google') row.deviceAuth = { provider: device.provider, registerUrl: device.registerUrl ?? null,
           ready: !!await this.deps.deviceClientId?.(String(entry.id), catalog) };
         return row;
       }));

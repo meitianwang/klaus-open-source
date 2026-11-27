@@ -89,7 +89,7 @@ export class PluginService {
       } catch (error) { this.deps.diagnostic?.('Plugin contribution catalog unavailable: ' + errorMessage(error)); }
     }
     return { plugins: rows.filter(row => row.installed === true || string(row.id).endsWith('@builtin') || string(row.id).endsWith('@klaus-official')), restartRequired: this.deps.endpointRestartRequired?.() === true, ...(this.deps.updateCheck ? { updateCheck: this.deps.updateCheck() } : {}), marketplaces: state.marketplaces.map(market => ({ name: market.name, installLocation: market.installLocation,
-      lastUpdated: market.lastUpdated, seeded: market.seeded || Boolean(market.installLocation?.includes('plugins-seed')) })) };
+      lastUpdated: market.lastUpdated })) };
   }
   market(): Promise<Json> { return this.track(async () => this.marketRows(await this.catalog.snapshot())); }
   list(payload: JsonObject): Promise<Json> {

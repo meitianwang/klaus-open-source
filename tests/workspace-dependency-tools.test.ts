@@ -10,7 +10,7 @@ import { registerWorkspaceDependencyTool, type WorkspaceDependencyProvider } fro
 const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/workspace-dependencies.json'), 'utf8')) as {
   toolName: string; resolveMethod: string; readyState: string; requiredReadyPaths: string[]; unavailableStates: string[];
 };
-const ready = { state: 'ready', pythonPath: '/managed/python', binDir: '/managed/bin', version: 'fixture' };
+const ready = { state: 'ready', pythonPath: '/managed/python', nodePath: '/managed/bin/node', nodeModulesPath: '/managed/node_modules', binDir: '/managed/bin', version: 'fixture' };
 const text = (value: Json) => String(object((object(value).contentItems as Json[])[0]).text);
 type Handler = Parameters<DynamicTools['register']>[1];
 function fixture(service: WorkspaceDependencyProvider, options: { local?: boolean; current?: () => void } = {}) {
@@ -39,6 +39,8 @@ test('a ready managed runtime returns usable paths through the named dynamic-too
     assert.equal(result.state, vector.readyState);
     for (const key of vector.requiredReadyPaths) assert.equal(typeof result[key], 'string');
     assert.equal(result.pythonPath, ready.pythonPath);
+    assert.equal(result.nodePath, ready.nodePath);
+    assert.equal(result.nodeModulesPath, ready.nodeModulesPath);
     assert.equal(result.pdfHelperPath, join('/bundled/skills', 'pdf', 'scripts', 'pdf.py'));
   } finally { await tools.close(); }
 });

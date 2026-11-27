@@ -1,4 +1,4 @@
-"""Run with the managed Python runtime: python -m unittest discover -s apps/desktop/tests -p pdf_skill_test.py -v."""
+"""Run with the managed Python runtime: python -m unittest discover -s tests -p pdf_skill_test.py -v."""
 
 from __future__ import annotations
 
@@ -15,7 +15,7 @@ from PIL import Image
 from pypdf import PdfReader, PdfWriter
 from reportlab.pdfgen.canvas import Canvas
 
-ROOT = Path(__file__).resolve().parents[3]
+ROOT = Path(__file__).resolve().parents[1]
 HELPER = ROOT / "resources/workspace-skills/pdf/scripts/pdf.py"
 
 

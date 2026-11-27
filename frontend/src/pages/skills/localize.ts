@@ -241,6 +241,7 @@ const SKILL_LOGO_BY_DIR: Record<string, string> = {
   'computer-use': 'skill-logos/computer-use.png',
   'cron-manager': 'skill-logos/cron-manager.png',
   'deep-research': 'skill-logos/deep-research.png',
+  'docx': 'skill-logos/docx.png',
   'frontend-design': 'skill-logos/frontend-design.png',
   'klaus-docs': 'skill-logos/klaus-docs.png',
   'pdf': 'skill-logos/pdf.png',
@@ -248,6 +249,7 @@ const SKILL_LOGO_BY_DIR: Record<string, string> = {
   'record-and-replay': 'skill-logos/record-and-replay.png',
   'skill-creator': 'skill-logos/skill-creator.png',
   'slash-command-creator': 'skill-logos/slash-command-creator.png',
+  'xlsx': 'skill-logos/xlsx.png',
 }
 
 /** Logo source for a skill row/card, or '' when the skill has no brand tile. */

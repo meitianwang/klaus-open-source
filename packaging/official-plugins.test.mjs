@@ -3,7 +3,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { test } from 'node:test';
-import { collectBundledOfficialPlugins, copyBundledOfficialPlugins, officialPluginRecords, officialPluginRequiredFiles, parseOfficialPluginRecords, validatePluginSeed, DEFAULT_PLUGIN_SEED } from './official-plugins.mjs';
+import { collectBundledOfficialPlugins, copyBundledOfficialPlugins, officialPluginRecords, officialPluginRequiredFiles, parseOfficialPluginRecords } from './official-plugins.mjs';
 
 function fixture() {
   const root = mkdtempSync(join(tmpdir(), 'klaus-official-resources-'));
@@ -92,15 +92,4 @@ test('a build bundles only the official plugins it names and records them for ve
       throws(() => parseOfficialPluginRecords(value), /Invalid official plugin record/);
     }
   } finally { f.close(); }
-});
-test('the plugin seed must be a known_marketplaces object and the committed default is empty', () => {
-  deepEqual(validatePluginSeed(DEFAULT_PLUGIN_SEED), []);
-  const root = mkdtempSync(join(tmpdir(), 'klaus-plugin-seed-'));
-  try {
-    throws(() => validatePluginSeed(root), /known_marketplaces/);
-    writeFileSync(join(root, 'known_marketplaces.json'), '[]');
-    throws(() => validatePluginSeed(root), /must be an object/);
-    writeFileSync(join(root, 'known_marketplaces.json'), JSON.stringify({ sample: { source: { source: 'github', repo: 'example/sample' } } }));
-    deepEqual(validatePluginSeed(root), ['sample']);
-  } finally { rmSync(root, { recursive: true, force: true }); }
 });

@@ -11,7 +11,7 @@ import { copyPolicyNotices } from '../engine/scripts/policy-notices.mjs';
 import { verifyPackage } from '../packaging/verify.mjs';
 import { DEFAULT_DESKTOP_EDITION, desktopEdition, packagedDesktopEditionDocument, useDesktopEditionsFile } from '../packaging/desktop-edition.mjs';
 import { macDocumentTypes } from '../packaging/file-associations.mjs';
-import { DEFAULT_PLUGIN_SEED, collectBundledOfficialPlugins, copyBundledOfficialPlugins, officialPluginRecords, validatePluginSeed } from '../packaging/official-plugins.mjs';
+import { collectBundledOfficialPlugins, copyBundledOfficialPlugins, officialPluginRecords } from '../packaging/official-plugins.mjs';
 import { HELPER_MANIFEST as browserImportManifestName, validateBrowserImportResource, helperName as browserImportHelperName } from '../packaging/browser-import.mjs';
 
 const appDirectory = fileURLToPath(new URL('..', import.meta.url));
@@ -43,13 +43,12 @@ const { values } = parseArgs({ options: {
   'engine-dir': { type: 'string' }, 'engine-commit': { type: 'string' }, 'native-dir': { type: 'string' },
   'speech-dir': { type: 'string' }, 'recording-dir': { type: 'string' }, 'pip-dir': { type: 'string' }, 'computer-use-dir': { type: 'string' }, 'egress-dir': { type: 'string' }, 'browser-import-dir': { type: 'string' },
   'frontend-dir': { type: 'string' }, 'electron-zip': { type: 'string' }, out: { type: 'string' }, help: { type: 'boolean' },
-  'official-plugins-dir': { type: 'string' }, 'bundle-official-plugin': { type: 'string', multiple: true }, 'plugin-seed-dir': { type: 'string' },
+  'official-plugins-dir': { type: 'string' }, 'bundle-official-plugin': { type: 'string', multiple: true },
 } });
 if (values.help) {
   console.log(`Desktop edition: --edition <id> (default ${DEFAULT_DESKTOP_EDITION}; additional editions come from --editions-file / KLAUS_DESKTOP_EDITIONS_FILE).`);
   console.log('Official plugins: --official-plugins-dir <marketplace dir> --bundle-official-plugin <name> (repeatable); none are bundled by default.');
-  console.log('Plugin seed: --plugin-seed-dir <dir with known_marketplaces.json> (default: an empty seed).');
-  console.log('npm run package -- --engine-dir <staged bin/platform-arch> --native-dir <production artifacts> [--speech-dir <macOS speech artifacts>] [--recording-dir <recording artifacts>] [--pip-dir <macOS PiP artifacts>] [--computer-use-dir <target Computer Use artifacts>] [--egress-dir <target egress relay artifacts>] [--browser-import-dir <target browser import helper>] [--engine-commit <40-char commit>] [--platform darwin|win32] [--arch arm64|x64] [--electron-zip <official release archive>] [--out <directory>]');
+  console.log('npm run package -- --engine-dir <staged bin/platform-arch> --native-dir <production artifacts> [--speech-dir <macOS speech artifacts>] [--recording-dir <macOS recording artifacts>] [--pip-dir <macOS PiP artifacts>] [--computer-use-dir <target Computer Use artifacts>] [--egress-dir <target egress relay artifacts>] [--browser-import-dir <target browser import helper>] [--engine-commit <40-char commit>] [--platform darwin|win32] [--arch arm64|x64] [--electron-zip <official release archive>] [--out <directory>]');
   process.exit(0);
 }
 const platform = values.platform, arch = values.arch;
@@ -88,8 +87,6 @@ if (!/^\d+\.\d+\.\d+$/.test(pkg.devDependencies.electron)) throw new Error('The 
 const download = electronDownloadOptions(appDirectory, { version: pkg.devDependencies.electron, platform, arch });
 const electronZipDir = values['electron-zip'] ? verifiedElectronArchiveDirectory(values['electron-zip'], download) : undefined;
 const bundledOfficialPlugins = collectBundledOfficialPlugins(values['official-plugins-dir'], values['bundle-official-plugin'] ?? []);
-const pluginSeedDirectory = resolve(values['plugin-seed-dir'] ?? DEFAULT_PLUGIN_SEED);
-validatePluginSeed(pluginSeedDirectory);
 
 function run(command, args, cwd) {
   const result = spawnSync(command, args, { cwd, stdio: 'inherit', env: process.env });
@@ -130,7 +127,6 @@ try {
   copyTree(frontendDirectory, join(resources, 'frontend'));
   copyTree(join(repo, 'resources', 'manual', 'klaus-manual.md'), join(resources, 'manual', 'klaus-manual.md'));
   for (const name of specification.sharedRoots) copyTree(join(repo, 'resources', name), join(resources, name));
-  copyTree(pluginSeedDirectory, join(resources, 'plugins-seed'));
   copyBundledOfficialPlugins(bundledOfficialPlugins, resources);
   for (const file of [...engineArtifactRecords(engine, { platform, arch }).map(artifact => artifact.file), 'manifest.json']) copyTree(join(engineDirectory, file), join(resources, 'bin', target, file));
   copyPolicyNotices(engineDirectory, join(resources, 'bin', target), engine);

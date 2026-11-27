@@ -199,7 +199,6 @@ Resources/
     klaus-computer-use-helper[.exe]
     klaus-computer-use-helper[.exe].json
   plugins-builtin/                # browser only (loadable Chrome extension); digram ships via the official plugin market
-  plugins-seed/
   canvas/
   tray-icon.png
   app-icon.icns                   # macOS only

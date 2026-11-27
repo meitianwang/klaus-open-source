@@ -55,17 +55,16 @@ export async function marketFixture(options: { skills?: Partial<SkillMarketDeps>
   // The production client ships no bundled free catalog anymore; the fixture
   // keeps the explicit-directory override so local-catalog cases stay covered.
   const market = new SkillMarketService({ skills, marketDirectory: join(resources, 'skills-market'), endpoint: () => undefined, environment: {}, onChanged: () => { changes.push('skills'); }, ...options.skills });
-  const plugins = new PluginService({ configRoot: root, seedDir: join(resources, 'plugins-seed'), request,
+  const plugins = new PluginService({ configRoot: root, request,
     requestAcknowledged: async (method, params, field) => {
       calls.push({ method, params: structuredClone(params) });
       if (method !== 'session/pluginCatalog' || field !== 'pluginCatalog') throw new Error('Plugin installs are not part of this marketplace fixture');
       return { entries: [] };
     }, onChanged: () => { throw new Error('No plugin ledger mutation is allowed in this fixture'); }, binding: () => undefined,
     resolveSession: async () => { throw new Error('No session creation is allowed in this fixture'); } });
-  const environment = { ...process.env, HOME: root, USERPROFILE: root, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(root, 'empty-git-config'),
-    KLAUS_PLUGIN_GCS_BASE: origin, KLAUS_PLUGIN_OFFICIAL_GIT_URL: pathToFileURL(join(root, 'missing.git')).href };
+  const environment = { ...process.env, HOME: root, USERPROFILE: root, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(root, 'empty-git-config') };
   await writeFile(environment.GIT_CONFIG_GLOBAL, '');
-  const marketplaces = new PluginMarketplaceService({ workspaces, plugins, request, seedDir: join(resources, 'plugins-seed'), environment,
+  const marketplaces = new PluginMarketplaceService({ workspaces, plugins, request, environment,
     gitOptions: { env: environment, timeoutMs: 5000 }, onChanged: () => { changes.push('marketplaces'); }, ...options.marketplaces });
   const registry = new ChannelRegistry(); registerSkillMarketHandlers(registry, market); registerPluginMarketplaceHandlers(registry, marketplaces);
   let closed = false;

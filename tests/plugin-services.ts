@@ -47,13 +47,12 @@ export function registerPluginServiceTests(h: Harness, freshRoot: () => string):
       assertEqual(object(await invoke(registry, 'plugins:install', { id: 'missing@local' })).ok, false, 'unknown package is not success');
     } finally { await plugins.close(); }
   });
-  h.test('plugin catalog repairs missing user content from the seed and preserves ids metadata and installed orphans', async () => {
-    const root = freshRoot(), seed = join(root, 'plugins-seed'), market = join(seed, 'marketplaces/local');
-    await document(join(seed, 'known_marketplaces.json'), { local: { installLocation: '/__klaus__/plugins-seed/marketplaces/local' } });
+  h.test('plugin catalog preserves registered metadata and installed orphans', async () => {
+    const root = freshRoot(), market = join(root, 'marketplaces/local');
     await document(join(market, '.claude-plugin/marketplace.json'), { plugins: [{ name: 'claude-helper', description: 'Claude Code helpers from Anthropic', source: './plugins/p', category: 'development', commands: [],
       lspServers: { ts: { command: 'typescript-language-server', extensionToLanguage: { '.ts': 'typescript' } } } }] });
-    const values: JsonObject = { marketplaces: { local: { installLocation: join(root, 'removed') } }, plugins: { 'claude-helper@local': { enabled: false }, 'orphan@custom': { name: 'orphan', enabled: true }, 'browser@builtin': { name: 'browser', enabled: false } } };
-    const service = new PluginService(deps(root, { seedDir: seed, request: async method => method === 'session/installedPlugins'
+    const values: JsonObject = { marketplaces: { local: { installLocation: market } }, plugins: { 'claude-helper@local': { enabled: false }, 'orphan@custom': { name: 'orphan', enabled: true }, 'browser@builtin': { name: 'browser', enabled: false } } };
+    const service = new PluginService(deps(root, { request: async method => method === 'session/installedPlugins'
       ? { installedPlugins: { version: 1, plugins: values.plugins } } : { values } }));
     try {
       const catalog = object(await service.market()), rows = catalog.plugins as Json[];
@@ -61,7 +60,6 @@ export function registerPluginServiceTests(h: Harness, freshRoot: () => string):
       assertEqual(plugin.name, 'klaus-helper', 'display brand only'); assertEqual(plugin.description, 'Klaus helpers from Klaus', 'brand text');
       assertEqual(plugin.enabled, false, 'ledger desired state'); assertEqual(plugin.category, 'lsp', 'LSP wins category');
       assertDeepEqual(plugin.badges, ['Commands', 'LSP'], 'declared contribution badge');
-      assertEqual(object((catalog.marketplaces as Json[])[0]).seeded, true, 'seed repaired unreadable cache');
       assertEqual(rows.filter(row => object(row).id === 'orphan@custom').length, 1, 'installed row remains manageable without its old marketplace');
       assertEqual((await service.list({}) as JsonObject[]).filter(row => row.id === 'browser@builtin').length, 1, 'builtin row is never appended twice');
       await document(join(root, 'user/.claude-plugin/marketplace.json'), { plugins: [{ name: 'user', source: './p' }] });
@@ -113,12 +111,12 @@ export function registerPluginServiceTests(h: Harness, freshRoot: () => string):
       calls.push({ method, params, field }); entered = true; await terminal.promise; return mode === 'valid' ? { persisted: true, restartRequired: false, activationScope: 'next_turn', appliedToCurrentSession: false } : { submissionId: 'ack-only' };
     }, onChanged: async change => { notice = change; dirty = true; await invalidated.promise; } }));
     try {
-      let finished = false; const changing = service.toggle({ id: 'context7@claude-plugins-official', enabled: true }).then(result => { finished = true; return result; });
+      let finished = false; const changing = service.toggle({ id: 'context7@klaus-official', enabled: true }).then(result => { finished = true; return result; });
       await waitFor(() => entered, 1000, 'mutation entered'); assertEqual(dirty, false, 'no invalidation before terminal persistence');
       terminal.resolve(); await waitFor(() => dirty, 1000, 'dirty callback entered'); assertEqual(finished, false, 'UI waits for invalidation');
-      invalidated.resolve(); assertDeepEqual(await changing, { ok: true, name: 'context7@claude-plugins-official', restartRequired: false, activationScope: 'next_turn', appliedToCurrentSession: false }, 'final UI shape');
+      invalidated.resolve(); assertDeepEqual(await changing, { ok: true, name: 'context7@klaus-official', restartRequired: false, activationScope: 'next_turn', appliedToCurrentSession: false }, 'final UI shape');
       const vector = JSON.parse(await readFile(join(__dirname, '../../contracts/vectors/plugin-rpc-vectors.json'), 'utf8'));
-      assertDeepEqual(notice, { method: vector.requests.toggle.method, id: 'context7@claude-plugins-official', mutation: vector.requests.toggle.result }, 'owner receives the live activation boundary');
+      assertDeepEqual(notice, { method: vector.requests.toggle.method, id: 'context7@klaus-official', mutation: vector.requests.toggle.result }, 'owner receives the live activation boundary');
       assertDeepEqual(calls[0], { method: vector.requests.toggle.method, params: vector.requests.toggle.params, field: vector.requests.toggle.replyField }, 'committed engine contract');
       mode = 'ack'; await assertRejects(() => service.uninstall({ id: 'p@local' }), 'missing persisted outcome refused');
       assertDeepEqual(calls[1], { method: 'session/uninstallPlugin', params: { name: 'p@local', removeFiles: true }, field: 'pluginMutation' }, 'uninstall removes engine-owned copy');

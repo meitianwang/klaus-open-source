@@ -59,6 +59,11 @@ test('parallel callers share a verified private installation and receive precise
   assert.equal(a.state, 'ready'); assert.deepEqual(a, b); assert.equal(f.downloads(), 1);
   assert.equal(a.pythonVersion, f.manifest.pythonVersion); assert.deepEqual(a.packages, f.manifest.packages);
   assert.match(manager.contextInstructions(), /runtime is ready/); assert.ok(existsSync(a.pythonPath!));
+  assert.equal(a.nodePath, join(a.binDir!, 'node'));
+  assert.equal(a.nodeModulesPath, join(dirname(dirname(a.binDir!)), 'node_modules'));
+  assert.ok(existsSync(a.nodePath!));
+  assert.deepEqual(a.nodePackages, { docx: '9.16.0', fflate: '0.8.3', nanoid: '6.0.1' });
+  assert.equal(a.packages['python-dateutil'], '2.9.0.post0');
   const sync = f.calls.find(call => call.args[0] === 'pip')!;
   assert.ok(sync.args.includes('--require-hashes')); assert.ok(sync.args.includes('--only-binary'));
   assert.ok(sync.args.includes('https://pypi.org/simple')); assert.ok(sync.args.includes('--no-config'));
@@ -69,6 +74,7 @@ test('parallel callers share a verified private installation and receive precise
   assert.equal(install.command.env.UV_PYTHON_PREFERENCE, 'only-managed');
   const probes = f.calls.filter(call => call.args[0] === '-I'); assert.equal(probes.length, 1);
   assert.match(probes[0]!.args[2]!, /page\.render/); assert.match(probes[0]!.args[2]!, /PdfReader/);
+  assert.match(probes[0]!.args[2]!, /docx\.Document/); assert.match(probes[0]!.args[2]!, /openpyxl\.Workbook/);
   assert.match(await readFile(a.logPath, 'utf8'), /Runtime ready/);
   await manager.close();
 });
@@ -199,7 +205,7 @@ test('diagnose checks the installed bundle in place and records every check in t
   assert.equal(ready.state, 'ready');
   const log = await readFile(ready.logPath, 'utf8');
   assert.match(log, /Diagnostics: the ready marker matches the locked manifest/);
-  assert.match(log, /Diagnostics: the PDF extraction and rendering probe passed/);
+  assert.match(log, /Diagnostics: the PDF extraction, rendering, and Word\/Excel round-trip probe passed/);
   f.failProbe(true);
   const failed = await manager.diagnose();
   assert.equal(failed.state, 'failed'); assert.match(failed.error!, /version probe/);

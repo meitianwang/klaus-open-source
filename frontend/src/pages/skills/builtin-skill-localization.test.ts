@@ -24,11 +24,13 @@ const BUILTIN_SKILL_DIR_NAMES = [
   'computer-use',
   'cron-manager',
   'deep-research',
+  'docx',
   'klaus-docs',
   'pdf',
   'skill-creator',
   'record-and-replay',
   'slash-command-creator',
+  'xlsx',
 ]
 
 // 中文档必须含中文的键：都是用户能看见的功能标签/徽标，不是厂商名。
@@ -109,7 +111,7 @@ test('cached market tables install on a replacement window without losing locali
 })
 
 describe('builtin skill display names', () => {
-  test('七个内置技能在中文档都有中文显示名', () => {
+  test('built-in skills have Chinese display names', () => {
     const untranslated = BUILTIN_SKILL_DIR_NAMES.filter(name => {
       const zh = table[name]?.zh
       return !zh || !hasCjk(zh[0])

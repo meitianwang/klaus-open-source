@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { MCP_DEVICE_CHANNELS } from '../main/ipc/handlers/mcp-device';
@@ -11,8 +12,101 @@ import { deferred, deviceFixture, reply, type DeviceRequest } from './mcp-device
 const h = new Harness();
 const deadline = setTimeout(() => { process.stderr.write('MCP device fixture exceeded its 90 second deadline\n'); process.exit(1); }, 90_000);
 const failure = (error: string): JsonObject => ({ ok: false, error });
+const google = { id: 'google-gmail' };
+const googleCatalog = [{
+  ...google, deviceAuth: { provider: 'google', scope: 'fixture-scope', defaultClientId: 'fixture-market-client', tokenEnvKey: 'GOOGLE_REFRESH_TOKEN' },
+}];
+
+async function googleCallback(service: McpDeviceService) {
+  const grant = object(await service.start(google));
+  assert.equal(grant.flow, 'browser');
+  assert.equal(grant.userCode, '');
+  const auth = new URL(String(grant.verificationUri));
+  const callback = new URL(auth.searchParams.get('redirect_uri')!);
+  assert.equal(callback.hostname, '127.0.0.1');
+  callback.searchParams.set('state', auth.searchParams.get('state')!);
+  callback.searchParams.set('code', 'fixture-code');
+  return { auth, callback };
+}
 
 void (async () => {
+  for (const mode of ['direct', 'market'] as const) {
+    await h.test(`Google ${mode} exchanges loopback callback with PKCE and installs the refresh token`, async () => {
+      const requests: Array<{ url: string; body: unknown }> = [];
+      const f = await deviceFixture({
+        baseURL: undefined,
+        env: mode === 'direct' ? { KLAUS_GOOGLE_OAUTH_CLIENT_ID: 'fixture-local-client', KLAUS_GOOGLE_OAUTH_CLIENT_SECRET: 'fixture-local-secret' } : {},
+        marketEndpoint: () => ({ baseUrl: 'https://market.invalid' }),
+        fetch: async (url, init) => {
+          const body = String(init?.body);
+          requests.push({ url: String(url), body: mode === 'direct' ? Object.fromEntries(new URLSearchParams(body)) : JSON.parse(body) });
+          return Response.json({ refresh_token: 'fixture-refresh-token' });
+        },
+      });
+      const oldHome = process.env.HOME;
+      process.env.HOME = f.temp;
+      try {
+        f.catalog(googleCatalog);
+        const { auth, callback } = await googleCallback(f.service);
+        assert.equal(auth.searchParams.get('client_id'), mode === 'direct' ? 'fixture-local-client' : 'fixture-market-client');
+        assert.equal(auth.searchParams.get('code_challenge_method'), 'S256');
+        const response = await fetch(callback);
+        assert.equal(response.status, 200);
+        await response.text();
+        assert.deepEqual(await f.service.wait(google), { ok: true });
+        assert.equal(requests.length, 1);
+        const exchange = requests[0]!;
+        const verifier = String(object(exchange.body).code_verifier);
+        assert.equal(createHash('sha256').update(verifier).digest('base64url'), auth.searchParams.get('code_challenge'));
+        assert.deepEqual(exchange, {
+          url: mode === 'direct' ? 'https://oauth2.googleapis.com/token' : 'https://market.invalid/api/market/mcp/oauth/google/token',
+          body: { grant_type: 'authorization_code', code: 'fixture-code', redirect_uri: auth.searchParams.get('redirect_uri'), code_verifier: verifier,
+            ...(mode === 'direct' ? { client_id: 'fixture-local-client', client_secret: 'fixture-local-secret' } : {}) },
+        });
+        assert.deepEqual(f.installs.map(row => row.payload), [{ ...google, env: { GOOGLE_REFRESH_TOKEN: 'fixture-refresh-token' } }]);
+      } finally {
+        if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome;
+        await f.close();
+      }
+    });
+  }
+  await h.test('Google rejects a conflicting custom client without a local secret', async () => {
+    const f = await deviceFixture({ baseURL: undefined, marketEndpoint: () => ({ baseUrl: 'https://market.invalid' }) });
+    const oldHome = process.env.HOME;
+    process.env.HOME = f.temp;
+    try {
+      f.catalog(googleCatalog);
+      assert.deepEqual(await f.service.clientId({ ...google, clientId: 'fixture-custom-client' }), { ok: true, clientId: '' });
+      assert.deepEqual(await f.service.start(google), failure('no_client_id'));
+      assert.equal(f.installs.length, 0);
+    } finally {
+      if (oldHome === undefined) delete process.env.HOME; else process.env.HOME = oldHome;
+      await f.close();
+    }
+  });
+  await h.test('Google rejects mismatched callback state and cancel closes a pending listener', async () => {
+    let exchanges = 0;
+    const f = await deviceFixture({
+      env: { KLAUS_GOOGLE_OAUTH_CLIENT_ID: 'fixture-local-client', KLAUS_GOOGLE_OAUTH_CLIENT_SECRET: 'fixture-local-secret' },
+      fetch: async () => { exchanges++; return Response.json({ refresh_token: 'fixture-refresh-token' }); },
+    });
+    try {
+      f.catalog(googleCatalog);
+      const { callback } = await googleCallback(f.service);
+      callback.searchParams.set('state', 'fixture-invalid-state');
+      const response = await fetch(callback);
+      assert.equal(response.status, 400);
+      await response.text();
+      assert.deepEqual(await f.service.wait(google), failure('invalid_state'));
+      const pending = await googleCallback(f.service);
+      const waiting = f.service.wait(google);
+      assert.deepEqual(f.service.cancel(google), { ok: true });
+      assert.deepEqual(await waiting, failure('cancelled'));
+      await assert.rejects(fetch(pending.callback, { signal: AbortSignal.timeout(2000) }), (error: unknown) => (error as { cause?: { code?: string } })?.cause?.code === 'ECONNREFUSED');
+      assert.equal(exchanges, 0);
+      assert.equal(f.installs.length, 0);
+    } finally { await f.close(); }
+  });
   await h.test('four channels keep the SQLite key and environment, user, catalog client-id precedence', async () => {
     const env = { KLAUS_GITHUB_CLIENT_ID: '  fixture-env-client  ' }, f = await deviceFixture({ env });
     try {

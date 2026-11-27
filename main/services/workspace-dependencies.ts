@@ -1,21 +1,24 @@
+import { pathToFileURL } from 'node:url';
 import { execFile, spawn } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { createWriteStream, readFileSync } from 'node:fs';
 import { appendFile, chmod, mkdir, open, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { delimiter, dirname, join } from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { setTimeout as delay } from 'node:timers/promises';
 import * as tar from 'tar';
 import * as yauzl from 'yauzl';
 
 interface RuntimeArchive { url: string; sha256: string; archive: 'tar.gz' | 'zip'; binary: string }
+interface NodePackagePin { version: string; url: string; mirrorUrl: string; sha256: string }
 interface RuntimeManifest {
   schemaVersion: 1; version: string; pythonVersion: string; uvVersion: string;
-  packages: Record<string, string>; platforms: Record<string, RuntimeArchive>;
+  packages: Record<string, string>; nodePackages?: Record<string, NodePackagePin>; platforms: Record<string, RuntimeArchive>;
 }
 export interface WorkspaceDependenciesStatus {
   state: 'missing' | 'installing' | 'ready' | 'failed' | 'unsupported' | 'disabled';
   version?: string; pythonVersion?: string; pythonPath?: string; binDir?: string;
+  nodePath?: string; nodeModulesPath?: string; nodePackages?: Record<string, string>;
   packages: Record<string, string>; logPath: string; error?: string;
 }
 export interface WorkspaceRuntimeCommand {
@@ -51,9 +54,47 @@ const PYTHON_PROBE = [
   '    assert bitmap.width > 0 and bitmap.height > 0',
   '    bitmap.close()',
   '    page.close()',
-  'names = ["pypdf", "pdfplumber", "reportlab", "pypdfium2", "pdfminer.six", "Pillow", "charset-normalizer", "cryptography", "cffi", "pycparser"]',
+  'import docx, defusedxml, openpyxl, xlrd',
+  'from lxml import etree',
+  'word = docx.Document()',
+  'word.add_heading("Workspace Word")',
+  'word.add_paragraph("Round trip")',
+  'word.add_table(rows=1, cols=1).cell(0, 0).text = "Cell"',
+  'word_bytes = io.BytesIO()',
+  'word.save(word_bytes)',
+  'word_bytes.seek(0)',
+  'word = docx.Document(word_bytes)',
+  'assert [p.text for p in word.paragraphs] == ["Workspace Word", "Round trip"]',
+  'assert word.tables[0].cell(0, 0).text == "Cell"',
+  'book = openpyxl.Workbook()',
+  'book.active["A1"] = 21',
+  'book.active["A2"] = "=A1*2"',
+  'book_bytes = io.BytesIO()',
+  'book.save(book_bytes)',
+  'book_bytes.seek(0)',
+  'assert openpyxl.load_workbook(book_bytes, data_only=False).active["A2"].value == "=A1*2"',
+  'import pandas, numpy, xlsxwriter',
+  'table = io.BytesIO()',
+  'with pandas.ExcelWriter(table, engine="xlsxwriter") as writer:',
+  '    pandas.DataFrame({"value": numpy.array([42])}).to_excel(writer, index=False)',
+  'table.seek(0)',
+  'assert pandas.read_excel(table)["value"].tolist() == [42]',
+  'names = json.loads(sys.argv[1])',
   'print(json.dumps({"python": ".".join(map(str, sys.version_info[:3])), "packages": {name: importlib.metadata.version(name) for name in names}}))',
 ].join('\n');
+
+const NODE_PROBE = String.raw`
+const { readFileSync } = require('node:fs');
+const { join } = require('node:path');
+const { Document, Packer } = require('docx');
+for (const [name, version] of Object.entries(JSON.parse(process.argv[2]))) {
+  const metadata = JSON.parse(readFileSync(join(process.argv[1], name, 'package.json'), 'utf8'));
+  if (metadata.version !== version) throw new Error('Unexpected Node package version: ' + name);
+}
+Packer.toBuffer(new Document({ sections: [{ children: [] }] })).then(buffer => {
+  if (buffer.readUInt32LE() !== 0x04034b50) throw new Error('Invalid Word document ZIP signature');
+}).catch(error => { console.error(error); process.exitCode = 1; });
+`;
 
 function checkAbort(signal: AbortSignal): void {
   if (signal.aborted) throw new Error('Workspace runtime installation cancelled');
@@ -63,7 +104,16 @@ function validateManifest(value: RuntimeManifest): RuntimeManifest {
   if (value.schemaVersion !== 1 || !/^[a-z0-9-]+$/.test(value.version) || !/^3\.12\.\d+$/.test(value.pythonVersion)
     || !/^\d+\.\d+\.\d+$/.test(value.uvVersion) || !value.packages || !Object.keys(value.packages).length) throw new Error('Invalid workspace runtime manifest');
   for (const [name, version] of Object.entries(value.packages)) {
-    if (!/^[A-Za-z0-9.-]+$/.test(name) || !/^\d+(?:\.\d+)*$/.test(version)) throw new Error('Invalid workspace package pin');
+    if (!/^[A-Za-z0-9.-]+$/.test(name) || !/^\d+(?:\.\d+)*(?:\.post\d+)?$/.test(version)) throw new Error('Invalid workspace package pin');
+  }
+  if (value.nodePackages !== undefined && (!value.nodePackages || typeof value.nodePackages !== 'object' || Array.isArray(value.nodePackages))) throw new Error('Invalid workspace Node packages');
+  for (const [name, pin] of Object.entries(value.nodePackages ?? {})) {
+    if (!/^[a-z][a-z0-9-]*$/.test(name) || typeof pin?.version !== 'string' || !/^\d+\.\d+\.\d+$/.test(pin.version)
+      || !/^[a-f0-9]{64}$/.test(pin.sha256)) throw new Error('Invalid workspace Node package pin');
+    for (const [raw, host] of [[pin.url, 'registry.npmjs.org'], [pin.mirrorUrl, 'registry.npmmirror.com']]) {
+      const url = new URL(raw!);
+      if (url.href !== `https://${host}/${name}/-/${name}-${pin.version}.tgz`) throw new Error('Invalid workspace Node package URL');
+    }
   }
   for (const archive of Object.values(value.platforms)) {
     const url = new URL(archive.url);
@@ -100,16 +150,18 @@ export class WorkspaceDependenciesManager {
       const binDir = join(this.directory, 'venv', platform === 'win32' ? 'Scripts' : 'bin');
       this.current = { ...this.current, state: this.archive ? 'missing' : 'unsupported', version, pythonVersion: this.manifest.pythonVersion,
         pythonPath: join(binDir, platform === 'win32' ? 'python.exe' : 'python'), binDir, packages: { ...this.manifest.packages },
-        ...(!this.archive ? { error: `Workspace PDF runtime is unavailable for ${platform}-${options.arch ?? process.arch}` } : {}) };
+        nodePath: join(binDir, platform === 'win32' ? 'node.cmd' : 'node'), nodeModulesPath: join(this.directory, 'node_modules'),
+        nodePackages: Object.fromEntries(Object.entries(this.manifest.nodePackages ?? {}).map(([name, pin]) => [name, pin.version])),
+        ...(!this.archive ? { error: `Workspace document runtime is unavailable for ${platform}-${options.arch ?? process.arch}` } : {}) };
     } catch (error) { this.current = { ...this.current, state: 'failed', error: errorText(error) }; }
   }
 
-  status(): WorkspaceDependenciesStatus { return { ...this.current, packages: { ...this.current.packages } }; }
+  status(): WorkspaceDependenciesStatus { return { ...this.current, packages: { ...this.current.packages }, ...(this.current.nodePackages ? { nodePackages: { ...this.current.nodePackages } } : {}) }; }
 
   contextInstructions(): string {
     const status = this.status();
-    if (status.state === 'ready') return `The client-managed PDF workspace runtime is ready. Python executable: ${JSON.stringify(status.pythonPath)}. Use this absolute executable path for PDF scripts. Packages: ${Object.entries(status.packages).map(([name, version]) => `${name}==${version}`).join(', ')}. Page rendering uses pypdfium2; Poppler command-line programs are not supplied. Diagnostics: ${JSON.stringify(status.logPath)}.`;
-    return `The client manages a PDF workspace runtime (status: ${status.state}). Call load_workspace_dependencies before running PDF scripts to wait for installation and obtain its absolute Python executable path. Do not assume a system Python or Poppler installation. ${status.error ? `Runtime error: ${status.error}. ` : ''}Diagnostics: ${JSON.stringify(status.logPath)}.`;
+    if (status.state === 'ready') return `The client-managed PDF, Word (.docx), and Excel (.xlsx/.xls) workspace runtime is ready. Python executable: ${JSON.stringify(status.pythonPath)}. Node executable: ${JSON.stringify(status.nodePath)} (includes the docx npm package). Use these absolute executable paths for document scripts. Packages: ${Object.entries(status.packages).map(([name, version]) => `${name}==${version}`).join(', ')}. Page rendering uses pypdfium2; Poppler command-line programs are not supplied. Diagnostics: ${JSON.stringify(status.logPath)}.`;
+    return `The client manages a PDF, Word (.docx), and Excel (.xlsx/.xls) workspace runtime (status: ${status.state}). Call load_workspace_dependencies before running document scripts to wait for installation and obtain its absolute Python executable path. Do not assume a system Python or Poppler installation. ${status.error ? `Runtime error: ${status.error}. ` : ''}Diagnostics: ${JSON.stringify(status.logPath)}.`;
   }
 
   ensure(): Promise<WorkspaceDependenciesStatus> {
@@ -149,7 +201,7 @@ export class WorkspaceDependenciesManager {
     try {
       await this.probe();
       this.current = { ...this.current, state: 'ready', error: undefined };
-      await this.log('Diagnostics: the PDF extraction and rendering probe passed');
+      await this.log('Diagnostics: the PDF extraction, rendering, and Word/Excel round-trip probe passed');
     } catch (error) {
       this.current = { ...this.current, state: 'failed', error: errorText(error) };
       await this.log(`Diagnostics: the probe failed (${errorText(error)})`);
@@ -186,9 +238,9 @@ export class WorkspaceDependenciesManager {
       UV_HTTP_TIMEOUT: '60', UV_HTTP_RETRIES: '2', PYTHONNOUSERSITE: '1', PYTHONUTF8: '1' };
   }
 
-  private async run(file: string, args: string[], timeoutMs: number): Promise<string> {
+  private async run(file: string, args: string[], timeoutMs: number, env?: NodeJS.ProcessEnv): Promise<string> {
     checkAbort(this.controller.signal);
-    const options = { env: this.environment(), signal: this.controller.signal, timeoutMs };
+    const options = { env: { ...this.environment(), ...env }, signal: this.controller.signal, timeoutMs };
     await this.log(`Run ${JSON.stringify(file)} ${args.map(argument => JSON.stringify(argument)).join(' ')}`);
     const result = this.options.hooks?.run ? await this.options.hooks.run(file, args, options) : await new Promise<{ stdout: string; stderr: string }>((resolve, reject) => {
       const windows = process.platform === 'win32';
@@ -228,10 +280,76 @@ export class WorkspaceDependenciesManager {
     return result.stdout;
   }
 
+  private nodeResolverUrl(): string {
+    return pathToFileURL(join(this.directory!, 'resolve-managed.mjs')).href;
+  }
+
+  private async writeNodeWrappers(): Promise<void> {
+    const { binDir, nodeModulesPath } = this.current;
+    const resolver = this.nodeResolverUrl();
+    await mkdir(binDir!, { recursive: true, mode: 0o700 });
+    await mkdir(nodeModulesPath!, { recursive: true, mode: 0o700 });
+    await writeFile(join(this.directory!, 'resolve-managed.mjs'), `
+import * as moduleApi from 'node:module';
+import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
+const anchor = join(${JSON.stringify(nodeModulesPath)}, '_anchor.js');
+const parentURL = pathToFileURL(anchor).href;
+const requireManaged = moduleApi.createRequire(anchor);
+const packages = new Set(${JSON.stringify(Object.keys(this.current.nodePackages!))});
+moduleApi.registerHooks?.({
+  resolve(specifier, context, nextResolve) {
+    if (!packages.has(specifier.split('/')[0])) return nextResolve(specifier, context);
+    try { return nextResolve(specifier, { ...context, parentURL }); }
+    catch (error) {
+      if (error.code !== 'ERR_MODULE_NOT_FOUND' && error.code !== 'MODULE_NOT_FOUND') throw error;
+      return nextResolve(pathToFileURL(requireManaged.resolve(specifier)).href, context);
+    }
+  },
+});
+`, { mode: 0o600 });
+    const quote = (value: string): string => `'${value.replace(/'/g, `'"'"'`)}'`;
+    const shell = join(binDir!, 'node');
+    await writeFile(shell, `#!/bin/sh\nexport ELECTRON_RUN_AS_NODE=1\nexport NODE_PATH=${quote(nodeModulesPath!)}\${NODE_PATH:+${delimiter}"$NODE_PATH"}\nexec ${quote(process.execPath)} --import ${quote(resolver)} "$@"\n`, { mode: 0o700 });
+    if ((this.options.platform ?? process.platform) === 'win32') {
+      const escape = (value: string): string => value.replace(/%/g, '%%');
+      await writeFile(this.current.nodePath!, ['@echo off', 'setlocal DisableDelayedExpansion', 'chcp 65001 >nul',
+        'set ELECTRON_RUN_AS_NODE=1', `set "NODE_PATH=${escape(nodeModulesPath!)};%NODE_PATH%"`,
+        `"${escape(process.execPath)}" --import "${escape(resolver)}" %*`, ''].join('\r\n'), { mode: 0o700 });
+    }
+  }
+
+  private async installNodePackage(name: string, pin: NodePackagePin): Promise<void> {
+    const archive = join(this.directory!, `${name}.tgz`);
+    try {
+      try { await this.download(pin.url, archive); }
+      catch { await this.download(pin.mirrorUrl, archive); }
+      if (createHash('sha256').update(await readFile(archive)).digest('hex') !== pin.sha256) throw new Error(`Workspace Node archive SHA-256 mismatch: ${name}`);
+      const cwd = join(this.current.nodeModulesPath!, name);
+      await mkdir(cwd, { recursive: true, mode: 0o700 });
+      let size = 0;
+      let invalid = false;
+      await tar.x({ file: archive, cwd, strip: 1, strict: true, filter: (path, entry) => {
+        size += entry.size;
+        if (!path.startsWith('package/') || /[\\:\x00]/.test(path) || path.split('/').some(part => part === '..' || part === '.')
+          || !('type' in entry) || !['File', 'Directory'].includes(entry.type) || size > MAX_DOWNLOAD_BYTES) invalid = true;
+        return !invalid;
+      } });
+      if (invalid) throw new Error(`Unsafe workspace Node archive: ${name}`);
+    } finally { await rm(archive, { force: true }); }
+  }
+
   private async probe(): Promise<void> {
-    const output = await this.run(this.current.pythonPath!, ['-I', '-c', PYTHON_PROBE], 30_000);
+    const output = await this.run(this.current.pythonPath!, ['-I', '-c', PYTHON_PROBE, JSON.stringify(Object.keys(this.manifest!.packages))], 30_000);
     const result = JSON.parse(output.trim()) as { python: string; packages: Record<string, string> };
     if (result.python !== this.manifest!.pythonVersion || Object.entries(this.manifest!.packages).some(([name, version]) => result.packages?.[name] !== version)) throw new Error('Workspace runtime version probe did not match the locked manifest');
+    const pins = this.current.nodePackages!;
+    if (!this.options.hooks?.run && Object.keys(pins).length) {
+      await this.run(process.execPath, ['--import', this.nodeResolverUrl(), '-e', NODE_PROBE,
+        this.current.nodeModulesPath!, JSON.stringify(pins)], 30_000,
+      { ELECTRON_RUN_AS_NODE: '1', NODE_PATH: this.current.nodeModulesPath });
+    }
+
   }
 
   private async install(): Promise<WorkspaceDependenciesStatus> {
@@ -282,8 +400,9 @@ export class WorkspaceDependenciesManager {
     try {
       const saved = JSON.parse(await readFile(marker, 'utf8')) as { fingerprint: string };
       if (saved.fingerprint === this.fingerprint) {
+        await this.writeNodeWrappers();
         await this.probe(); this.current = { ...this.current, state: 'ready' };
-        await this.log('Existing runtime passed the PDF extraction and rendering probe'); return this.status();
+        await this.log('Existing runtime passed the PDF extraction, rendering, and Word/Excel round-trip probe'); return this.status();
       }
     } catch (error) { await this.log(`Runtime requires installation: ${errorText(error)}`); }
     checkAbort(signal);
@@ -309,13 +428,17 @@ export class WorkspaceDependenciesManager {
       const requirements = join(directory, 'requirements.lock');
       await writeFile(requirements, this.requirements!, { mode: 0o600 });
       await this.run(uvPath, ['pip', 'sync', '--python', this.current.pythonPath!, '--require-hashes', '--only-binary', ':all:', '--index-url', 'https://pypi.org/simple', '--system-certs', '--no-config', requirements], 360_000);
+      await this.writeNodeWrappers();
+      if (!this.options.hooks?.download && !this.options.hooks?.run) {
+        for (const [name, pin] of Object.entries(this.manifest!.nodePackages ?? {})) await this.installNodePackage(name, pin);
+      }
       await this.probe();
       checkAbort(signal);
       const temporaryMarker = `${marker}.${randomUUID()}.tmp`;
       await writeFile(temporaryMarker, JSON.stringify({ fingerprint: this.fingerprint, installedAt: new Date().toISOString() }) + '\n', { mode: 0o600 });
       await rename(temporaryMarker, marker);
       this.current = { ...this.current, state: 'ready' };
-      await this.log('Runtime ready: PDF extraction and native page rendering passed');
+      await this.log('Runtime ready: PDF extraction, native page rendering, and Word/Excel round trips passed');
       return this.status();
     } catch (error) {
       await rm(directory, { recursive: true, force: true }).catch(() => undefined);
@@ -324,13 +447,31 @@ export class WorkspaceDependenciesManager {
   }
 
   private async download(url: string, target: string): Promise<void> {
+    const attempts = this.options.fetch ? 1 : 3;
+    for (let attempt = 1; ; attempt++) {
+      try {
+        await this.downloadAttempt(url, target);
+        return;
+      } catch (error) {
+        if (attempt >= attempts || this.controller.signal.aborted || !(error instanceof RetryableRuntimeDownloadError)) throw error;
+        await rm(target, { force: true });
+      }
+    }
+  }
+
+  private async downloadAttempt(url: string, target: string): Promise<void> {
     const controller = new AbortController(), cancel = (): void => controller.abort();
     this.controller.signal.addEventListener('abort', cancel, { once: true });
     const timeout = setTimeout(cancel, 120_000);
     try {
       checkAbort(this.controller.signal);
       const response = await (this.options.fetch ?? fetch)(url, { signal: controller.signal });
-      if (!response.ok || !response.body) { await response.body?.cancel(); throw new Error(`Workspace runtime download returned HTTP ${response.status}`); }
+      if (!response.ok || !response.body) {
+        await response.body?.cancel();
+        const message = `Workspace runtime download returned HTTP ${response.status}`;
+        if (response.status === 408 || response.status === 429 || (response.status >= 500 && response.status <= 599)) throw new RetryableRuntimeDownloadError(message);
+        throw new Error(message);
+      }
       if (Number(response.headers.get('content-length')) > MAX_DOWNLOAD_BYTES) { await response.body.cancel(); throw new Error('Workspace runtime archive exceeds its download limit'); }
       const reader = response.body.getReader(), chunks: Uint8Array[] = []; let size = 0;
       try {
@@ -342,9 +483,16 @@ export class WorkspaceDependenciesManager {
         }
         await writeFile(target, Buffer.concat(chunks), { flag: 'wx', mode: 0o600 });
       } finally { await reader.cancel().catch(() => undefined); reader.releaseLock(); }
+    } catch (error) {
+      if (!this.options.fetch && (controller.signal.aborted || error instanceof TypeError)) {
+        throw new RetryableRuntimeDownloadError(error instanceof Error ? error.message : String(error), { cause: error });
+      }
+      throw error;
     } finally { clearTimeout(timeout); this.controller.signal.removeEventListener('abort', cancel); }
   }
 }
+
+class RetryableRuntimeDownloadError extends Error {}
 
 /** Reads one pinned executable; archive names, links and expanded sizes are still checked defensively. */
 async function extractRuntimeBinary(archive: string, target: string, definition: RuntimeArchive, signal: AbortSignal): Promise<void> {

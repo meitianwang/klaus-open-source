@@ -1,8 +1,8 @@
 {
   "layoutVersion": 1,
   "targets": ["darwin-arm64", "win32-x64"],
-  "sharedRoots": ["canvas", "plugins-builtin", "tray-icon.png", "workspace-skills", "workspace-runtime"],
-  "generatedRoots": ["plugins-seed"],
+  "sharedRoots": ["canvas", "mcp-servers", "plugins-builtin", "tray-icon.png", "workspace-skills", "workspace-runtime"],
+  "generatedRoots": [],
   "optionalGeneratedRoots": ["plugins-official"],
   "requiredAppFiles": [
     "package.json", "contracts/channel-table.json", "contracts/engine/klaus-app-server.schema.json",
@@ -11,8 +11,11 @@
     "dist/preload/main.js", "dist/preload/artifact.js", "dist/preload/canvas.js", "dist/preload/quick-input.js", "dist/preload/recorder.js", "dist/preload/pet.js"
   ],
   "requiredResourceFiles": [
+    "mcp-servers/google-workspace-mcp.cjs",
     "manual/klaus-manual.md",
+    "workspace-skills/docx/SKILL.md", "workspace-skills/docx/scripts/docx_tool.py",
     "workspace-skills/pdf/SKILL.md", "workspace-skills/pdf/scripts/pdf.py",
+    "workspace-skills/xlsx/SKILL.md", "workspace-skills/xlsx/scripts/xlsx_tool.py",
     "workspace-runtime/manifest.json", "workspace-runtime/requirements.lock",
     "frontend/index.html", "frontend/artifact.html", "frontend/canvas.html", "frontend/quick-input.html", "frontend/recorder.html", "frontend/overlay.html",
     "tray-icon.png", "canvas/recipes/index.md",

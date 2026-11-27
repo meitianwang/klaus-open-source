@@ -1,26 +1,15 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { mkdir, readFile, readdir, rm, symlink } from 'node:fs/promises';
-import type { ServerResponse } from 'node:http';
+import { mkdir, readFile, readdir, symlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { object, type JsonObject } from '../main/services/service-types';
 import { Harness, waitFor } from './harness';
-import { localRepository, marketFixture, present, put, zip, type MarketFixture } from './extension-market-fixture';
+import { localRepository, marketFixture, present, put, type MarketFixture } from './extension-market-fixture';
 
-const h = new Harness(), official = 'claude-plugins-official', sha = 'a'.repeat(40);
+const h = new Harness();
 const visibilityVector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/official-plugin-market-vectors.json'), 'utf8')) as { visibleIds: string[]; hiddenId: string };
-const refreshVector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/plugin-marketplace-refresh-vectors.json'), 'utf8')) as { seededInstallLocations: string[]; seededRefresh: JsonObject };
-const discoveryVector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/plugin-update-discovery-vectors.json'), 'utf8')) as { freshnessMs: number; retryAfterFailureMs: number; backgroundIntervalMs: number; hiddenUninstalledMarketplace: JsonObject };
+const discoveryVector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/plugin-update-discovery-vectors.json'), 'utf8')) as { freshnessMs: number; retryAfterFailureMs: number; backgroundIntervalMs: number };
 const catalog = (name: string, plugin = 'fixture') => JSON.stringify({ name, plugins: [{ name: plugin, source: './plugins/' + plugin }] });
-function mirrorZip(plugin = 'fixture'): Buffer {
-  const prefix = 'marketplaces/' + official + '/';
-  return zip([{ name: prefix + '.claude-plugin/marketplace.json', bytes: Buffer.from(catalog(official, plugin)), mode: 0o100644 },
-    { name: prefix + 'plugins/' + plugin + '/.claude-plugin/plugin.json', bytes: Buffer.from(JSON.stringify({ name: plugin })) },
-    { name: prefix + 'plugins/' + plugin + '/run.sh', bytes: Buffer.from('#!/bin/sh\nexit 0\n') }]);
-}
-function mirror(f: MarketFixture, bytes = mirrorZip()): void {
-  f.route((request, response) => { if (request.url === '/latest') response.end(sha); else { response.writeHead(200, { 'Content-Length': bytes.length }); response.end(bytes); } });
-}
 async function cleanStages(f: MarketFixture): Promise<void> {
   if (await present(join(f.root, 'plugins/staging'))) assert.deepEqual(await readdir(join(f.root, 'plugins/staging')), []);
   if (await present(join(f.root, 'plugins/marketplaces'))) assert.deepEqual((await readdir(join(f.root, 'plugins/marketplaces'))).filter(name => name.startsWith('.klaus-backup-')), []);
@@ -97,20 +86,6 @@ void (async () => {
       assert.equal(await readFile(join(target, '.claude-plugin/marketplace.json'), 'utf8'), before); await cleanStages(f);
     } finally { await f.close(); }
   });
-  await h.test('official mirror refresh extracts the declared prefix and a matching sentinel avoids another archive download', async () => {
-    const f = await marketFixture();
-    try {
-      mirror(f);
-      const result = object(await f.invoke('plugins:refresh'));
-      assert.equal(result.ok, true); assert.equal(result.plugins, 0); assert.deepEqual(result.official, { ok: true, sha });
-      const target = join(f.root, 'plugins/marketplaces', official), entry = object(object(f.values.marketplaces)[official]);
-      assert.equal(await readFile(join(target, '.gcs-sha'), 'utf8'), sha); assert.equal(entry.gcsSha, sha);
-      assert.deepEqual(entry.source, { source: 'github', repo: 'anthropics/claude-plugins-official' });
-      assert.equal(object(await f.marketplaces.refresh()).ok, true);
-      assert.deepEqual(f.requests.map(request => request.url), ['/latest', '/' + sha + '.zip', '/latest']);
-      assert.equal(f.requests.every(request => request.authorization === undefined), true); await cleanStages(f);
-    } finally { await f.close(); }
-  });
   await h.test('the UI refresh also pulls the first-party official mirror before reading the catalog', async () => {
     const klausOfficialSha = 'c'.repeat(64);
     // Counters instead of a call trace: what matters is that the catalog read
@@ -119,17 +94,20 @@ void (async () => {
     let klausRefreshed = false, catalogReadsAtMirrorTime = -1, migratedBeforeCatalog = false;
     const f = await marketFixture({ marketplaces: { klausOfficial: { refresh: async () => {
       klausRefreshed = true; catalogReadsAtMirrorTime = f.calls.filter(call => call.method === 'session/pluginCatalog').length;
+      const firstParty = join(f.root, 'first-party');
+      await put(join(firstParty, '.claude-plugin/marketplace.json'), catalog('klaus-official', 'prototype-studio'));
+      await put(join(firstParty, 'plugins/prototype-studio/plugin.json'), JSON.stringify({ name: 'prototype-studio', version: '1.0.0' }));
+      object(f.values.marketplaces)['klaus-official'] = { installLocation: firstParty };
       return klausOfficialSha;
     }, migrateBundledRecords: async () => {
       migratedBeforeCatalog = f.calls.every(call => call.method !== 'session/pluginCatalog');
       return { ok: true, migrated: [] };
     } } } });
     try {
-      mirror(f);
       const result = object(await f.invoke('plugins:refresh'));
       assert.equal(result.ok, true);
       assert.deepEqual(result.klausOfficial, { ok: true, sha: klausOfficialSha, migration: { ok: true, migrated: [] } });
-      assert.deepEqual(result.official, { ok: true, sha });
+      assert.equal(result.plugins, 1);
       assert.equal(klausRefreshed, true);
       assert.equal(catalogReadsAtMirrorTime, 0);
       assert.equal(migratedBeforeCatalog, true);
@@ -144,75 +122,14 @@ void (async () => {
       return undefined;
     }, migrateBundledRecords: async () => ({ ok: true, migrated: [] }) } } });
     try {
-      mirror(f);
       const empty = object(await f.invoke('plugins:refresh'));
       assert.equal(empty.ok, true); assert.deepEqual(empty.klausOfficial, { ok: true, sha: null, migration: { ok: true, migrated: [] } });
       mode = 'boom';
       const failedResult = object(await f.invoke('plugins:refresh'));
-      // The third-party mirror and the catalog still succeed; only our mirror
-      // reports its failure, and the UI surfaces it as a toast.
       assert.equal(failedResult.ok, true); assert.equal(failedResult.plugins, 0);
       assert.equal(object(failedResult.klausOfficial).ok, false);
       assert.match(String(object(failedResult.klausOfficial).error), /official endpoint unreachable/);
-      assert.deepEqual(failedResult.official, { ok: true, sha });
       await cleanStages(f);
-    } finally { await f.close(); }
-  });
-  await h.test('a mirror outage falls back to real Git and reports the checked-out commit', async () => {
-    const f = await marketFixture();
-    try {
-      const repo = await localRepository(f.root, 'official', official); f.environment.KLAUS_PLUGIN_OFFICIAL_GIT_URL = repo.url;
-      await put(join(repo.path, 'from-git.txt'), 'git fallback'); const commit = await repo.commit();
-      f.route((_request, response) => { response.writeHead(503); response.end(); });
-      const result = object(await f.marketplaces.refresh()); assert.deepEqual(result.official, { ok: true, sha: commit });
-      assert.equal(await readFile(join(f.root, 'plugins/marketplaces', official, 'from-git.txt'), 'utf8'), 'git fallback');
-      assert.equal(object(object(f.values.marketplaces)[official]).gcsSha, undefined); await cleanStages(f);
-    } finally { await f.close(); }
-  });
-  await h.test('failed mirror and Git refreshes retain the last catalog and surface the official error', async () => {
-    const f = await marketFixture();
-    try {
-      mirror(f); assert.equal(object(object(await f.marketplaces.refresh()).official).ok, true);
-      const path = join(f.root, 'plugins/marketplaces', official, '.claude-plugin/marketplace.json'), before = await readFile(path, 'utf8');
-      f.route((_request, response) => { response.writeHead(503); response.end(); });
-      const result = object(await f.marketplaces.refresh()); assert.equal(result.ok, true); assert.equal(result.plugins, 0); assert.equal(object(result.official).ok, false);
-      assert.equal(await readFile(path, 'utf8'), before); await cleanStages(f);
-    } finally { await f.close(); }
-  });
-  await h.test('current and historical seed locations skip refresh while the first-party catalog still refreshes', async () => {
-    let refreshed = 0;
-    const f = await marketFixture({ marketplaces: { klausOfficial: {
-      refresh: async () => { refreshed++; return undefined; },
-      migrateBundledRecords: async () => ({ ok: true, migrated: [] }),
-    } } });
-    try {
-      const seed = join(f.resources, 'plugins-seed');
-      const manifest = join(seed, 'marketplaces', official, '.claude-plugin/marketplace.json');
-      await put(manifest, catalog(official));
-      for (const raw of refreshVector.seededInstallLocations) {
-        const location = raw.replace('$SEED', seed);
-        object(f.values.marketplaces)[official] = { installLocation: location };
-        const before = structuredClone(f.values);
-        const result = object(await f.invoke('plugins:refresh'));
-        assert.equal(result.ok, true);
-        assert.deepEqual(result.official, refreshVector.seededRefresh, location);
-        assert.equal(object(result.klausOfficial).ok, true);
-        assert.deepEqual(f.values, before);
-      }
-      assert.equal(refreshed, refreshVector.seededInstallLocations.length);
-      assert.equal(f.requests.length, 0);
-      assert.equal(f.calls.some(call => call.method === 'config/batchWrite'), false);
-      assert.deepEqual(f.changes, []);
-      assert.equal(await readFile(manifest, 'utf8'), catalog(official));
-      await cleanStages(f);
-    } finally { await f.close(); }
-  });
-  await h.test('corrupted external install locations are never refreshed over the network or removed', async () => {
-    const f = await marketFixture();
-    try {
-      const external = join(f.root, 'project'); await put(join(external, 'keep.txt'), 'keep'); object(f.values.marketplaces)[official] = { installLocation: external };
-      assert.match(String(object(object(await f.marketplaces.refresh()).official).error), /outside.*cache/);
-      assert.equal(f.requests.length, 0); assert.equal(await readFile(join(external, 'keep.txt'), 'utf8'), 'keep');
     } finally { await f.close(); }
   });
   await h.test('unsafe or nameless marketplace sources cannot create a registry entry', async () => {
@@ -221,15 +138,6 @@ void (async () => {
       const source = join(f.root, 'source'); await put(join(source, '.claude-plugin/marketplace.json'), catalog('../escape'));
       for (const input of ['', '--upload-pack=unsafe', './relative', 'https://user:secret@fixture.invalid/repo', source]) assert.equal(object(await f.marketplaces.add({ source: input })).ok, false);
       assert.deepEqual(f.values.marketplaces, {}); assert.equal(f.calls.some(call => call.method === 'config/batchWrite'), false); assert.equal(f.requests.length, 0);
-    } finally { await f.close(); }
-  });
-  await h.test('official refresh cannot overwrite a cache already registered to another marketplace name', async () => {
-    const f = await marketFixture();
-    try {
-      const target = join(f.root, 'plugins/marketplaces', official); await put(join(target, '.claude-plugin/marketplace.json'), catalog('other'));
-      object(f.values.marketplaces).other = { installLocation: target };
-      const result = object(await f.marketplaces.refresh()); assert.match(String(object(result.official).error), /occupied by other/);
-      assert.equal(f.requests.length, 0); assert.equal(await readFile(join(target, '.claude-plugin/marketplace.json'), 'utf8'), catalog('other'));
     } finally { await f.close(); }
   });
   await h.test('a rejected config write restores the previous cloned content and registry', async () => {
@@ -263,17 +171,6 @@ void (async () => {
       f.failReads(false);
     } finally { await f.close(); }
   });
-  await h.test('malformed official archives and a stale sentinel cannot produce an empty successful refresh', async () => {
-    const f = await marketFixture();
-    try {
-      mirror(f, zip([{ name: 'outside/marketplace.json', bytes: Buffer.from(catalog(official)) }]));
-      assert.equal(object(object(await f.marketplaces.refresh()).official).ok, false);
-      mirror(f); assert.equal(object(object(await f.marketplaces.refresh()).official).ok, true);
-      await rm(join(f.root, 'plugins/marketplaces', official, '.claude-plugin/marketplace.json'));
-      assert.equal(object(object(await f.marketplaces.refresh()).official).ok, false);
-      await cleanStages(f);
-    } finally { await f.close(); }
-  });
   await h.test('marketplace replacement shares the existing plugin mutation queue', async () => {
     const f = await marketFixture(); let release!: () => void;
     try {
@@ -285,15 +182,6 @@ void (async () => {
       assert.equal(f.calls.some(call => call.method === 'config/batchWrite'), false); release(); await installing;
       assert.equal(object(await adding).ok, true);
     } finally { release?.(); await f.close(); }
-  });
-  await h.test('shutdown aborts partial marketplace acquisition and leaves no staging trees', async () => {
-    const f = await marketFixture(); let held: ServerResponse | undefined;
-    try {
-      f.route((request, response) => { if (request.url === '/latest') response.end(sha); else { held = response; response.writeHead(200); response.write('partial'); } });
-      const pending = f.marketplaces.refresh(); void pending.catch(() => undefined);
-      await waitFor(() => held !== undefined, 2000, 'partial marketplace ZIP started'); await f.marketplaces.close();
-      await assert.rejects(pending, /cancel/); await cleanStages(f); assert.deepEqual(f.values.marketplaces, {});
-    } finally { await f.close(); }
   });
   await h.test('a linked cache destination cannot overwrite another directory in the profile', async () => {
     const f = await marketFixture();
@@ -307,7 +195,7 @@ void (async () => {
     let now = 1000, reads = 0, release!: () => void;
     const hold = new Promise<void>(resolve => { release = resolve; });
     const checks: JsonObject[] = [];
-    const f = await marketFixture({ marketplaces: { now: () => now, shouldRefreshOfficial: async () => false,
+    const f = await marketFixture({ marketplaces: { now: () => now,
       onCheckChanged: () => { checks.push(f.marketplaces.updateCheck()); },
       klausOfficial: { refresh: async () => { reads++; if (reads === 1) await hold; return 'd'.repeat(64); }, migrateBundledRecords: async () => ({ ok: true, migrated: [] }) },
     } });
@@ -319,21 +207,20 @@ void (async () => {
       assert.equal(object(await first).ok, true);
       assert.equal(reads, 1);
       assert.deepEqual(f.marketplaces.updateCheck(), { checking: false, checkedAt: now });
-      assert.deepEqual(object(object(await f.invoke('plugins:refresh', { ifStale: true })).official), discoveryVector.hiddenUninstalledMarketplace);
+      assert.equal(object(await f.invoke('plugins:refresh', { ifStale: true })).cached, true);
       assert.equal(reads, 1, 'Repeated page entry stays within the metadata cache age');
       await f.marketplaces.refresh(); assert.equal(reads, 2, 'Manual refresh does not reuse the cache');
       now += discoveryVector.freshnessMs - 1;
       assert.equal(object(await f.marketplaces.refresh({ ifStale: true })).cached, true);
       assert.equal(reads, 2);
       now += 2; await f.marketplaces.refresh({ ifStale: true }); assert.equal(reads, 3, 'An expired catalog is checked again');
-      assert.equal(f.requests.length, 0, 'A hidden marketplace with no installed plugins is not contacted');
       assert.deepEqual(checks.map(check => check.checking), [true, false, true, false, true, false], 'Checking and completion are observable without repeated cached broadcasts');
       assert.equal(f.calls.some(call => call.method === 'session/installPlugin'), false, 'Discovery never installs a release');
     } finally { release(); await f.close(); }
   });
   await h.test('failed background checks keep catalog data and use a short retry age without discarding the last successful time', async () => {
     let now = 1000, reads = 0, offline = false;
-    const f = await marketFixture({ marketplaces: { now: () => now, shouldRefreshOfficial: async () => false,
+    const f = await marketFixture({ marketplaces: { now: () => now,
       klausOfficial: { refresh: async () => { reads++; if (offline) throw new Error('fixture network offline'); return 'e'.repeat(64); }, migrateBundledRecords: async () => ({ ok: true, migrated: [] }) },
     } });
     try {
@@ -356,7 +243,7 @@ void (async () => {
   });
   await h.test('cached legacy migration is still attempted when the latest catalog is offline', async () => {
     let migrations = 0;
-    const f = await marketFixture({ marketplaces: { shouldRefreshOfficial: async () => false,
+    const f = await marketFixture({ marketplaces: {
       klausOfficial: { refresh: async () => { throw new Error('fixture network offline'); }, migrateBundledRecords: async () => { migrations++; return { ok: true, migrated: ['digram'] }; } },
     } });
     try {
@@ -369,7 +256,7 @@ void (async () => {
   });
   await h.test('background update checks stop when the marketplace service closes', async () => {
     let reads = 0;
-    const f = await marketFixture({ marketplaces: { refreshIntervalMs: 10, refreshMaxAgeMs: 0, shouldRefreshOfficial: async () => false,
+    const f = await marketFixture({ marketplaces: { refreshIntervalMs: 10, refreshMaxAgeMs: 0,
       klausOfficial: { refresh: async () => { reads++; return 'f'.repeat(64); }, migrateBundledRecords: async () => ({ ok: true, migrated: [] }) },
     } });
     try {

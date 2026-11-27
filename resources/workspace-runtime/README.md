@@ -1,8 +1,10 @@
-# PDF workspace runtime
+# Office workspace runtime
 
 The desktop host installs this runtime on demand into its own profile directory.
 The agent obtains the absolute Python executable through
-`load_workspace_dependencies` and runs PDF scripts with that executable.
+`load_workspace_dependencies` and runs document scripts with that executable. The `office-1` bundle covers PDF
+(`pypdf`, `pdfplumber`, `reportlab`, `pypdfium2`), Word `.docx` (`python-docx`,
+`lxml`, `defusedxml`), and Excel `.xlsx`/`.xls` (`openpyxl`, `xlrd`).
 It does not rely on system Python, Homebrew, or command-line Poppler programs.
 Page rendering is provided by the native PDFium library in the `pypdfium2` wheel.
 
@@ -14,7 +16,7 @@ uses the official PyPI index, and leaves system Python and its packages alone.
 Python is installed without global executable links or Windows registration.
 
 The installation becomes ready only after a probe creates a PDF, extracts its
-text with both text libraries, and renders a page through PDFium. A versioned
+text with both text libraries, renders a page through PDFium, and round-trips Word and Excel documents. A versioned
 environment is written in place because Python virtual environments contain
 absolute interpreter paths; an atomic ready marker records successful validation.
 Interrupted environments are rebuilt. A cross-process profile lock prevents

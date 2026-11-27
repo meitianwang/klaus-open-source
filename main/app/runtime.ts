@@ -1189,6 +1189,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   });
   early.add(() => hooksStyles.close());
   mcp = registerMcpConfigurationHandlers(registry, {
+    resourcesRoot: resourceRoot(), configRoot, marketBaseUrl: () => account.serverUrl,
     workspaces, request: (method, params) => sessions.request(method, object(params) ?? {}),
     resolveCwd: async id => { await sessions.threadRow(id); return workspaces.resolveSessionDirectory(id); },
     onChanged: async cwd => {
@@ -1207,7 +1208,7 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   let officialPluginPackages: { ensureDownloaded: OfficialPluginsService['ensureDownloaded'] } | undefined;
   let pluginUpdateCheck: (() => Record<string, Json>) | undefined;
   const pluginDeps = {
-    configRoot, seedDir: join(resourceDirs[0]!, 'plugins-seed'),
+    configRoot,
     request: (method: string, params: Json) => sessions.request(method, object(params) ?? {}),
     requestAcknowledged: async (method: string, params: Record<string, Json>, field: string) => requestAcknowledged(await sessions.client(), method, params, field),
     binding: (id: string) => {
@@ -1259,14 +1260,8 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   });
   early.add(() => officialPlugins.close());
   officialPluginPackages = officialPlugins;
-  const pluginMarketplaces = new PluginMarketplaceService({ workspaces, plugins, request: pluginDeps.request, seedDir: pluginDeps.seedDir,
+  const pluginMarketplaces = new PluginMarketplaceService({ workspaces, plugins, request: pluginDeps.request,
     klausOfficial: officialPlugins,
-    shouldRefreshOfficial: async () => {
-      const reply = object(await pluginDeps.request('session/installedPlugins', {})) ?? {};
-      if (reply.error != null) throw reply.error;
-      const ledger = object(reply.installedPlugins ?? reply) ?? {};
-      return Object.keys(object(ledger.plugins) ?? {}).some(id => id.endsWith('@claude-plugins-official'));
-    },
     onChanged: async () => { configuration.markChanged(); emit('app:preferences-changed', { key: 'plugins' }); },
     onCheckChanged: () => emit('app:preferences-changed', { key: 'plugins' }),
     diagnostic: message => log.write('plugin-marketplaces', message),
@@ -1782,17 +1777,21 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   });
   registerAgentMarketHandlers(registry, agentMarket);
   early.add(() => agentMarket.close());
+  const marketEndpoint = () => {
+    const token = object(readStoredAuth(configRoot))?.token;
+    return resolveSkillMarketEndpoint({ serverUrl: account.serverUrl, token: typeof token === 'string' ? token : undefined, environment: process.env });
+  };
+  const mcpOAuthOptions = { baseURL: options.mcpDeviceBaseUrl, marketEndpoint };
   const mcpBuiltins = new McpBuiltinService({ configRoot, mcp,
-    endpoint: () => { const token = object(readStoredAuth(configRoot))?.token;
-      return resolveSkillMarketEndpoint({ serverUrl: account.serverUrl, token: typeof token === 'string' ? token : undefined, environment: process.env }); },
-    deviceClientId: (id, catalog) => resolveMcpDeviceClientId(configRoot, id, catalog),
+    endpoint: marketEndpoint,
+    deviceClientId: (id, catalog) => resolveMcpDeviceClientId(configRoot, id, catalog, process.env, mcpOAuthOptions),
     log: message => log.write('mcp-catalog', message),
   });
   const mcpDiagnostics = new McpDiagnosticsService({ configRoot, mcp });
   registerMcpBuiltinHandlers(registry, mcpBuiltins, mcpDiagnostics);
   early.add(() => mcpBuiltins.close());
   early.add(() => mcpDiagnostics.close());
-  const mcpDevice = new McpDeviceService({ configRoot, baseURL: options.mcpDeviceBaseUrl,
+  const mcpDevice = new McpDeviceService({ configRoot, ...mcpOAuthOptions,
     catalog: () => mcpBuiltins.catalog(), install: (payload, signal) => mcpBuiltins.install(payload, signal),
   });
   registerMcpDeviceHandlers(registry, mcpDevice);

@@ -31,19 +31,19 @@
     "toggle": {
       "method": "session/setInstalledPluginEnabled",
       "replyField": "pluginMutation",
-      "params": { "name": "context7@claude-plugins-official", "enabled": true },
+      "params": { "name": "context7@klaus-official", "enabled": true },
       "result": { "persisted": true, "activationScope": "next_turn", "appliedToCurrentSession": false, "restartRequired": false }
     },
     "uninstall": {
       "method": "session/uninstallPlugin",
       "replyField": "pluginMutation",
-      "params": { "name": "context7@claude-plugins-official", "removeFiles": true }
+      "params": { "name": "context7@klaus-official", "removeFiles": true }
     },
     "installWithVersion": {
       "method": "session/installPlugin",
       "replyField": "pluginMutation",
       "params": {
-        "marketplace": "claude-plugins-official",
+        "marketplace": "klaus-official",
         "sourceDir": "/tmp/klaus-staging/context7",
         "version": "1.2.0"
       }
@@ -52,7 +52,7 @@
       "method": "session/installPlugin",
       "replyField": "pluginMutation",
       "params": {
-        "marketplace": "claude-plugins-official",
+        "marketplace": "klaus-official",
         "sourceDir": "/tmp/klaus-staging/context7"
       }
     },
@@ -61,7 +61,7 @@
       "replyField": "pluginCatalog",
       "params": {
         "roots": [
-          { "marketplace": "claude-plugins-official", "dir": "/tmp/market/plugins" },
+          { "marketplace": "klaus-official", "dir": "/tmp/market/plugins" },
           { "marketplace": "bundled", "dir": "/tmp/bundled/plugins" }
         ]
       }

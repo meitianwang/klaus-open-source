@@ -1,4 +1,4 @@
-import { lstat, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
 import type { Json } from '../../ipc/contract';
@@ -6,19 +6,15 @@ import { checkCancelled } from '../download';
 import { GitProcess, gitError, type GitProcessOptions } from '../git-process';
 import { errorMessage, object, string, type EngineRequest, type JsonObject } from '../service-types';
 import { pathInside, type WorkspaceStore } from '../workspaces';
-import { downloadExtension, extractExtensionZip, fetchExtensionText, PendingAcquisitions, replaceExtensionDirectory, SavedExtensionError, UnconfirmedExtensionError } from './acquisition';
+import { PendingAcquisitions, replaceExtensionDirectory, SavedExtensionError, UnconfirmedExtensionError } from './acquisition';
 import { DirectoryMutations } from './directory-mutations';
 import { managedPath, missing, optionalDocument } from './file-store';
 import type { PluginService } from './plugins';
 
-const OFFICIAL = 'claude-plugins-official', REPO = 'anthropics/claude-plugins-official';
-const MIRROR = 'https://downloads.claude.ai/claude-code-releases/plugins/claude-plugins-official';
-const PREFIX = 'marketplaces/claude-plugins-official/';
 export interface PluginMarketplaceDeps {
   workspaces: WorkspaceStore;
   plugins: Pick<PluginService, 'market' | 'withMutation'>;
   request: EngineRequest;
-  seedDir?: string;
   /**
    * Refresh of our own first-party marketplace mirror (klaus-official). It is a
    * dependency and not an import to keep the two services independently
@@ -32,15 +28,12 @@ export interface PluginMarketplaceDeps {
   };
   onChanged: () => void | Promise<void>;
   onCheckChanged?: () => void;
-  shouldRefreshOfficial?: () => Promise<boolean>;
   now?: () => number;
   refreshMaxAgeMs?: number;
   refreshRetryMs?: number;
   refreshIntervalMs?: number;
   environment?: NodeJS.ProcessEnv;
   gitOptions?: GitProcessOptions;
-  fetch?: typeof fetch;
-  requestTimeoutMs?: number;
   diagnostic?: (message: string) => void;
 }
 interface Snapshot { values: JsonObject; version: string }
@@ -108,9 +101,8 @@ export class PluginMarketplaceService {
     try { await this.deps.onChanged(); }
     catch (error) { throw new SavedExtensionError('Marketplace was saved, but refreshing live configuration failed: ' + errorMessage(error)); }
   }
-  private async cacheLocation(value?: string): Promise<string> {
+  private async cacheLocation(location: string): Promise<string> {
     const root = await managedPath(this.configRoot, 'plugins/marketplaces', true);
-    const location = value === undefined ? join(root, OFFICIAL) : value;
     if (!isAbsolute(location) || resolve(location) === root || !pathInside(resolve(location), root)) throw new Error('Marketplace installLocation is outside the profile marketplace cache');
     const path = await managedPath(root, relative(root, location), true);
     try { if (!(await lstat(path)).isDirectory()) throw new Error('Marketplace cache must be a regular directory'); }
@@ -203,55 +195,6 @@ export class PluginMarketplaceService {
       finally { await content?.cleanup(); }
     });
   }
-  private async mirror(location: string, signal: AbortSignal): Promise<Content> {
-    const base = string(this.environment.KLAUS_PLUGIN_GCS_BASE).trim().replace(/\/+$/, '') || MIRROR;
-    const sha = (await fetchExtensionText(base + '/latest', signal, { fetch: this.deps.fetch, maxBytes: 256, timeoutMs: this.deps.requestTimeoutMs ?? 10_000 })).trim();
-    if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error('Official marketplace returned an invalid latest commit');
-    const sentinel = await optionalDocument(await managedPath(location, '.gcs-sha'));
-    if (sentinel?.trim() === sha) {
-      if (await this.name(location) !== OFFICIAL) throw new Error('Cached official marketplace has a mismatched name');
-      return { directory: location, sha, cleanup: async () => {} };
-    }
-    const temporary = await this.stage(), directory = join(temporary, 'content'); await mkdir(directory, { mode: 0o700 });
-    try {
-      const archive = join(temporary, 'marketplace.zip');
-      await downloadExtension(base + '/' + sha + '.zip', archive, signal, { fetch: this.deps.fetch });
-      await extractExtensionZip(archive, directory, signal, PREFIX);
-      if (await this.name(directory) !== OFFICIAL) throw new Error('Official marketplace archive has a mismatched name');
-      await writeFile(join(directory, '.gcs-sha'), sha, { mode: 0o600 });
-      return { directory, sha, cleanup: () => rm(temporary, { recursive: true, force: true }) };
-    } catch (error) { await rm(temporary, { recursive: true, force: true }); throw error; }
-  }
-  private async refreshOfficial(signal: AbortSignal): Promise<JsonObject> {
-    const snapshot = await this.snapshot(), entries = object(snapshot.values.marketplaces);
-    const entry = Object.hasOwn(entries, OFFICIAL) ? object(entries[OFFICIAL]) : undefined;
-    const registered = entry === undefined ? undefined : string(entry.installLocation);
-    // Historical installs can retain a seed path from a previous app location.
-    // Package-managed content is read-only and does not need a network refresh.
-    if (registered && (this.deps.seedDir && pathInside(resolve(registered), resolve(this.deps.seedDir))
-      || /(?:^|[/\\])plugins-seed[/\\]marketplaces[/\\]claude-plugins-official[/\\]*$/.test(registered))) {
-      return { ok: true, skipped: true, reason: 'seed-managed' };
-    }
-    const location = await this.cacheLocation(registered);
-    for (const [name, value] of Object.entries(entries)) {
-      if (name !== OFFICIAL && object(value).installLocation === location) throw new Error('Official marketplace cache is already occupied by ' + name);
-    }
-    let content: Content | undefined, fromMirror = true;
-    try {
-      try { content = await this.mirror(location, signal); }
-      catch (error) {
-        checkCancelled(signal); fromMirror = false;
-        this.deps.diagnostic?.('Official marketplace mirror failed; attempting git: ' + errorMessage(error));
-        const override = string(this.environment.KLAUS_PLUGIN_OFFICIAL_GIT_URL).trim();
-        content = await this.clone(override ? { kind: 'git', value: gitUrl(override), descriptor: {} } : { kind: 'github', value: REPO, descriptor: {} }, signal);
-      }
-      if (await this.name(content.directory) !== OFFICIAL) throw new Error('Official marketplace has a mismatched name');
-      const updated = this.entry({ source: 'github', repo: REPO }, location, fromMirror ? content.sha : undefined);
-      if (content.directory === location) await this.write(snapshot, OFFICIAL, updated);
-      else await replaceExtensionDirectory(this.configRoot, relative(this.configRoot, location), content.directory, signal, () => this.write(snapshot, OFFICIAL, updated));
-      await this.changed(); return { ok: true, sha: content.sha! };
-    } finally { await content?.cleanup(); }
-  }
   updateCheck(): JsonObject {
     return { checking: this.refreshing !== undefined, ...(this.checkedAt !== undefined ? { checkedAt: this.checkedAt } : {}), ...(this.refreshError ? { error: this.refreshError } : {}) };
   }
@@ -274,11 +217,8 @@ export class PluginMarketplaceService {
     }
     this.lastAttemptAt = now;
     const refresh = this.performRefresh().then(result => {
-      const value = object(result), failures = [
-        value.klausOfficial && object(value.klausOfficial).ok === false ? 'Klaus: ' + string(object(value.klausOfficial).error) : '',
-        value.official && object(value.official).ok === false ? OFFICIAL + ': ' + string(object(value.official).error) : '',
-      ].filter(Boolean);
-      this.refreshError = failures.join('\n') || undefined;
+      const value = object(result), klausOfficial = object(value.klausOfficial);
+      this.refreshError = klausOfficial.ok === false ? 'Klaus: ' + string(klausOfficial.error) : undefined;
       if (!this.refreshError) this.checkedAt = this.deps.now?.() ?? Date.now();
       this.lastRefresh = value;
       return { ...value, updateCheck: { ...this.updateCheck(), checking: false } };
@@ -313,16 +253,9 @@ export class PluginMarketplaceService {
         }
         checkCancelled(signal);
       }
-      let official: JsonObject;
-      try {
-        official = this.deps.shouldRefreshOfficial && !await this.deps.shouldRefreshOfficial()
-          ? { ok: true, skipped: true, reason: 'no-installed-plugins' }
-          : await this.refreshOfficial(signal);
-      } catch (error) { official = failed(error); }
-      checkCancelled(signal);
       const catalog = object(await this.deps.plugins.market());
       if (!Array.isArray(catalog.plugins) || !Array.isArray(catalog.marketplaces)) throw new Error('Invalid plugin catalog after refresh');
-      return { ok: true, plugins: catalog.plugins.length, marketplaces: catalog.marketplaces, official, ...(klausOfficial ? { klausOfficial } : {}) };
+      return { ok: true, plugins: catalog.plugins.length, marketplaces: catalog.marketplaces, ...(klausOfficial ? { klausOfficial } : {}) };
     });
   }
   async close(): Promise<void> {

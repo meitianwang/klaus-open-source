@@ -11,6 +11,9 @@ import { installBuiltinEntry } from './builtin-config';
 
 export interface McpConfigurationDeps {
   workspaces: WorkspaceStore;
+  resourcesRoot?: string;
+  configRoot?: string;
+  marketBaseUrl?: () => string;
   request: EngineRequest;
   /** Reload live declarations and mark other sessions stale after the durable write. */
   onChanged: (cwd?: string) => void | Promise<void>;
@@ -231,7 +234,12 @@ export class McpConfigurationService {
       if (cwd) cwd = this.cwd(cwd);
       const values = configValues ?? (await this.snapshot()).values;
       const project = cwd ? await this.mergedProject([cwd, ...extraRoots]) : {};
-      return resolveServerTables(table(values.mcpServers, 'mcpServers'), project, cwd ? this.local(values, cwd) : {});
+      return resolveServerTables(table(values.mcpServers, 'mcpServers'), project, cwd ? this.local(values, cwd) : {}, {
+        resourcesRoot: this.deps.resourcesRoot,
+        configRoot: this.deps.configRoot,
+        marketBaseUrl: this.deps.marketBaseUrl?.(),
+        isElectron: Boolean(process.versions.electron),
+      });
     });
   }
   /** Project tables of every root the session spans; later member folders override earlier ones. A broken member file cannot hide the others, but the session's own root failing is authoritative. */

@@ -1,10 +1,10 @@
 {
   "version": 1,
-  "reason": "PDF operations use a client-managed environment selected by the agent, independently of native document input and the file-read tool.",
+  "reason": "The ready result returns the managed Node executable and package directory alongside the Python and helper paths. PDF, Word, and Excel operations use a client-managed environment selected by the agent, independently of native document input and the file-read tool.",
   "toolName": "load_workspace_dependencies",
   "resolveMethod": "session/resolveDynamicToolCall",
   "readyState": "ready",
-  "requiredReadyPaths": ["pythonPath", "pdfSkillDir", "pdfHelperPath"],
+  "requiredReadyPaths": ["pythonPath", "nodePath", "nodeModulesPath", "pdfSkillDir", "pdfHelperPath", "docxSkillDir", "docxHelperPath", "xlsxSkillDir", "xlsxHelperPath"],
   "unavailableStates": ["failed", "unsupported", "installing", "missing", "disabled"],
   "scope": "local",
   "userSkillPrecedence": ["project", "global", "bundled"],
@@ -18,7 +18,7 @@
   "disabledState": "disabled",
   "diagnoseRecordsLog": true,
   "diagnoseFeedback": {
-    "reason": "A completed bundle check and a failed diagnostic request have different outcomes; status refreshes must preserve the visible result.",
+    "reason": "The ready result returns the managed Node executable and package directory alongside the Python and helper paths. A completed bundle check and a failed diagnostic request have different outcomes; status refreshes must preserve the visible result.",
     "surface": "toast",
     "ready": "success",
     "bundleProblem": "warning",

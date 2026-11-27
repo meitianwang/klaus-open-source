@@ -191,3 +191,15 @@ test('skill preview authority is read once per catalog and refreshed after proje
     assert(second.filter(row => String(row.name).startsWith('scratch-')).every(row => row.definitionPreview === true));
   } finally { await rm(root, { recursive: true, force: true }); }
 });
+
+test('shipped document skills are discoverable with descriptions', async () => {
+  const configRoot = await mkdtemp(join(tmpdir(), 'workspace-office-skills-'));
+  try {
+    const bundledSkillRoots = [join(__dirname, '../..', 'resources/workspace-skills')];
+    const rows = await new ExtensionDiscovery({ configRoot, bundledSkillRoots }).bundledSkills();
+    for (const name of ['pdf', 'docx', 'xlsx']) {
+      const description = rows.find(row => row.name === name)?.description;
+      assert.ok(typeof description === 'string' && description.trim(), name);
+    }
+  } finally { await rm(configRoot, { recursive: true, force: true }); }
+});

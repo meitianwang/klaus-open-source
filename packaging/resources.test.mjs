@@ -442,7 +442,6 @@ for (const id of [undefined, 'domestic', 'international']) test(`Windows ${id ??
     for (const file of specification.requiredAppFiles) write(join(appSource, file), '{}');
     for (const file of specification.requiredResourceFiles) write(join(resources, file), '{}');
     for (const name of specification.sharedRoots) if (!existsSync(join(resources, name))) mkdirSync(join(resources, name));
-    write(join(resources, 'plugins-seed/known_marketplaces.json'), '{}\n');
     const edition = desktopEdition(id);
     write(join(appSource, 'package.json'), JSON.stringify({ name: 'klaus-desktop', version: '1.2.3', main: 'dist/main/index.js', klausDesktopLayoutVersion: 1,
       ...(id ? { klausDesktopEdition: id, productName: edition.productName } : {}) }));

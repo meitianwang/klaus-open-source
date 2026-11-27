@@ -916,7 +916,7 @@ export function McpMarketStateModal({ entry, initialStatus, onClose }: {
   const onDeviceAuth = async () => {
     setBusy(true)
     const started = await w().klaus.mcp.deviceStart?.(entryRef.current.id).catch(() => null)
-    if (started?.error === 'no_client_id') { setBusy(false); setView({ mode: 'client-id' }); return }
+    if (started?.error === 'no_client_id' && entryRef.current.deviceAuth?.provider !== 'google') { setBusy(false); setView({ mode: 'client-id' }); return }
     if (!started?.ok) {
       setBusy(false)
       showToast(t('mcp_device_start_failed'))
@@ -1080,6 +1080,15 @@ export function McpMarketStateModal({ entry, initialStatus, onClose }: {
   // 正文与动作。
   const view3 = (() => {
     if (view.mode === 'device-waiting') {
+      if (!view.grant.userCode) {
+        return {
+          state: 'off' as EntryModalState,
+          title: t('mcp_browser_waiting_title'),
+          desc: t('mcp_browser_waiting_desc'),
+          children: null,
+          actions: <EntryAction kind="secondary" disabled={busy} onClick={() => { void onDeviceCancel() }}>{t('cancel')}</EntryAction>,
+        }
+      }
       // 等码视图：大字 user_code + 复制，告知已开浏览器去哪里输码，并给取消。
       return {
         state: 'off' as EntryModalState,

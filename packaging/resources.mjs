@@ -292,6 +292,4 @@ export function validateRequired(appDirectory, resourceDirectory) {
     if (typeof file !== 'string' || file.includes('..') || !existsSync(join(extensionRoot, file))) throw new Error(`Chrome extension resource is missing: ${file}`);
   }
   // An empty seed (`{}`) is the public default; a missing or malformed one is not.
-  const seed = readJson(join(resourceDirectory, 'plugins-seed', 'known_marketplaces.json'));
-  if (!seed || typeof seed !== 'object' || Array.isArray(seed)) throw new Error('Bundled plugin seed is invalid');
 }

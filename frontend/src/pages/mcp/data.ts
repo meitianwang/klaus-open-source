@@ -52,7 +52,7 @@ export interface McpBuiltinEntry {
   needsUv?: boolean
   auth?: string
   envKeys?: Array<{ key: string; label: string; secret?: boolean }>
-  deviceAuth?: { registerUrl?: string; ready?: boolean } | null
+  deviceAuth?: { provider?: string; registerUrl?: string; ready?: boolean } | null
 }
 
 /**
@@ -531,6 +531,8 @@ export async function probeMarketStatus(id: string): Promise<McpStatus | null> {
 
 // ---- 连接器图标（Klaus macOS 连接器视觉语言的细线字形，键：connector id / group id） ----
 const CONNECTOR_ICON_NAMES: Record<string, string> = {
+  'google-gmail': 'macos-mail',
+  'google-calendar': 'macos-calendar',
   // Reminders — notepad with a ring tab on top
   'macos-reminders': 'macos-reminders',
   // Calendar — box with two binding dots on top

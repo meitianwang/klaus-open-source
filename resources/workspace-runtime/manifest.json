@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "version": "pdf-1",
+  "version": "office-2",
   "pythonVersion": "3.12.15",
   "uvVersion": "0.13.1",
   "packages": {
@@ -13,7 +13,41 @@
     "charset-normalizer": "3.5.2",
     "cryptography": "50.0.2",
     "cffi": "2.1.1",
-    "pycparser": "3.11"
+    "pycparser": "3.11",
+    "python-docx": "1.2.0",
+    "openpyxl": "3.1.5",
+    "et-xmlfile": "2.0.0",
+    "lxml": "6.1.3",
+    "defusedxml": "0.7.1",
+    "xlrd": "2.0.2",
+    "typing-extensions": "4.16.0",
+    "numpy": "2.2.6",
+    "pandas": "2.2.3",
+    "python-dateutil": "2.9.0.post0",
+    "pytz": "2025.2",
+    "tzdata": "2025.2",
+    "six": "1.17.0",
+    "XlsxWriter": "3.2.9"
+  },
+  "nodePackages": {
+    "docx": {
+      "version": "9.16.0",
+      "url": "https://registry.npmjs.org/docx/-/docx-9.16.0.tgz",
+      "mirrorUrl": "https://registry.npmmirror.com/docx/-/docx-9.16.0.tgz",
+      "sha256": "265f7bf5014320837c77fa49d7bd664c984bb388d211395f6e6d44bbccb394db"
+    },
+    "fflate": {
+      "version": "0.8.3",
+      "url": "https://registry.npmjs.org/fflate/-/fflate-0.8.3.tgz",
+      "mirrorUrl": "https://registry.npmmirror.com/fflate/-/fflate-0.8.3.tgz",
+      "sha256": "38c2cd824402407b43153c782274aec2ea83ea688e4aa0b743c5f2c305857d92"
+    },
+    "nanoid": {
+      "version": "6.0.1",
+      "url": "https://registry.npmjs.org/nanoid/-/nanoid-6.0.1.tgz",
+      "mirrorUrl": "https://registry.npmmirror.com/nanoid/-/nanoid-6.0.1.tgz",
+      "sha256": "9e45013cba30ab148bd464202560bb4dfa1295da99033af78deeee3db2f1b973"
+    }
   },
   "platforms": {
     "darwin-arm64": {

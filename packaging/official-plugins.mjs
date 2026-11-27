@@ -1,6 +1,5 @@
 import { lstatSync, readFileSync, readdirSync } from 'node:fs';
 import { join, posix, resolve } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { copyTree, readJson } from './resources.mjs';
 
 // Official plugins are published separately from this repository. A build that
@@ -91,17 +90,3 @@ export function parseOfficialPluginRecords(value) {
     return record;
   });
 }
-
-/**
- * A plugin seed is a directory holding `known_marketplaces.json` (an object) and
- * any marketplace snapshots it references. The committed default is empty.
- */
-export function validatePluginSeed(directory) {
-  let value;
-  try { value = JSON.parse(readFileSync(join(directory, 'known_marketplaces.json'), 'utf8')); }
-  catch { throw new Error(`Plugin seed is missing a valid known_marketplaces.json: ${directory}`); }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Plugin seed known_marketplaces.json must be an object');
-  return Object.keys(value).sort();
-}
-
-export const DEFAULT_PLUGIN_SEED = fileURLToPath(new URL('./plugin-seed-default/', import.meta.url));

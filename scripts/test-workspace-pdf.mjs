@@ -30,10 +30,21 @@ try {
   if (!reply.success) throw new Error(`Runtime preparation failed: ${JSON.stringify(reply)}`);
   const details = JSON.parse(reply.contentItems[0].text);
   assert.equal(details.state, 'ready');
+  assert.equal(typeof details.nodePath, 'string');
+  assert.equal(typeof details.nodeModulesPath, 'string');
   assert.equal(details.pdfHelperPath, join(resources, 'workspace-skills', 'pdf', 'scripts', 'pdf.py'));
   readFileSync(details.pdfHelperPath);
   console.log(`Managed runtime ready: ${details.version}`);
-  await gate.run('pdf-helper', details.pythonPath, ['-I', '-m', 'unittest', 'discover', '-s', 'tests', '-p', 'pdf_skill_test.py', '-v'], { timeout: 120_000 });
+  for (const name of ['pdf', 'docx', 'xlsx']) {
+    if (name !== 'pdf') {
+      assert.equal(details[`${name}HelperPath`], join(resources, 'workspace-skills', name, 'scripts', `${name}_tool.py`));
+      readFileSync(details[`${name}HelperPath`]);
+    }
+    await gate.run(`${name}-helper`, details.pythonPath, ['-I', '-m', 'unittest', 'discover', '-s', 'tests', '-p', `${name}_skill_test.py`, '-v'], {
+      timeout: 120_000,
+      env: { ...process.env, KLAUS_TEST_NODE_PATH: details.nodePath },
+    });
+  }
   // A new manager must verify and reuse the persisted installation.
   const reopened = new WorkspaceDependenciesManager({
     rootDir: join(desktopDirectory, 'dist', 'workspace-pdf-test-profile', 'workspace-runtime'),

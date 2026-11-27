@@ -3,12 +3,11 @@ import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { gt, valid } from 'semver';
 import { IpcHandlerError } from '../../ipc/registry';
 import { errorMessage, object, string, type EngineRequest, type JsonObject } from '../service-types';
-import { pathInside } from '../workspaces';
 import { directoryNames, managedPath, missing, optionalDocument } from './file-store';
 import { pluginIconDataUrl, readPluginIcon } from './plugin-icons';
 
-export interface PluginCatalogDeps { request: EngineRequest; seedDir?: string; diagnostic?: (message: string) => void }
-export interface Marketplace { name: string; installLocation: string | null; lastUpdated: string | null; seeded: boolean; entries: JsonObject[] }
+export interface PluginCatalogDeps { request: EngineRequest; diagnostic?: (message: string) => void }
+export interface Marketplace { name: string; installLocation: string | null; lastUpdated: string | null; entries: JsonObject[] }
 export interface PluginCatalogSnapshot { installed: JsonObject; marketplaces: Marketplace[]; rows: JsonObject[] }
 export interface CatalogRoot { marketplace: string; dir: string }
 
@@ -118,21 +117,7 @@ export class PluginCatalog {
     const installed = Object.keys(ledger).length ? object(ledger.plugins) : object(values.plugins), marketplaces: Marketplace[] = [];
     for (const [name, value] of Object.entries(object(values.marketplaces))) {
       const source = object(value), location = typeof source.installLocation === 'string' && isAbsolute(source.installLocation) ? source.installLocation : null;
-      marketplaces.push({ name, installLocation: location, lastUpdated: typeof source.lastUpdated === 'string' ? source.lastUpdated : null, seeded: false, entries: await this.entries(location) });
-    }
-    if (this.deps.seedDir) {
-      try {
-        const raw = await optionalDocument(join(this.deps.seedDir, 'known_marketplaces.json'));
-        for (const [name, value] of Object.entries(object(raw === undefined ? null : JSON.parse(raw)))) {
-          const current = marketplaces.findIndex(item => item.name === name); if (current >= 0 && marketplaces[current]!.entries.length) continue;
-          const source = object(value), prefix = '/__klaus__/plugins-seed', rawLocation = string(source.installLocation);
-          if (rawLocation !== prefix && !rawLocation.startsWith(prefix + '/')) continue;
-          const location = resolve(this.deps.seedDir, '.' + rawLocation.slice(prefix.length));
-          if (!pathInside(location, this.deps.seedDir)) continue;
-          const entry: Marketplace = { name, installLocation: location, lastUpdated: typeof source.lastUpdated === 'string' ? source.lastUpdated : null, seeded: true, entries: await this.entries(location) };
-          if (current >= 0) marketplaces[current] = entry; else marketplaces.push(entry);
-        }
-      } catch (error) { this.deps.diagnostic?.('Bundled marketplace read failed: ' + errorMessage(error)); }
+      marketplaces.push({ name, installLocation: location, lastUpdated: typeof source.lastUpdated === 'string' ? source.lastUpdated : null, entries: await this.entries(location) });
     }
     const rows = marketplaces.flatMap(market => market.entries.map(entry => row(entry, market.name, installed))), seen = new Set(rows.map(row => string(row.id)));
     for (const info of rows) {
