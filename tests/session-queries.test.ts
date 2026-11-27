@@ -49,6 +49,15 @@ function fixture() {
 const queued = (uuid: string, value: string, mutable = true): Json => ({ message: { uuid, value, mode: 'prompt', priority: 'now' }, state: 'pending', mutable });
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
 
+h.test('unloaded conversations do not start the engine for queue snapshots or predictions', async () => {
+  const f = fixture();
+  try {
+    assertEqual((await f.queue.snapshot('unloaded-id')).code, 'snapshot-unavailable', 'no live queue');
+    assertEqual(await f.service.predictionContext('unloaded-id'), null, 'no live prediction context');
+    assertEqual(f.client.calls.length, 0, 'no engine requests');
+  } finally { f.forwarder.close(); }
+});
+
 h.test('confirmed queue admission survives a failed snapshot without restoring duplicate input', async () => {
   const f = fixture(), item = { finalText: 'Retain the accepted instruction', media: [] };
   const vector = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/engine-client-queue-vectors.json'), 'utf8'));

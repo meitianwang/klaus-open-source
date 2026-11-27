@@ -8625,8 +8625,10 @@ async function switchSession(id: string) {
   const pending = [...pendingComposerSubmissions.values()].find(pending => !pending.sessionId && pending.viewId === id)
   if (pending) {
     if (window.currentSessionId === null && visiblePendingSubmissionId === pending.id) return
-    enterNewChatState({ workdir: pending.workdir, workspaceId: pending.workspaceId })
+    const keepFilesOpen = artifactsPanel?.getAttribute('data-mode') === 'workspace' && !artifactsPanel.classList.contains('collapsed')
+    enterNewChatState({ workdir: pending.workdir, workspaceId: pending.workspaceId, deferWorkspaceLoad: keepFilesOpen })
     visiblePendingSubmissionId = pending.id
+    if (keepFilesOpen) showWorkspaceMainView({ openPanel: true })
     mountReactTranscript(pending.viewId, messagesEl, { scroll: 'main', readOnly: true })
     welcomeEl.style.display = 'none'
     messagesEl.style.display = 'block'
@@ -8755,6 +8757,7 @@ async function switchSession(id: string) {
   // panel is reconciled below, so the tab strip is built from this session's own
   // pages (and new manual pages land here) instead of the app-wide "manual" pool
   // — that pool was why one session's browser page showed up in the next.
+  renderSessionList()
   await window.klaus?.browserUse?.setConversation?.(id).catch(() => {})
   if (mySeq !== switchSeq || window.currentSessionId !== id || sessionDeletePending.has(id)) return
   // This conversation just became the one on screen, so anything it can still
@@ -8852,7 +8855,6 @@ async function switchSession(id: string) {
   if (hasContent) refreshContextStatsThrottled(id, 0)
   // 切会话立即从缓存重绘顶栏用量 chip（命中则秒出，未命中先隐藏等 fetch）。
   renderContextChip()
-  loadArtifacts(id)
   } finally {
     if (turnNavigationLease) turnNavigationController?.resume(turnNavigationLease, window.currentSessionId)
   }
@@ -8863,7 +8865,7 @@ async function switchSession(id: string) {
 // 发送第一条消息时才 lazy 创建实体（见 [send] 段）。这同时根治了之前
 // `if (!currentSessionId) await newChat()` 触发 switchSession → 清空 inputEl
 // → finalText 为空气泡的 race。
-function enterNewChatState(options: { workdir?: string | null; workspaceId?: string | null; discardLeavingDraft?: boolean; retainSettings?: boolean } = {}) {
+function enterNewChatState(options: { workdir?: string | null; workspaceId?: string | null; discardLeavingDraft?: boolean; retainSettings?: boolean; deferWorkspaceLoad?: boolean } = {}) {
   captureTranscriptViewport(messagesEl)
   visiblePendingSubmissionId = null
   goalInteractions.navigate()
@@ -8998,7 +9000,7 @@ function enterNewChatState(options: { workdir?: string | null; workspaceId?: str
   renderSubagentSection()
   renderContextPanel()
   refreshWorkdirButton()
-  loadArtifacts(null)
+  if (!options.deferWorkspaceLoad) loadArtifacts(null)
 
   if (options.retainSettings) void klausApi.browserUse.hide().catch(() => {})
   else inputEl.focus()
@@ -9039,11 +9041,12 @@ function discardEmptySessionOnLeave(sessionId: string, hasContent: boolean) {
   })) return
 
   emptySessionDiscardChecks.add(sessionId)
-  void klausApi.session.history(sessionId).then((result: any) => {
+  void (klausApi.session.historyPage
+    ? klausApi.session.historyPage(sessionId, { limit: 1, itemsView: 'summary' })
+    : klausApi.session.history(sessionId)).then((result: any) => {
     if (window.currentSessionId === sessionId) return
-    const confirmedHistory = Array.isArray(result)
-      ? result
-      : (Array.isArray(result?.messages) ? result.messages : null)
+    const items = result?.items ?? result?.messages ?? result
+    const confirmedHistory = Array.isArray(items) ? items : null
     discardSessionWithKnownHistory(sessionId, confirmedHistory, sessionStreamHasContent(sessionId))
   }).catch(() => {}).finally(() => emptySessionDiscardChecks.delete(sessionId))
 }
@@ -19799,7 +19802,17 @@ let diffFilesPanelCollapsed = localStorage.getItem(windowStateKey('klaus_diff_fi
 // ==================== Workspace 面板（已拆出至 src/chat/workspace-panel.ts） ====================
 // artifacts 编排与 composer mention 桥仍在本文件，经 deps 注入。
 initWorkspacePanel({
-  ensureSession: () => ensureSession(),
+  draftWorkspaceId: () => pendingNewChatWorkspaceId,
+  expectedRootsForScope: (scopeId) => {
+    const session = window.currentSessionId ? findKnownSession(scopeId) : undefined
+    const workspaceId = window.currentSessionId ? session?.workspaceId : pendingNewChatWorkspaceId
+    const workdir = window.currentSessionId ? (session?.workdir || sessionWorkdir(scopeId)) : draftProjectWorkdir()
+    if (workspaceId) {
+      const roots = projectWorkspaces.find(group => group.id === workspaceId)?.roots
+      return roots?.some(root => root.startsWith('ssh://')) ? null : roots ?? null
+    }
+    return workdir && !workdir.startsWith('ssh://') ? [workdir] : null
+  },
   draftProjectWorkdir: () => draftProjectWorkdir(),
   inputEl: () => inputEl,
   addWorkspaceComposerMention: (node) => addWorkspaceComposerMention(node as { rel?: string; path?: string; name?: string; isDir?: boolean }),
@@ -20154,7 +20167,7 @@ function openArtifactsPanel(mode: string = 'monitor') {
     persistLocalValue(windowStateKey('klaus_artifacts_collapsed'), '0')
   }
   syncArtifactsToggleVisibility()
-  if (nextMode === 'monitor' || nextMode === 'workspace') loadWorkspace(window.currentSessionId, { promoteDraft: true })
+  if (nextMode === 'monitor' || nextMode === 'workspace') loadWorkspace(window.currentSessionId)
 }
 window.openArtifactsPanel = openArtifactsPanel
 window.closeArtifactsPanel = closeArtifactsPanel
@@ -20335,6 +20348,7 @@ function adjustArtifactsPanelForSessionSwitch(targetSessionId: string) {
   setArtifactsPanelMode(mode)
   artifactsPanel.classList.toggle('collapsed', collapsed)
   syncArtifactsToggleVisibility()
+  if (!collapsed && (mode === 'monitor' || mode === 'workspace')) loadWorkspace(targetSessionId)
 }
 
 function prepareArtifactsPanelLayoutForSessionSwitch(targetSessionId: string) {

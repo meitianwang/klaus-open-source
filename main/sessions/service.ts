@@ -3843,7 +3843,7 @@ export class SessionService {
     const sideTask = this.sideTasks.get(rendererId);
     if (this.isSessionClosing(rendererId) || this.deleted.has(rendererId)
       || (sideTask !== undefined && (sideTask.phase !== 'active' || sideTask.archived))
-      || this.deps.isPrivateThread?.(rendererId)) return null;
+      || this.deps.isPrivateThread?.(rendererId) || !this.deps.state.liveSession(rendererId)) return null;
     this.scheduleIdleRetirement(rendererId);
     const context = await this.directories.run(async () => {
       signal?.throwIfAborted();
@@ -3855,7 +3855,8 @@ export class SessionService {
         const currentSide = this.sideTasks.get(rendererId);
         if (this.isSessionClosing(rendererId) || this.deleted.has(rendererId)
           || (currentSide !== undefined && (currentSide.phase !== 'active' || currentSide.archived))) return null;
-        const sessionId = await this.resolveSessionNow(rendererId, false, false, signal);
+        const sessionId = this.deps.state.liveSession(rendererId);
+        if (!sessionId) return null;
         signal?.throwIfAborted();
         return object(await this.request('session/predictionContext', { sessionId }));
       });
@@ -5284,12 +5285,14 @@ export class SessionService {
     this.assertRequestOwner();
     this.assertPublicThread(rendererId);
     if (this.isSessionClosing(rendererId)) throw new IpcHandlerError('SESSION_UNAVAILABLE', 'The conversation is closing');
-    const engineId = this.deps.state.liveSession(rendererId), client = this.attached?.client;
-    if (engineId && client && !client.isClosed()) {
-      this.ensureCurrentClient(client);
-      return engineId;
+    const engineId = this.deps.state.liveSession(rendererId);
+    if (!engineId) throw new IpcHandlerError('SESSION_NOT_LOADED', 'The conversation is not loaded');
+    const client = await this.client();
+    this.ensureCurrentClient(client);
+    if (this.deps.state.liveSession(rendererId) !== engineId) {
+      throw new IpcHandlerError('SESSION_NOT_LOADED', 'The conversation is not loaded');
     }
-    return this.resolveLiveSession(rendererId);
+    return engineId;
   }
 
   async followUp(rendererId: string, payload: Record<string, Json>, hostAuthored?: { frame?: boolean }): Promise<Json> {

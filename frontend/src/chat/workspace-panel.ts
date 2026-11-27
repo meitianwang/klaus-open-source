@@ -27,7 +27,8 @@ import { writeClipboardText } from '../clipboard'
 import { mountImageViewer, performImageAction, bindImageContextMenu, openImagePreview, imagePreviewOptionsFromElement, type PreviewImage, type ImageViewer, type ImageViewState } from './image-preview'
 
 export interface WorkspacePanelDeps {
-  ensureSession(): Promise<string | null | undefined>
+  draftWorkspaceId(): string | null
+  expectedRootsForScope?(scopeId: string): string[] | null
   draftProjectWorkdir(): string | null
   inputEl(): HTMLTextAreaElement
   addWorkspaceComposerMention(node: unknown): void
@@ -109,10 +110,23 @@ export interface WorkspaceNode {
 }
 const currentSessionId = () => (window as unknown as { currentSessionId?: string | null }).currentSessionId || null
 
+export function resolveWorkspaceScopeId(sessionId: string | null): string | null {
+  if (sessionId) return sessionId
+  const workspaceId = deps.draftWorkspaceId()
+  if (workspaceId) return `__draft_workspace__:${workspaceId}`
+  const workdir = deps.draftProjectWorkdir()
+  return workdir ? `__draft_project__:${workdir}` : null
+}
+
+export function activeWorkspaceScopeId(): string | null {
+  return resolveWorkspaceScopeId(currentSessionId())
+}
+
+
 interface KlausWorkspaceApi {
   workspace: {
     search(sessionId: string, query: string): Promise<{ hits?: { rel: string; name: string; isDir: boolean }[]; truncated?: boolean; error?: string } | null>
-    list: (sessionId: string | null, filePath?: string) => Promise<{ root?: string; roots?: string[]; tree?: WorkspaceNode[]; truncated?: boolean; error?: string } | null>
+    list: (sessionId: string | null, filePath?: string) => Promise<{ root?: string; roots?: string[]; tree?: WorkspaceNode[]; truncated?: boolean; remote?: boolean; error?: string } | null>
     open: (sessionId: string | null, path: string) => Promise<{ ok?: boolean; error?: string } | null>
     reveal: (sessionId: string | null, path: string) => Promise<{ ok?: boolean; error?: string } | null>
     rename: (sessionId: string | null, path: string, newName: string) => Promise<{ ok?: boolean; path?: string; error?: string } | null>
@@ -240,7 +254,7 @@ function forgetWorkspaceDocument(tab: WorkspaceTab): void {
 function workspaceDocumentFor(tab: WorkspaceTab): WorkspaceDocument {
   let document = workspaceDocuments.get(tab)
   if (document) return document
-  const owner = tab.ownerSessionId ?? currentSessionId()
+  const owner = tab.ownerSessionId ?? activeWorkspaceScopeId()
   const path = tab.path
   document = new WorkspaceDocument({
     content: tab.savedContent,
@@ -259,7 +273,7 @@ function workspaceDocumentFor(tab: WorkspaceTab): WorkspaceDocument {
       tab.draftContent = snapshot.content
       tab.mtimeMs = snapshot.mtimeMs
       tab.dirty = snapshot.content !== snapshot.savedContent
-      if (tab.ownerSessionId !== currentSessionId()) return
+      if (tab.ownerSessionId !== activeWorkspaceScopeId()) return
       if (getActiveWorkspaceTab() === tab) {
         syncWorkspaceActiveTabGlobals(tab)
         updateWorkspaceFileChromeForTab(tab)
@@ -372,11 +386,11 @@ export function isWorkspaceMainActive() {
   return workspaceMainActive
 }
 
-export function selectedWorkspaceFile(sessionId = currentSessionId()) {
+export function selectedWorkspaceFile(sessionId = activeWorkspaceScopeId()) {
   return sessionId ? workspaceSelectedFiles.get(sessionId) || '' : ''
 }
 
-function getWorkspaceTabs(sessionId = currentSessionId()) {
+function getWorkspaceTabs(sessionId = activeWorkspaceScopeId()) {
   if (!sessionId) return []
   let tabs = workspaceOpenTabs.get(sessionId)
   if (!tabs) {
@@ -386,11 +400,11 @@ function getWorkspaceTabs(sessionId = currentSessionId()) {
   return tabs
 }
 
-function findWorkspaceTab(filePath: string, sessionId = currentSessionId()) {
+function findWorkspaceTab(filePath: string, sessionId = activeWorkspaceScopeId()) {
   return getWorkspaceTabs(sessionId).find(tab => tab.path === filePath) || null
 }
 
-function getActiveWorkspaceTab(sessionId = currentSessionId()) {
+function getActiveWorkspaceTab(sessionId = activeWorkspaceScopeId()) {
   const activePath = selectedWorkspaceFile(sessionId)
   return activePath ? findWorkspaceTab(activePath, sessionId) : null
 }
@@ -429,7 +443,7 @@ function createWorkspaceTab(filePath: string) {
   }
 }
 
-function ensureWorkspaceTab(filePath: string, sessionId = currentSessionId()) {
+function ensureWorkspaceTab(filePath: string, sessionId = activeWorkspaceScopeId()) {
   if (!sessionId || !filePath) return null
   const tabs = getWorkspaceTabs(sessionId)
   let tab = tabs.find(item => item.path === filePath)
@@ -822,7 +836,7 @@ function workspaceContextMenuButton(action: string, label: string, shortcut = ''
 function showWorkspaceTabContextMenu(e: MouseEvent, tabPath: string) {
   e.preventDefault()
   e.stopPropagation()
-  if (!currentSessionId() || !tabPath) return
+  if (!activeWorkspaceScopeId() || !tabPath) return
   closeWorkspaceTabContextMenu()
   closeWorkspaceContextMenu()
   deps.closeSessionContextMenu()
@@ -914,7 +928,7 @@ async function closeWorkspaceTabs(paths: string[], options: { skipDirtyPrompt?: 
 }
 
 async function closeWorkspaceTab(path: string, options: { skipDirtyPrompt?: boolean; preserveRender?: boolean } = {}) {
-  const sessionId = currentSessionId()
+  const sessionId = activeWorkspaceScopeId()
   if (!sessionId || !path) return false
   const tabs = getWorkspaceTabs(sessionId)
   const index = tabs.findIndex(tab => tab.path === path)
@@ -935,7 +949,7 @@ async function closeWorkspaceTab(path: string, options: { skipDirtyPrompt?: bool
     if (next) workspaceSelectedFiles.set(sessionId, next.path)
     else workspaceSelectedFiles.delete(sessionId)
   }
-  if (!options.preserveRender && sessionId === currentSessionId()) renderWorkspaceAfterTabClose()
+  if (!options.preserveRender && sessionId === activeWorkspaceScopeId()) renderWorkspaceAfterTabClose()
   return true
 }
 
@@ -948,10 +962,10 @@ function renderWorkspaceAfterTabClose() {
 }
 
 async function activateWorkspaceTab(path: string) {
-  if (!currentSessionId() || !path) return
+  if (!activeWorkspaceScopeId() || !path) return
   const tab = ensureWorkspaceTab(path)
   if (!tab) return
-  workspaceSelectedFiles.set(currentSessionId() as string, path)
+  workspaceSelectedFiles.set(activeWorkspaceScopeId() as string, path)
   renderWorkspaceTabs()
   renderWorkspaceSelection()
   await loadWorkspaceFile(path)
@@ -961,9 +975,9 @@ async function activateWorkspaceTab(path: string) {
 function focusWorkspaceImage(): void {
   const stage = workspaceFileBody?.querySelector<HTMLElement>('.image-preview-stage')
   if (!stage) return
-  const container = currentSessionId(), selected = selectedWorkspaceFile()
+  const container = activeWorkspaceScopeId(), selected = selectedWorkspaceFile()
   requestAnimationFrame(() => {
-    if (stage.isConnected && workspaceMainActive && container === currentSessionId() && selected === selectedWorkspaceFile()
+    if (stage.isConnected && workspaceMainActive && container === activeWorkspaceScopeId() && selected === selectedWorkspaceFile()
       && !document.querySelector('.image-lightbox')) stage.focus({ preventScroll: true })
   })
 }
@@ -999,7 +1013,7 @@ async function saveOfficeTabInPlace(tab: WorkspaceTab, nextOffice?: OfficePrevie
     return { ok, mtimeMs: tab.mtimeMs }
   }
   if (!tab.officeWritable) return { ok: false, error: tt('workspace_file_readonly') }
-  const owner = tab.ownerSessionId ?? currentSessionId()
+  const owner = tab.ownerSessionId ?? activeWorkspaceScopeId()
   const targetPath = tab.previewPath || tab.path
   markWorkspaceSelfWrite(targetPath)
   const res = await klausApi().artifacts.writeOffice(owner, targetPath, payload, { expectedMtimeMs: tab.mtimeMs })
@@ -1010,7 +1024,7 @@ async function saveOfficeTabInPlace(tab: WorkspaceTab, nextOffice?: OfficePrevie
   tab.mtimeMs = res.mtimeMs ?? tab.mtimeMs
   tab.savedOfficeJson = JSON.stringify(payload)
   tab.dirty = false
-  if (tab.ownerSessionId === currentSessionId()) {
+  if (tab.ownerSessionId === activeWorkspaceScopeId()) {
     if (getActiveWorkspaceTab() === tab) updateWorkspaceFileChromeForTab(tab)
     renderWorkspaceTabs()
   }
@@ -1022,7 +1036,7 @@ async function saveOfficeTabAs(tab: WorkspaceTab, nextOffice?: OfficePreviewPayl
   const payload = nextOffice ?? (workspaceMountedOffice?.tab === tab ? workspaceMountedOffice.handle.getPayload() : tab.office)
   if (!payload) return { ok: false, error: tt('workspace_file_save_failed') }
   tab.office = payload
-  const owner = tab.ownerSessionId ?? currentSessionId()
+  const owner = tab.ownerSessionId ?? activeWorkspaceScopeId()
   const targetPath = tab.previewPath || tab.path
   const res = await klausApi().artifacts.saveOfficeAs(owner, targetPath, payload)
   if (res?.cancelled) return { ok: false, error: 'cancelled' }
@@ -1107,7 +1121,7 @@ async function renderWorkspaceTextEditor(tab: WorkspaceTab, mode: 'source' | 'pr
   workspaceEditorStates.set(tab, state)
   const onChange = (content: string) => markWorkspaceTabDirty(tab, content)
   const onSave = async () => { await saveWorkspaceTab(tab) }
-  const stale = () => sequence !== workspaceEditorSequence || owner !== currentSessionId() || getActiveWorkspaceTab() !== tab
+  const stale = () => sequence !== workspaceEditorSequence || owner !== activeWorkspaceScopeId() || getActiveWorkspaceTab() !== tab
   try {
     if (mode === 'preview') {
       const { createMarkdownEditor } = await import('./workspace-markdown-editor')
@@ -1221,16 +1235,16 @@ async function renderWorkspaceFileHtmlPreview(filePath: string) {
   frame.setAttribute('referrerpolicy', 'no-referrer')
   wrap.appendChild(frame)
   workspaceFileBody.appendChild(wrap)
-  const requestSessionId = currentSessionId()
+  const requestSessionId = activeWorkspaceScopeId()
   try {
     const res = await klausApi().artifacts.fileUrl(requestSessionId, getActiveWorkspaceTab()?.previewPath || filePath)
     const errMsg = res && res.ok === false ? res.error : res?.error
     if (errMsg || !res?.url) throw new Error(errMsg || 'no preview url')
     // 竞态守卫：异步期间切了文件/会话就丢弃本次结果。
-    if (workspaceFileContentPath !== filePath || currentSessionId() !== requestSessionId) return
+    if (workspaceFileContentPath !== filePath || activeWorkspaceScopeId() !== requestSessionId) return
     frame.src = res.url
   } catch (err) {
-    if (workspaceFileContentPath !== filePath || currentSessionId() !== requestSessionId) return
+    if (workspaceFileContentPath !== filePath || activeWorkspaceScopeId() !== requestSessionId) return
     console.warn('[workspace] html preview failed, falling back to source:', err)
     workspaceFileViewMode = 'source'
     syncWorkspaceFileViewToggle()
@@ -1341,7 +1355,7 @@ function renderWorkspaceUnsupportedMediaCard(filePath: string, tab: WorkspaceTab
   openBtn.className = `${styles['workspace-media-unsupported-btn']} ${styles['workspace-media-unsupported-btn-primary']}`
   openBtn.textContent = tt('office_preview_media_open_default')
   openBtn.addEventListener('click', async () => {
-    const owner = tab.ownerSessionId ?? currentSessionId()
+    const owner = tab.ownerSessionId ?? activeWorkspaceScopeId()
     const target = tab.previewPath || filePath
     const res = await klausApi().artifacts.openDefault(owner, target).catch((err: unknown) => ({ ok: false, error: String(err) }))
     if (res?.error) await klausDialog().alert(res.error)
@@ -1352,7 +1366,7 @@ function renderWorkspaceUnsupportedMediaCard(filePath: string, tab: WorkspaceTab
   revealBtn.className = styles['workspace-media-unsupported-btn']
   revealBtn.textContent = tt('office_preview_media_reveal')
   revealBtn.addEventListener('click', async () => {
-    const owner = tab.ownerSessionId ?? currentSessionId()
+    const owner = tab.ownerSessionId ?? activeWorkspaceScopeId()
     const target = tab.previewPath || filePath
     const res = await klausApi().workspace.reveal(owner, target).catch((err: unknown) => ({ ok: false, error: String(err) }))
     if (res?.error) await klausDialog().alert(res.error || tt('workspace_reveal_failed'))
@@ -1390,7 +1404,7 @@ function renderWorkspaceFileMedia(url: string, kind: string, filePath: string, t
   if (kind === 'image') {
     workspaceFileBody.appendChild(wrap)
     imageViewerTab = tab
-    imageTabViewer = mountImageViewer(wrap, [{ src: url, path: filePath, sessionId: tab?.ownerSessionId ?? currentSessionId() ?? '', name: workspaceBaseName(filePath) }], 0, { state: imageTabZoom(tab), onZoomChange: scale => rememberImageTabZoom(tab, scale) })
+    imageTabViewer = mountImageViewer(wrap, [{ src: url, path: filePath, sessionId: tab?.ownerSessionId ?? activeWorkspaceScopeId() ?? '', name: workspaceBaseName(filePath) }], 0, { state: imageTabZoom(tab), onZoomChange: scale => rememberImageTabZoom(tab, scale) })
     return
   } else if (kind === 'pdf') {
     el = document.createElement('iframe')
@@ -1449,7 +1463,7 @@ function showWorkspaceFileShell(filePath: string) {
 
 export async function loadWorkspaceFile(filePath: string, { force = false, reloadMedia = false } = {}) {
   const seq = ++workspaceFileLoadSeq
-  const requestSessionId = currentSessionId()
+  const requestSessionId = activeWorkspaceScopeId()
   if (!requestSessionId || !filePath) {
     renderWorkspaceFileEmpty()
     return
@@ -1498,7 +1512,7 @@ export async function loadWorkspaceFile(filePath: string, { force = false, reloa
   const directKind = workspaceDirectPreviewKind(filePath)
   try {
     const authorization = await klausApi().artifacts.authorizePreview(requestSessionId, filePath)
-    if (seq !== workspaceFileLoadSeq || requestSessionId !== currentSessionId()) return
+    if (seq !== workspaceFileLoadSeq || requestSessionId !== activeWorkspaceScopeId()) return
     if (authorization?.ok !== true || !authorization.filePath) throw new Error(authorization?.error || tt('artifacts_load_failed'))
     const previewPath = authorization.filePath
     tab.previewPath = previewPath
@@ -1518,7 +1532,7 @@ export async function loadWorkspaceFile(filePath: string, { force = false, reloa
     }
     if (directKind) {
       const data = await klausApi().artifacts.fileUrl(requestSessionId, previewPath)
-      if (seq !== workspaceFileLoadSeq || requestSessionId !== currentSessionId()) return
+      if (seq !== workspaceFileLoadSeq || requestSessionId !== activeWorkspaceScopeId()) return
       tab.loading = false
       const errMsg = (data && data.ok === false ? data.error : data?.error)
       if (errMsg || !data?.url) {
@@ -1547,7 +1561,7 @@ export async function loadWorkspaceFile(filePath: string, { force = false, reloa
     }
     const documentRevision = workspaceDocumentRevisions.get(tab) ?? 0
     const data = await klausApi().artifacts.read(requestSessionId, previewPath)
-    if (seq !== workspaceFileLoadSeq || requestSessionId !== currentSessionId()) return
+    if (seq !== workspaceFileLoadSeq || requestSessionId !== activeWorkspaceScopeId()) return
     if ((workspaceDocumentRevisions.get(tab) ?? 0) !== documentRevision) {
       tab.loading = false
       await loadWorkspaceFile(filePath, { force: true })
@@ -1589,7 +1603,7 @@ export async function loadWorkspaceFile(filePath: string, { force = false, reloa
     updateWorkspaceFileChromeForTab(tab)
     renderWorkspaceFileContent()
   } catch (err) {
-    if (seq !== workspaceFileLoadSeq || requestSessionId !== currentSessionId()) return
+    if (seq !== workspaceFileLoadSeq || requestSessionId !== activeWorkspaceScopeId()) return
     tab.loading = false
     tab.error = `${tt('artifacts_load_failed')}: ${(err as Error | null)?.message || String(err)}`
     renderWorkspaceFileMessage(tab.error)
@@ -1633,18 +1647,18 @@ export function showWorkspaceMainView({ openPanel = true, revealAndFocus = false
   if (openPanel) deps.openArtifactsPanel('workspace')
   else {
     deps.syncArtifactsToggleVisibility()
-    if (!deps.artifactsPanel()?.classList.contains('collapsed')) loadWorkspace(currentSessionId(), { promoteDraft: true })
+    if (!deps.artifactsPanel()?.classList.contains('collapsed')) loadWorkspace(currentSessionId())
   }
   let selected = selectedWorkspaceFile()
   if (!selected) {
     const tabs = getWorkspaceTabs()
     selected = tabs[tabs.length - 1]?.path || ''
-    if (selected) workspaceSelectedFiles.set(currentSessionId() as string, selected)
+    if (selected) workspaceSelectedFiles.set(activeWorkspaceScopeId() as string, selected)
   }
   if (selected) {
-    const container = currentSessionId()
+    const container = activeWorkspaceScopeId()
     void loadWorkspaceFile(selected).then(() => {
-      if (revealAndFocus && workspaceMainActive && container === currentSessionId() && selected === selectedWorkspaceFile()) focusWorkspaceImage()
+      if (revealAndFocus && workspaceMainActive && container === activeWorkspaceScopeId() && selected === selectedWorkspaceFile()) focusWorkspaceImage()
     })
   } else renderWorkspaceFileEmpty()
   renderWorkspaceSelection()
@@ -1653,7 +1667,7 @@ export function showWorkspaceMainView({ openPanel = true, revealAndFocus = false
 }
 
 function selectWorkspaceFile(node: WorkspaceNode, { openMain = true, preview = false } = {}) {
-  if (!node?.path || node.isDir || !currentSessionId()) return
+  if (!node?.path || node.isDir || !activeWorkspaceScopeId()) return
   const tabs = getWorkspaceTabs()
   const existing = findWorkspaceTab(node.path)
   if (preview && !existing) {
@@ -1667,7 +1681,7 @@ function selectWorkspaceFile(node: WorkspaceNode, { openMain = true, preview = f
   }
   const tab = ensureWorkspaceTab(node.path)
   if (tab && (!existing || !preview)) tab.preview = preview
-  workspaceSelectedFiles.set(currentSessionId() as string, node.path)
+  workspaceSelectedFiles.set(activeWorkspaceScopeId() as string, node.path)
   renderWorkspaceTabs()
   renderWorkspaceSelection()
   if (openMain) showWorkspaceMainView({ openPanel: true })
@@ -1707,8 +1721,8 @@ function applyPendingWorkspaceLine(filePath: string): void {
 }
 
 export async function openWorkspaceImageTab(image: PreviewImage): Promise<boolean> {
-  const containerSession = currentSessionId() || await deps.ensureSession()
-  if (!containerSession || containerSession !== currentSessionId()) return false
+  const containerSession = activeWorkspaceScopeId()
+  if (!containerSession || containerSession !== activeWorkspaceScopeId()) return false
   const existing = getWorkspaceTabs(containerSession).find(tab => tab.imageSource && tab.imageSource.sessionId === image.sessionId && (image.path ? tab.imageSource.path === image.path : tab.imageSource.src === image.src))
   const key = existing?.path || 'image:' + encodeURIComponent(image.sessionId || '') + ':' + (image.path || image.src)
   const tab = ensureWorkspaceTab(key, containerSession)
@@ -1739,17 +1753,6 @@ export async function openWorkspaceImageTab(image: PreviewImage): Promise<boolea
 ;(window as unknown as Record<string, unknown>).klausOpenWorkspaceFilePath = openWorkspaceFilePath
 ;(window as unknown as Record<string, unknown>).klausOpenWorkspaceImageTab = openWorkspaceImageTab
 
-async function ensureWorkspaceSessionForCurrentDraft() {
-  if (currentSessionId()) return currentSessionId()
-  if (!deps.draftProjectWorkdir()) return null
-  try {
-    return await deps.ensureSession()
-  } catch (err) {
-    console.warn('[workspace] failed to create draft session:', err)
-    return null
-  }
-}
-
 workspaceFileCopyBtn?.addEventListener('click', () => {
   const image = getActiveWorkspaceTab()?.imageSource
   if (image) { void performImageAction('copy', image); return }
@@ -1759,8 +1762,8 @@ workspaceFileCopyBtn?.addEventListener('click', () => {
 workspaceFileRevealBtn?.addEventListener('click', async () => {
   const image = getActiveWorkspaceTab()?.imageSource
   if (image) { await performImageAction('reveal', image); return }
-  if (!currentSessionId() || !workspaceFilePreviewPath) return
-  const res = await klausApi().workspace.reveal(currentSessionId(), getActiveWorkspaceTab()?.previewPath || workspaceFilePreviewPath).catch((err: unknown) => ({ ok: false as const, path: undefined, error: String(err) }))
+  if (!activeWorkspaceScopeId() || !workspaceFilePreviewPath) return
+  const res = await klausApi().workspace.reveal(activeWorkspaceScopeId(), getActiveWorkspaceTab()?.previewPath || workspaceFilePreviewPath).catch((err: unknown) => ({ ok: false as const, path: undefined, error: String(err) }))
   if (res?.error) await klausDialog().alert(res.error || tt('workspace_reveal_failed'))
 })
 async function setWorkspaceFileView(next: 'source' | 'preview') {
@@ -1768,9 +1771,9 @@ async function setWorkspaceFileView(next: 'source' | 'preview') {
   const canPreview = !!tab?.canPreview || workspaceFileCanPreview
   const target = canPreview && next === 'preview' ? 'preview' : 'source'
   if (target === workspaceFileViewMode) return
-  const owner = currentSessionId()
+  const owner = activeWorkspaceScopeId()
   if (tab?.dirty && !await saveWorkspaceTab(tab)) return
-  if (owner !== currentSessionId() || tab !== getActiveWorkspaceTab()) return
+  if (owner !== activeWorkspaceScopeId() || tab !== getActiveWorkspaceTab()) return
   releaseWorkspaceEditor()
   if (tab && workspaceIsSpreadsheetText(tab.path) && target === 'preview') {
     const delim = workspaceFileExt(tab.path) === 'tsv' ? '\t' : ','
@@ -1927,7 +1930,7 @@ export function shouldReloadWorkspaceMediaForEvent(event: WorkspaceChangeNotific
   return shouldReloadWorkspaceMediaOnChange(event, workspaceReloadTargets(filePath, previewPath))
 }
 
-export function workspaceRelativePath(filePath: string, sessionId = currentSessionId()) {
+export function workspaceRelativePath(filePath: string, sessionId = activeWorkspaceScopeId()) {
   const root = sessionId ? workspaceRoots.get(sessionId) : ''
   if (!root) return filePath
   const absNorm = normalizeWorkspacePath(filePath)
@@ -1989,7 +1992,7 @@ function updateImageTabSources(owner: string | null, oldPath: string, newPath?: 
       source.src = (window as any).klaus?.media?.url?.(source.path, source.sessionId) || ''
       source.name = tab.name = workspaceBaseName(source.path)
     } else source.src = ''
-    if (container === currentSessionId() && tab.path === selectedWorkspaceFile()) void loadWorkspaceFile(tab.path)
+    if (container === activeWorkspaceScopeId() && tab.path === selectedWorkspaceFile()) void loadWorkspaceFile(tab.path)
   }
 }
 
@@ -2028,7 +2031,7 @@ function removeWorkspaceTabsForPrefix(sessionId: string | null, oldPath: string)
       changed = true
     }
   }
-  if (changed && sessionId === currentSessionId()) {
+  if (changed && sessionId === activeWorkspaceScopeId()) {
     const selected = selectedWorkspaceFile(sessionId)
     const selectedNorm = normalizeWorkspacePath(selected)
     if (selectedNorm === oldPrefix || selectedNorm.startsWith(oldPrefix + '/')) {
@@ -2041,16 +2044,16 @@ function removeWorkspaceTabsForPrefix(sessionId: string | null, oldPath: string)
 }
 
 async function runWorkspaceAction(action: string, node: WorkspaceNode, row: HTMLElement) {
-  if (!currentSessionId()) return
+  if (!activeWorkspaceScopeId()) return
   if (action === 'open') {
     if (node.isDir) {
-      const res = await klausApi().workspace.open(currentSessionId(), node.path).catch((err: unknown) => ({ ok: false as const, path: undefined, error: String(err) }))
+      const res = await klausApi().workspace.open(activeWorkspaceScopeId(), node.path).catch((err: unknown) => ({ ok: false as const, path: undefined, error: String(err) }))
       if (res?.error) await klausDialog().alert(res.error || tt('workspace_open_failed'))
     } else {
       selectWorkspaceFile(node)
     }
   } else if (action === 'reveal') {
-    const res = await klausApi().workspace.reveal(currentSessionId(), node.path).catch((err: unknown) => ({ ok: false as const, path: undefined, error: String(err) }))
+    const res = await klausApi().workspace.reveal(activeWorkspaceScopeId(), node.path).catch((err: unknown) => ({ ok: false as const, path: undefined, error: String(err) }))
     if (res?.error) await klausDialog().alert(res.error || tt('workspace_reveal_failed'))
   } else if (action === 'copy-relative') {
     copyWorkspaceText(workspaceRelativePath(node.path) || node.name || '')
@@ -2068,7 +2071,7 @@ async function runWorkspaceAction(action: string, node: WorkspaceNode, row: HTML
 function showWorkspaceContextMenu(e: MouseEvent, node: WorkspaceNode, row: HTMLElement) {
   e.preventDefault()
   e.stopPropagation()
-  if (!currentSessionId() || workspaceRenamingPath) return
+  if (!activeWorkspaceScopeId() || workspaceRenamingPath) return
   closeWorkspaceContextMenu()
   closeWorkspaceTabContextMenu()
   deps.closeSessionContextMenu()
@@ -2130,7 +2133,7 @@ function showWorkspaceContextMenu(e: MouseEvent, node: WorkspaceNode, row: HTMLE
 }
 
 async function renameWorkspaceTreeNode(node: WorkspaceNode, newName: string) {
-  const sessionId = currentSessionId()
+  const sessionId = activeWorkspaceScopeId()
   if (!sessionId || !newName || newName === node.name) return
   if (!await flushWorkspacePath(sessionId, node.path)) { showToast(tt('workspace_file_save_failed')); return }
   const result = await klausApi().workspace.rename(sessionId, node.path, newName).catch((error: unknown) => ({ ok: false, path: undefined, error: String(error) }))
@@ -2140,18 +2143,18 @@ async function renameWorkspaceTreeNode(node: WorkspaceNode, newName: string) {
     const selected = selectedWorkspaceFile(sessionId)
     if (selected === node.path || (node.isDir && selected.startsWith(node.path + '/'))) {
       workspaceSelectedFiles.set(sessionId, result.path + selected.slice(node.path.length))
-      if (workspaceMainActive && sessionId === currentSessionId()) void loadWorkspaceFile(selectedWorkspaceFile(sessionId))
+      if (workspaceMainActive && sessionId === activeWorkspaceScopeId()) void loadWorkspaceFile(selectedWorkspaceFile(sessionId))
     }
   } else await klausDialog().alert(result?.error || tt('workspace_rename_failed'))
-  if (sessionId === currentSessionId()) await loadWorkspace(sessionId)
+  if (sessionId === activeWorkspaceScopeId()) await loadWorkspace(sessionId)
 }
 
 async function deleteWorkspaceNode(node: WorkspaceNode) {
-  if (!currentSessionId()) return
+  if (!activeWorkspaceScopeId()) return
   const message = tt('workspace_delete_confirm').replace('{name}', node.name || node.path)
   const ok = await klausDialog().confirm({ message, danger: true })
   if (!ok) return
-  const sessionId = currentSessionId()
+  const sessionId = activeWorkspaceScopeId()
   if (!await flushWorkspacePath(sessionId, node.path)) return
   const res = await klausApi().workspace.delete(sessionId, node.path).catch((err: unknown) => ({ ok: false as const, path: undefined, error: String(err) }))
   if (res?.ok) {
@@ -2162,8 +2165,8 @@ async function deleteWorkspaceNode(node: WorkspaceNode) {
     const selectedNorm = normalizeWorkspacePath(selected)
     if (selectedNorm === deletedPrefix || (node.isDir && selectedNorm.startsWith(deletedPrefix + '/'))) {
       workspaceSelectedFiles.delete(sessionId as string)
-      if (workspaceMainActive && sessionId === currentSessionId()) renderWorkspaceFileEmpty()
-    } else if (workspaceMainActive && sessionId === currentSessionId()) {
+      if (workspaceMainActive && sessionId === activeWorkspaceScopeId()) renderWorkspaceFileEmpty()
+    } else if (workspaceMainActive && sessionId === activeWorkspaceScopeId()) {
       const active = getActiveWorkspaceTab(sessionId)
       if (active) loadWorkspaceFile(active.path)
       else renderWorkspaceFileEmpty()
@@ -2175,11 +2178,17 @@ async function deleteWorkspaceNode(node: WorkspaceNode) {
   }
 }
 
-function renderWorkspaceTree(sessionId: string, nodes: WorkspaceNode[], root: string, roots: string[], truncated = false) {
+function workspaceRootsIdentity(root: string, roots: readonly string[], remoteScope?: string): string {
+  const list = roots.length ? roots : (root ? [root] : [])
+  return JSON.stringify([remoteScope ?? null, root, ...list])
+}
+
+function renderWorkspaceTree(sessionId: string, nodes: WorkspaceNode[], root: string, roots: string[], truncated = false, remote = false) {
   const host = deps.artifactsList()
   if (!host) return
-  const identity = JSON.stringify([root, ...roots])
-  if (workspaceTree && workspaceTreeSession === sessionId && workspaceTreeRoots === identity) {
+  const identity = workspaceRootsIdentity(root, roots, remote ? sessionId : undefined)
+  if (workspaceTree && workspaceTreeRoots === identity) {
+    bindWorkspaceTreeScope(sessionId)
     workspaceTree.update(nodes, truncated)
     return
   }
@@ -2190,8 +2199,8 @@ function renderWorkspaceTree(sessionId: string, nodes: WorkspaceNode[], root: st
     host, sessionId, root, roots, nodes,
     expanded: getExpandedSet(sessionId),
     selected: selectedWorkspaceFile(sessionId),
-    list: path => klausApi().workspace.list(sessionId, path),
-    search: query => klausApi().workspace.search(sessionId, query),
+    list: path => klausApi().workspace.list(workspaceTreeSession, path),
+    search: query => klausApi().workspace.search(workspaceTreeSession, query),
     select: (node, preview) => selectWorkspaceFile(node, { preview }),
     context: showWorkspaceContextMenu,
     rename: renameWorkspaceTreeNode,
@@ -2200,8 +2209,13 @@ function renderWorkspaceTree(sessionId: string, nodes: WorkspaceNode[], root: st
 }
 
 function renderWorkspaceTreeEmpty(kind = 'empty') {
-  workspaceTree?.dispose(); workspaceTree = undefined; workspaceTreeSession = ''
+  workspaceTree?.dispose(); workspaceTree = undefined; workspaceTreeSession = ''; workspaceTreeRoots = ''
   if (!deps.artifactsList()) return
+  if (kind === 'select') {
+    const host = deps.artifactsList()
+    if (host) { host.removeAttribute('aria-busy'); host.textContent = tt('select_session_for_files') }
+    return
+  }
   const copy = {
     error: ['workspace_tree_error_title', 'workspace_tree_error_desc'],
     empty: ['workspace_tree_empty_title', 'workspace_tree_empty_desc'],
@@ -2219,36 +2233,44 @@ function renderWorkspaceTreeEmpty(kind = 'empty') {
   `
 }
 
-export async function loadWorkspace(sessionId: string | null, options: { promoteDraft?: boolean } = {}) {
-  if (deps.artifactsPanel()?.classList.contains('collapsed')) return
+function bindWorkspaceTreeScope(scopeId: string) {
+  workspaceTreeSession = scopeId
+  workspaceTree?.rebind(scopeId, getExpandedSet(scopeId), selectedWorkspaceFile(scopeId))
+}
+
+export async function loadWorkspace(sessionId: string | null) {
   const sequence = ++workspaceTreeLoadSequence
-  let targetSessionId = sessionId
-  // Promoting a draft into a real session is for surfaces the user opened on
-  // purpose (the panel toggle, the folder button). Background refreshes that
-  // pass a null id — entering the new-chat state after a delete, for one —
-  // must not mint a session the user never asked for.
-  if (!targetSessionId && options.promoteDraft) targetSessionId = (await ensureWorkspaceSessionForCurrentDraft()) || null
-  if (!targetSessionId) { renderWorkspaceTreeEmpty('empty'); return }
-  if (workspaceTreeSession !== targetSessionId) {
-    workspaceTree?.dispose(); workspaceTree = undefined; workspaceTreeSession = ''
+  if (deps.artifactsPanel()?.classList.contains('collapsed')) return
+  const targetScopeId = resolveWorkspaceScopeId(sessionId)
+  if (targetScopeId !== activeWorkspaceScopeId()) return
+  if (!targetScopeId) {
+    renderWorkspaceTreeEmpty('select')
+    return
+  }
+  const expectedRoots = deps.expectedRootsForScope?.(targetScopeId)
+  const expectedIdentity = expectedRoots?.length ? workspaceRootsIdentity(expectedRoots[0], expectedRoots) : null
+  if (workspaceTree && expectedIdentity !== null && workspaceTreeRoots === expectedIdentity) {
+    bindWorkspaceTreeScope(targetScopeId)
+  } else if (workspaceTreeSession !== targetScopeId) {
+    workspaceTree?.dispose(); workspaceTree = undefined; workspaceTreeSession = ''; workspaceTreeRoots = ''
     const host = deps.artifactsList()
     if (host) { host.textContent = tt('loading'); host.setAttribute('aria-busy', 'true') }
   }
   try {
-    const data = await klausApi().workspace.list(targetSessionId)
-    if (sequence !== workspaceTreeLoadSequence) return
+    const data = await klausApi().workspace.list(targetScopeId)
+    if (sequence !== workspaceTreeLoadSequence || targetScopeId !== activeWorkspaceScopeId()) return
     deps.artifactsList()?.removeAttribute('aria-busy')
     if (!data || data.error || !Array.isArray(data.tree)) {
-      if (targetSessionId !== currentSessionId()) return
       renderWorkspaceTreeEmpty('error')
       return
     }
-    deps.rememberWorkspaceRoot(targetSessionId, data?.root)
-    if (targetSessionId !== currentSessionId()) return
-    if (data?.root) setWorkspaceRoot(targetSessionId, data.root)
-    renderWorkspaceTree(targetSessionId, data?.tree || [], data?.root || workspaceRootFor(targetSessionId), data?.roots || [], data?.truncated)
+    if (data.root) {
+      if (targetScopeId === currentSessionId()) deps.rememberWorkspaceRoot(targetScopeId, data.root)
+      setWorkspaceRoot(targetScopeId, data.root)
+    }
+    renderWorkspaceTree(targetScopeId, data.tree, data.root || workspaceRootFor(targetScopeId), data.roots || [], data.truncated, data.remote)
   } catch {
-    if (sequence !== workspaceTreeLoadSequence || targetSessionId !== currentSessionId()) return
+    if (sequence !== workspaceTreeLoadSequence || targetScopeId !== activeWorkspaceScopeId()) return
     deps.artifactsList()?.removeAttribute('aria-busy')
     renderWorkspaceTreeEmpty('error')
   }
@@ -2259,12 +2281,12 @@ export async function loadWorkspace(sessionId: string | null, options: { promote
 export const loadArtifacts = loadWorkspace
 
 export function scheduleWorkspaceReload(sessionId: string | null) {
-  if (sessionId !== currentSessionId()) return
+  if (sessionId !== activeWorkspaceScopeId()) return
   if (deps.artifactsPanel()?.classList.contains('collapsed')) return
   if (workspaceReloadTimer) clearTimeout(workspaceReloadTimer)
   workspaceReloadTimer = setTimeout(() => {
     workspaceReloadTimer = null
-    loadWorkspace(currentSessionId())
+    loadWorkspace(activeWorkspaceScopeId())
   }, 100)
 }
 

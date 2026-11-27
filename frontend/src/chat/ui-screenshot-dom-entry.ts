@@ -30,13 +30,9 @@ configureImagePreview({
 })
 const panel = document.getElementById('artifacts-panel')!
 initWorkspacePanel({
-  ensureSession: async () => {
-    if (!host.currentSessionId && host.promoteImageDraft) {
-      if (host.deferImageDraft) await new Promise<void>(resolve => { host.resolveImageDraft = resolve })
-      host.currentSessionId = 'promoted-image-draft'
-    }
-    return host.currentSessionId
-  }, draftProjectWorkdir: () => null,
+  draftProjectWorkdir: () => null,
+  draftWorkspaceId: () => null,
+
   inputEl: () => document.getElementById('composer') as HTMLTextAreaElement,
   addWorkspaceComposerMention: () => {}, rememberWorkspaceRoot: () => {}, closeSessionContextMenu: () => {},
   hideBtwPanel: () => {}, setCurrentNonChatView: () => {},

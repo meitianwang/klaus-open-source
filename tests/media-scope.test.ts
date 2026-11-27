@@ -1,3 +1,4 @@
+import { kvSet } from '../main/services/settings';
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -79,6 +80,25 @@ h.test('file preview and the media protocol serve the same visualization image a
     const foreign = await files.artifactFileUrl({ sessionId: 'other-chat', filePath: f.file }) as { ok?: boolean; error?: string };
     assert(!foreign.ok, 'file preview retains the media protocol cross-chat refusal');
   } finally { files.close(); f.media.close(); }
+});
+
+h.test('draft media uses registered roots without preparing a conversation', async () => {
+  const f = await fixture(), project = join(f.root, 'project'), second = join(f.root, 'second');
+  try {
+    await mkdir(project); await mkdir(second);
+    const workspaces = new WorkspaceStore({ configRoot: f.root, push: () => {}, onSessionWorkdirChanged: () => {}, pickDirectory: async () => null });
+    workspaces.projectsAdd({ path: project });
+    kvSet('workspace.groups', JSON.stringify([{ id: 'group', roots: [project, second] }]), f.root);
+    const scope = createConversationMediaScope({ configRoot: f.root,
+      prepareSessionMedia: async () => { throw new Error('Draft must not prepare a conversation'); },
+      resolveSessionDirectory: id => workspaces.resolveSessionDirectory(id), extraRoots: id => workspaces.extraRoots(id),
+      producedBySession: () => false,
+    });
+    assertEqual(await scope(join(project, 'image.png'), `__draft_project__:${project}`), true, 'project media');
+    assertEqual(await scope(join(second, 'image.png'), '__draft_workspace__:group'), true, 'secondary root');
+    assertEqual(await scope(join(project, 'image.png'), `__draft_project__:${f.root}`), false, 'unregistered project');
+    assertEqual(await scope(join(project, 'image.png'), '__draft_workspace__:unknown'), false, 'unknown group');
+  } finally { f.media.close(); }
 });
 
 void (async () => {

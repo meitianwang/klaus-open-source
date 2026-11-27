@@ -51,7 +51,7 @@ describe('draft-only new session layout', () => {
     const observed: Array<{ draftOnly: boolean; editableMode: boolean }> = []
     const context = {
       crypto: { randomUUID }, draftOnlySessionIds: drafts, userInterruptedSessions: new Set(),
-      submittedTurnSessionIds: new Set(), takeEditedQueueReinsert() {}, setDraft() {},
+      submittedTurnSessionIds: new Set(), takeEditedQueueReinsert() {}, setDraft() {}, seedProvisionalSessionTitle() {}, provisionalTitleForPayload: () => '',
       forgetRunModeForDraft: (id: string) => modes.delete(id),
       renderLocalUserPayload: (id: string) => observed.push({ draftOnly: drafts.has(id), editableMode: modes.has(id) }),
       klausApi: { chat: { send: async () => {} } }, sentUserDisplayMetadata: () => ({}), finishPendingUserTurn() {},
@@ -158,23 +158,11 @@ describe('draft-only new session layout', () => {
       .toBeLessThan(render.indexOf('showTranscriptSurface()'))
   })
 
-  test('background workspace refresh never mints a draft session', () => {
-    // Entering the new-chat state (including after deleting the current
-    // session) refreshes the files panel with a null id; that path must show
-    // the empty tree instead of promoting the draft into a real session that
-    // then appears in the sidebar.
-    const loadWorkspace = WORKSPACE_PANEL_TS.slice(
-      WORKSPACE_PANEL_TS.indexOf('export async function loadWorkspace('),
-      WORKSPACE_PANEL_TS.indexOf('export const loadArtifacts = loadWorkspace'),
-    )
-    expect(loadWorkspace).toContain('if (!targetSessionId && options.promoteDraft) targetSessionId = (await ensureWorkspaceSessionForCurrentDraft()) || null')
-
-    const enterNewChat = functionBody('function enterNewChatState(', '\nfunction newChat(')
-    expect(enterNewChat).toContain('loadArtifacts(null)')
-
-    // Surfaces the user opens on purpose keep the promotion.
-    expect(WORKSPACE_PANEL_TS).toContain("loadWorkspace(currentSessionId(), { promoteDraft: true })")
-    expect(CHAT_TS).toContain('loadWorkspace(window.currentSessionId, { promoteDraft: true })')
+  test('workspace refresh resolves draft scopes without creating a session', () => {
+    expect(WORKSPACE_PANEL_TS).toContain('resolveWorkspaceScopeId(sessionId)')
+    expect(WORKSPACE_PANEL_TS).not.toContain('ensureSession')
+    expect(WORKSPACE_PANEL_TS).not.toContain('promoteDraft')
+    expect(functionBody('function enterNewChatState(', '\nfunction newChat(')).toContain('loadArtifacts(null)')
   })
 
   test('entering new-chat state snapshots outgoing panel state and clears instance tabs before resetting views', () => {

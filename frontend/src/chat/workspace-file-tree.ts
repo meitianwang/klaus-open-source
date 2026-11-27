@@ -313,6 +313,17 @@ export class WorkspaceFileTree {
     finally { this.resetting = false }
   }
 
+  rebind(sessionId: string, expanded: Set<string>, selected: string): void {
+    if (this.options.sessionId === sessionId) return
+    clearTimeout(this.saveTimer)
+    this.save()
+    this.options.sessionId = sessionId
+    this.options.expanded = expanded
+    this.options.selected = selected
+    this.searchCache.clear()
+    this.filter(this.query)
+  }
+
   update(nodes: WorkspaceNode[], truncated = false): void {
     this.retainChildren(nodes, this.normalNodes)
     this.captureScroll(); this.normalNodes = nodes; this.searchCache.clear()

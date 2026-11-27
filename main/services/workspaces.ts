@@ -13,6 +13,12 @@ import { splitSshWorkdir, type SshWorkdir } from './ssh-files';
 import { isFriendScratchWorkdir } from './friend-directory';
 import { managedWorktreeRoot } from './worktree-storage-settings';
 
+export const DRAFT_PROJECT_SCOPE_PREFIX = '__draft_project__:';
+export const DRAFT_WORKSPACE_SCOPE_PREFIX = '__draft_workspace__:';
+export function isDraftWorkspaceScopeId(sessionId: string): boolean {
+  return sessionId.startsWith(DRAFT_PROJECT_SCOPE_PREFIX) || sessionId.startsWith(DRAFT_WORKSPACE_SCOPE_PREFIX);
+}
+
 export interface WorkspaceGroup { id: string; name: string; roots: string[] }
 export interface WorkspaceDeps {
   configRoot?: string;
@@ -220,7 +226,28 @@ export class WorkspaceStore {
       return typeof value === 'string' && value ? value : undefined;
     });
   }
+  private draftScope(sessionId: string): { workspaceId?: string; roots: string[] } {
+    if (sessionId.startsWith(DRAFT_WORKSPACE_SCOPE_PREFIX)) {
+      const workspaceId = sessionId.slice(DRAFT_WORKSPACE_SCOPE_PREFIX.length);
+      const group = this.readExistingSettings<WorkspaceGroup | undefined>(undefined, db =>
+        groups(db).find(group => group.id === workspaceId));
+      if (!group?.roots.length) throw new IpcHandlerError('FORBIDDEN', 'Unknown draft workspace');
+      return { workspaceId, roots: group.roots };
+    }
+    const path = normalizeProjectPath(sessionId.slice(DRAFT_PROJECT_SCOPE_PREFIX.length));
+    if (path?.startsWith('ssh://')) {
+      const registered = this.readExistingSettings(false, db => {
+        const saved = projectState(db);
+        return saved.active === path || saved.roots.includes(path) || groups(db).some(group => group.roots.includes(path));
+      });
+      if (registered) return { roots: [path] };
+    } else if (path && isAbsolute(path) && this.scopeRoots().includes(resolve(path))) {
+      return { roots: [resolve(path)] };
+    }
+    throw new IpcHandlerError('FORBIDDEN', 'Unregistered draft project directory');
+  }
   workspaceId(sessionId: string): string | undefined {
+    if (isDraftWorkspaceScopeId(sessionId)) return this.draftScope(sessionId).workspaceId;
     return withSettingsDb(this.configRoot, db => {
       ensureTables(db);
       const value = db.prepare('SELECT workspace_id FROM session_workspaces WHERE session_id = ?').get(sessionId)?.workspace_id;
@@ -273,7 +300,9 @@ export class WorkspaceStore {
   workspaceRoots(workspaceId: string): string[] {
     return withSettingsDb(this.configRoot, db => groups(db).find(group => group.id === workspaceId)?.roots ?? []);
   }
-  extraRoots(sessionId: string): string[] { return this.workspaceRoots(this.workspaceId(sessionId) ?? '').slice(1); }
+  extraRoots(sessionId: string): string[] {
+    if (isDraftWorkspaceScopeId(sessionId)) return this.draftScope(sessionId).roots.slice(1);
+    return this.workspaceRoots(this.workspaceId(sessionId) ?? '').slice(1); }
   contextNote(sessionId: string): string | undefined {
     const paths = this.workspaceRoots(this.workspaceId(sessionId) ?? '');
     if (paths.length < 2) return undefined;
@@ -343,6 +372,7 @@ export class WorkspaceStore {
   }
   /** The roots a session's extensions span: its workspace's member folders, else its own workdir. */
   sessionRoots(sessionId: string): string[] {
+    if (isDraftWorkspaceScopeId(sessionId)) return this.draftScope(sessionId).roots.filter(path => isAbsolute(path)).map(path => resolve(path));
     return this.readExistingSettings<string[]>([], db => {
       const tables = new Set(db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all().map(row => String(row.name)));
       if (!tables.has('session_workdirs')) return [];
@@ -369,6 +399,7 @@ export class WorkspaceStore {
   /** Resolve the binding without creating its cwd, for lease acquisition and cleanup. */
   resolveSessionDirectory(sessionId: string): string {
     if (!sessionId || sessionId.includes('\0')) throw new IpcHandlerError('BAD_REQUEST', 'invalid sessionId');
+    if (isDraftWorkspaceScopeId(sessionId)) return this.draftScope(sessionId).roots[0]!;
     return this.readCustomWorkdir(sessionId) ?? (sessionId.startsWith('__')
       ? join(this.configRoot, 'sessions', '__klaus__')
       : this.scratch.get(sessionId) ?? join(this.configRoot, 'sessions', sessionId.replace(/[^a-zA-Z0-9_-]/g, '_')));
@@ -386,6 +417,10 @@ export class WorkspaceStore {
   async sessionDirectory(sessionId: string): Promise<string> {
     const path = this.resolveSessionDirectory(sessionId);
     if (path.startsWith('ssh://')) return path;
+    if (isDraftWorkspaceScopeId(sessionId)) {
+      if (this.isManagedWorktree(path)) await this.deps.restoreStorageWorkdir?.(path);
+      return path;
+    }
     await this.deps.restoreStorageWorkdir?.(path);
     return this.withDirectoryOperation(async () => [path], async () => {
       if (this.readCustomWorkdir(sessionId)) {

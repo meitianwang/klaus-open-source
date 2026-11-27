@@ -2,7 +2,7 @@ import { remotePreviewSessionDir } from './files';
 import { realpath } from 'node:fs/promises';
 import { join } from 'node:path';
 import { goalOwnedRoot } from '../sessions/goal-objectives';
-import { pathInside } from './workspaces';
+import { isDraftWorkspaceScopeId, pathInside } from './workspaces';
 import { sessionVisualizationsDir } from './visualizations';
 
 export interface ConversationMediaScopeDeps {
@@ -16,6 +16,17 @@ export interface ConversationMediaScopeDeps {
 /** The single authorization policy used by every klaus-media file request. */
 export function createConversationMediaScope(deps: ConversationMediaScopeDeps) {
   return async (path: string, sessionId: string): Promise<boolean> => {
+    if (isDraftWorkspaceScopeId(sessionId)) {
+      let roots: string[];
+      try {
+        roots = [deps.resolveSessionDirectory(sessionId), ...deps.extraRoots(sessionId), remotePreviewSessionDir(deps.configRoot, sessionId)];
+      } catch { return false; }
+      for (const root of roots) {
+        if (root.startsWith('ssh://')) continue;
+        try { if (pathInside(path, await realpath(root))) return true; } catch { /* Optional roots may not exist yet. */ }
+      }
+      return false;
+    }
     const roots = [join(deps.configRoot, 'media')];
     // Goal submissions copy their attachments into a per-conversation owned
     // directory; the owning conversation may show those images back.

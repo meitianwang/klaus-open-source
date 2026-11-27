@@ -38,6 +38,24 @@ async function fixture(root: string, extra: Partial<FileDeps> = {}) {
 }
 
 export function registerFileWorkspaceTests(h: Harness, freshRoot: () => string): void {
+  h.test('file listing accepts only registered draft scopes', async () => {
+    const root = freshRoot(), f = await fixture(root), second = join(root, 'second');
+    try {
+      await mkdir(second);
+      f.workspaces.projectsAdd({ path: f.dir });
+      kvSet('workspace.groups', JSON.stringify([{ id: 'group', roots: [f.dir, second] }]), root);
+      assertDeepEqual(object(await f.files.list({ sessionId: `__draft_project__:${f.dir}` })).roots, [f.dir], 'project');
+      assertDeepEqual(object(await f.files.list({ sessionId: '__draft_workspace__:group' })).roots, [f.dir, second], 'group');
+      for (const sessionId of [`__draft_project__:${join(root, 'unregistered')}`, '__draft_workspace__:unknown']) {
+        try { await f.files.list({ sessionId }); }
+        catch (error) {
+          assert(error instanceof IpcHandlerError && error.code === 'FORBIDDEN', 'forbidden draft scope');
+          continue;
+        }
+        throw new Error('Unregistered draft was accepted');
+      }
+    } finally { f.files.close(); }
+  });
   const loading = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/workspace-directory-loading.json'), 'utf8')) as {
     deepPath: string; fileName: string; directoryEntryLimit: number; browseIncludes: string[];
     unloaded: { childrenLoaded: boolean; truncated: boolean }; oversized: { childrenLoaded: boolean; truncated: boolean };
