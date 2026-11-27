@@ -24,8 +24,8 @@ const tt = (key: string): string => w().tt?.(key) || key
 interface Model3DApi {
   list(sessionId: string): Promise<{ documents: DocumentRow[] }>
   get(sessionId: string, id?: string): Promise<{ ok?: boolean; error?: string; document?: SerializedScene | null }>
-  mesh(sessionId: string, name: string): Promise<MeshPayload>
-  apply(sessionId: string, ops: unknown[], baseVersion?: number): Promise<{ ok?: boolean; stale?: boolean; error?: string; applied?: number; document?: SerializedScene }>
+  mesh(sessionId: string, name: string, id?: string): Promise<MeshPayload>
+  apply(sessionId: string, ops: unknown[], baseVersion?: number, id?: string): Promise<{ ok?: boolean; stale?: boolean; error?: string; applied?: number; document?: SerializedScene }>
   renderResult(payload: { requestId: string; format?: string; data?: string; error?: string; panelVisible?: boolean }): Promise<unknown>
   onChanged(cb: (payload: { id: string; version: number; sessionId: string }) => void): unknown
   /** The host asking the panel to render, because the host has no WebGL context. */
@@ -58,11 +58,12 @@ let viewport: Model3DViewport | undefined
 let viewportLoading: Promise<Model3DViewport | undefined> | undefined
 let disposedPanel = false
 let document_: SerializedScene | null = null
+let docRows: DocumentRow[] = []
 let selected: string | null = null
 /** Guards against two overlapping reloads painting out of order. */
 let loadToken = 0
 let boundSession: string | null = null
-let hasFramed = false
+let framedDocumentId: string | null = null
 let renderSessionId: string | null = null
 let renderRequests: Promise<void> = Promise.resolve()
 
@@ -88,6 +89,14 @@ const inspectorEl = () => document.getElementById('model3d-inspector')
 const statusBar = () => document.getElementById('model3d-statusbar')
 const statusText = () => document.getElementById('model3d-status-text')
 const titleEl = () => document.getElementById('model3d-title')
+const gridButton = () => document.getElementById('model3d-grid')
+
+function syncGridButton(active: boolean): void {
+  const button = gridButton()
+  if (!button) return
+  button.classList.toggle('is-active', active)
+  button.setAttribute('aria-pressed', active ? 'true' : 'false')
+}
 
 function setStatus(text: string | null): void {
   const bar = statusBar()
@@ -101,26 +110,124 @@ function setStatus(text: string | null): void {
   bar.hidden = false
 }
 
-/** The document switcher, so a task with several scenes can move between them. */
-async function refreshDocList(sessionId: string): Promise<void> {
-  const select = docSelect()
-  const bridge = api()
-  if (!select || !bridge) return
-  let rows: DocumentRow[] = []
-  try {
-    rows = (await bridge.list(sessionId))?.documents ?? []
-  } catch {
-    rows = []
+function localizeSceneTitle(title: string | undefined, fallbackId: string): string {
+  const trimmed = typeof title === 'string' ? title.trim() : ''
+  if (!trimmed) return fallbackId || tt('model3d_untitled')
+  if (trimmed === 'Untitled' || trimmed === '3D scene') return tt('model3d_untitled')
+  return trimmed
+}
+
+function localizeObjectType(type: string): string {
+  switch (type) {
+    case 'MESH': return tt('model3d_type_mesh')
+    case 'EMPTY': return tt('model3d_type_empty')
+    case 'CAMERA': return tt('model3d_camera')
+    case 'LIGHT': return tt('model3d_light')
+    default: return type.toLowerCase()
   }
+}
+
+function localizeModifierCount(count: number): string {
+  const template = count === 1 ? tt('model3d_modifier_count_one') : tt('model3d_modifier_count_other')
+  return template.replace('{count}', String(count))
+}
+
+function localizeLookup(prefix: string, raw: string): string {
+  const normalized = String(raw || '').trim().toLowerCase()
+  if (!normalized) return raw
+  const key = `${prefix}${normalized}`
+  const translated = tt(key)
+  return translated !== key ? translated : raw
+}
+
+function localizeRigidBody(kind: string): string {
+  if (kind === 'active') return tt('model3d_rigid_active')
+  if (kind === 'passive') return tt('model3d_rigid_passive')
+  return kind
+}
+
+function localizeAnimatedPath(path: string): string {
+  switch (path) {
+    case 'location':
+    case 'translation':
+      return tt('model3d_location')
+    case 'rotation_euler':
+    case 'rotation_quaternion':
+    case 'rotation':
+      return tt('model3d_rotation')
+    case 'scale':
+      return tt('model3d_scale')
+    case 'morph_weights':
+    case 'weights':
+      return tt('model3d_anim_morph_weights')
+    default:
+      return path
+  }
+}
+
+function renderStatus(): void {
+  const count = document_?.objects?.length ?? 0
+  setStatus(count ? `${count} ${tt(count === 1 ? 'model3d_object_one' : 'model3d_objects')}` : null)
+}
+
+function renderDocSelect(): void {
+  const select = docSelect()
+  if (!select) return
+  select.setAttribute('aria-label', tt('model3d_scene_select'))
   select.textContent = ''
-  select.hidden = rows.length < 2
-  for (const row of rows) {
+  select.hidden = docRows.length < 2
+  const titles = docRows.map(row => localizeSceneTitle(row.title, row.id))
+  const counts = new Map<string, number>()
+  for (const title of titles) counts.set(title, (counts.get(title) ?? 0) + 1)
+  const seen = new Map<string, number>()
+  for (let index = 0; index < docRows.length; index++) {
+    const row = docRows[index]!
+    const base = titles[index]!
+    const total = counts.get(base) ?? 1
+    let label = base
+    if (total > 1) {
+      const ordinal = total - (seen.get(base) ?? 0)
+      seen.set(base, (seen.get(base) ?? 0) + 1)
+      label = `${base} #${ordinal}`
+    }
     const option = window.document.createElement('option')
     option.value = row.id
-    option.textContent = row.title || row.id
+    option.textContent = label
     if (row.id === document_?.id) option.selected = true
     select.appendChild(option)
   }
+}
+
+/** The document switcher, so a task with several scenes can move between them. */
+async function refreshDocList(sessionId: string): Promise<void> {
+  const bridge = api()
+  if (!docSelect() || !bridge) return
+  try {
+    docRows = (await bridge.list(sessionId))?.documents ?? []
+  } catch {
+    docRows = []
+  }
+  renderDocSelect()
+}
+
+function safeAreaInsets(): { left: number; right: number; top: number; bottom: number } {
+  const host = viewportHost()
+  if (!host) return { left: 0, right: 0, top: 0, bottom: 0 }
+  const hostRect = host.getBoundingClientRect()
+  if (!hostRect.width || !hostRect.height) return { left: 0, right: 0, top: 0, bottom: 0 }
+  let left = 0
+  let right = 0
+  const outliner = outlinerEl()
+  if (outliner && !outliner.hidden) {
+    const r = outliner.getBoundingClientRect()
+    if (r.width > 0) left = Math.max(0, Math.round(r.right - hostRect.left + 8))
+  }
+  const inspector = inspectorEl()
+  if (inspector && !inspector.hidden) {
+    const r = inspector.getBoundingClientRect()
+    if (r.width > 0) right = Math.max(0, Math.round(hostRect.right - r.left + 8))
+  }
+  return { left, right, top: 0, bottom: 0 }
 }
 
 /** The outliner: every object, click to select, selection following the viewport. */
@@ -160,13 +267,18 @@ function renderOutliner(): void {
     // base primitive" without the panel having to fetch geometry to count it.
     const meta = window.document.createElement('span')
     meta.className = 'model3d-outliner-meta'
-    meta.textContent = item.joint ? tt('model3d_joint') : item.type === 'MESH' && item.modifiers?.length ? String(item.modifiers.length) : item.type.toLowerCase()
+    meta.textContent = item.joint
+      ? tt('model3d_joint')
+      : item.type === 'MESH' && item.modifiers?.length
+        ? localizeModifierCount(item.modifiers.length)
+        : localizeObjectType(item.type)
     row.append(glyph, label, meta)
     row.addEventListener('click', () => {
       selected = item.name
       viewport?.select(item.name)
       renderOutliner()
       renderInspector()
+      viewport?.refreshLayout()
     })
     list.appendChild(row)
   }
@@ -194,17 +306,26 @@ function renderInspector(): void {
     // The stack is the point of the design: show it in order, marking the
     // disabled layers so a "why did nothing change" question answers itself.
     if (item.modifiers?.length) {
-      sections.push([tt('model3d_modifiers'), item.modifiers.map(modifier => [modifier.label || modifier.type, modifier.enabled ? modifier.type : `${modifier.type} (${tt('model3d_disabled')})`])])
+      sections.push([tt('model3d_modifiers'), item.modifiers.map(modifier => {
+        const typeLabel = localizeLookup('model3d_mod_', modifier.type)
+        const customLabel = modifier.label && modifier.label !== modifier.type ? modifier.label : ''
+        if (customLabel) {
+          return [customLabel, modifier.enabled ? typeLabel : `${typeLabel} (${tt('model3d_disabled')})`] as [string, string]
+        }
+        return [typeLabel, modifier.enabled ? '' : tt('model3d_disabled')] as [string, string]
+      })])
     }
-    if (item.rigid_body) sections.push([tt('model3d_physics'), [[tt('model3d_rigid_body'), item.rigid_body]]])
-    if (item.cloth) sections.push([tt('model3d_physics'), [[tt('model3d_cloth'), item.cloth.preset]]])
-    if (item.animated?.length) sections.push([tt('model3d_animation'), item.animated.map(path => [path, ''])])
+    const physicsRows: Array<[string, string]> = []
+    if (item.rigid_body) physicsRows.push([tt('model3d_rigid_body'), localizeRigidBody(item.rigid_body)])
+    if (item.cloth) physicsRows.push([tt('model3d_cloth'), localizeLookup('model3d_cloth_', item.cloth.preset)])
+    if (physicsRows.length) sections.push([tt('model3d_physics'), physicsRows])
+    if (item.animated?.length) sections.push([tt('model3d_animation'), item.animated.map(path => [localizeAnimatedPath(path), ''])])
   }
   if (item.type === 'CAMERA' && item.camera) {
     sections.push([tt('model3d_camera'), [[tt('model3d_lens'), `${item.camera.lens} mm`], [tt('model3d_active'), item.camera.active ? tt('model3d_yes') : tt('model3d_no')]]])
   }
   if (item.type === 'LIGHT' && item.light) {
-    sections.push([tt('model3d_light'), [[tt('model3d_light_type'), item.light.type], [tt('model3d_energy'), String(Math.round(item.light.energy))]]])
+    sections.push([tt('model3d_light'), [[tt('model3d_light_type'), localizeLookup('model3d_light_', item.light.type)], [tt('model3d_energy'), String(Math.round(item.light.energy))]]])
   }
   for (const [heading, rows] of sections) {
     const block = window.document.createElement('div')
@@ -270,7 +391,7 @@ async function applyOps(ops: unknown[]): Promise<void> {
   // union keeps `document`/`stale` accessible below instead of narrowing to an
   // error-only object that lacks them.
   const reply: { ok?: boolean; stale?: boolean; error?: string; applied?: number; document?: SerializedScene } =
-    await bridge.apply(sessionId, ops, document_?.version).catch((error: unknown) => ({
+    await bridge.apply(sessionId, ops, document_?.version, document_?.id).catch((error: unknown) => ({
       ok: false, error: (error as Error | null)?.message || 'failed',
     }))
   if (reply?.ok === false) {
@@ -299,8 +420,8 @@ function paint(): void {
   renderOutliner()
   renderInspector()
   renderPlayback()
-  const count = payload.objects?.length ?? 0
-  setStatus(count ? `${count} ${tt('model3d_objects')}` : null)
+  renderStatus()
+  view?.refreshLayout()
 }
 
 function renderPlayback(): void {
@@ -340,7 +461,7 @@ async function loadDocument(sessionId: string, id?: string): Promise<void> {
   if (token !== loadToken) return
   if (reply?.ok === false || !reply?.document) {
     document_ = null
-    hasFramed = false
+    framedDocumentId = null
     const empty = emptyEl()
     if (empty) empty.style.display = ''
     if (reply?.error) w().showToast?.(String(reply.error), 'error')
@@ -360,8 +481,9 @@ async function loadDocument(sessionId: string, id?: string): Promise<void> {
   const view = panelVisible() ? await ensureViewport() : undefined
   if (token !== loadToken) return
   paint()
-  if ((reply.document.objects?.length ?? 0) && !hasFramed) {
-    hasFramed = true
+  const nextDocKey = reply.document.id ?? '__default__'
+  if ((reply.document.objects?.length ?? 0) && framedDocumentId !== nextDocKey) {
+    framedDocumentId = nextDocKey
     if (view) {
       try { await view.whenReady(); if (token === loadToken) view.fitAll() }
       catch (error) { if (token === loadToken) w().showToast?.(String((error as Error)?.message ?? error), 'error') }
@@ -397,12 +519,13 @@ async function ensureViewport(): Promise<Model3DViewport | undefined> {
     }
     viewport = new Viewport({
       container: host,
-      loadMesh: async (name: string): Promise<MeshPayload> => {
+      loadMesh: async (name: string, docId?: string): Promise<MeshPayload> => {
         const bridge = api()
         const sessionId = renderSessionId ?? boundSession ?? deps?.currentSessionId()
-        if (!bridge || !sessionId) throw new Error('No 3D session')
-        return bridge.mesh(sessionId, name)
+        if (!bridge || !sessionId) throw new Error(tt('model3d_no_session'))
+        return bridge.mesh(sessionId, name, docId ?? document_?.id)
       },
+      safeAreaInsets,
       // A drag ends in one write-back; the host publishes the authoritative
       // document and model3d:changed drives the repaint.
       onTransform: async (name: string, next) => {
@@ -417,9 +540,11 @@ async function ensureViewport(): Promise<Model3DViewport | undefined> {
         selected = name
         renderOutliner()
         renderInspector()
+        viewport?.refreshLayout()
       },
       onFrame: updatePlaybackFrame,
     })
+    syncGridButton(viewport.gridIsVisible)
     viewportLoading = undefined
     return viewport
   })().catch(error => {
@@ -495,10 +620,25 @@ async function performRenderRequest(payload: RenderRequest): Promise<void> {
     await bridge.renderResult({ requestId: payload.requestId, error: String((error as Error | null)?.message || error) }).catch(() => {})
   } finally {
     renderSessionId = null
+    if (panelVisible() && viewport && document_ && document_.id !== payload.document?.id) {
+      viewport.update(document_)
+    }
   }
 }
 
-async function activate(sessionId?: string): Promise<void> {
+function fitSceneView(): void {
+  void ensureViewport().then(view => {
+    if (!view) return
+    view.fitAll()
+    if (view.hasPendingMeshes) {
+      void view.whenReady().then(() => {
+        if (viewport === view) view.fitAll()
+      }).catch(() => {})
+    }
+  })
+}
+
+async function activate(sessionId?: string, docId?: string): Promise<void> {
   const target = sessionId || deps?.currentSessionId()
   // Reopening after a close must clear the disposed flag, or ensureViewport()
   // would refuse to build the viewport ever again for this page.
@@ -515,18 +655,24 @@ async function activate(sessionId?: string): Promise<void> {
   // Awaited before the load: loadDocument pushes the document into the viewport,
   // and a viewport still being imported would drop that first update.
   await ensureViewport()
-  await loadDocument(target)
+  await loadDocument(target, docId)
 }
 
 export function initModel3DPanel(injected: Model3DPanelDeps): void {
   deps = injected
 
   document.getElementById('model3d-fit')?.addEventListener('click', () => {
-    void ensureViewport().then(view => view?.fitAll())
+    fitSceneView()
   })
   document.getElementById('model3d-grid')?.addEventListener('click', () => {
-    void ensureViewport().then(view => { if (view) view.setGridVisible(!view.gridIsVisible) })
+    void ensureViewport().then(view => {
+      if (!view) return
+      const next = !view.gridIsVisible
+      view.setGridVisible(next)
+      syncGridButton(next)
+    })
   })
+  syncGridButton(viewport?.gridIsVisible ?? true)
   document.getElementById('model3d-play')?.addEventListener('click', () => { viewport?.play(!viewport.isPlaying) })
   document.getElementById('model3d-frame')?.addEventListener('input', event => { viewport?.play(false); viewport?.setFrame(Number((event.target as HTMLInputElement).value)) })
   document.getElementById('model3d-clip')?.addEventListener('change', event => { viewport?.play(false); viewport?.setFrame(document_?.scene?.frameStart ?? 1, (event.target as HTMLSelectElement).value || null) })
@@ -534,7 +680,7 @@ export function initModel3DPanel(injected: Model3DPanelDeps): void {
     const id = (event.target as HTMLSelectElement).value
     const sessionId = deps?.currentSessionId()
     if (id && sessionId) {
-      hasFramed = false
+      framedDocumentId = null
       void loadDocument(sessionId, id)
     }
   })
@@ -551,24 +697,29 @@ export function initModel3DPanel(injected: Model3DPanelDeps): void {
     if (key === 'g') { viewport?.setMode('translate'); event.preventDefault() }
     else if (key === 'r') { viewport?.setMode('rotate'); event.preventDefault() }
     else if (key === 's' && !event.metaKey && !event.ctrlKey) { viewport?.setMode('scale'); event.preventDefault() }
-    else if (key === 'f') { viewport?.fitAll(); event.preventDefault() }
+    else if (key === 'f') { if (viewport) fitSceneView(); event.preventDefault() }
     else if ((key === 'delete' || key === 'backspace') && selected) { void applyOps([{ type: 'delete', names: [selected] }]) }
   })
 
   window.addEventListener('klaus:lang-change', () => {
+    panelEl()?.setAttribute('aria-label', tt('model3d_title'))
     const title = titleEl()
     if (title) title.textContent = tt('model3d_title')
+    renderDocSelect()
     renderOutliner()
     renderInspector()
     renderPlayback()
+    renderStatus()
   })
   window.addEventListener('klaus:session-change', (event: Event) => {
     const sessionId = (event as CustomEvent<{ sessionId?: string }>).detail?.sessionId || ''
     document_ = null
+    docRows = []
     selected = null
-    hasFramed = false
+    framedDocumentId = null
     boundSession = sessionId || null
     viewport?.select(null)
+    renderDocSelect()
     renderOutliner()
     renderInspector()
     setStatus(null)
@@ -592,11 +743,9 @@ export function initModel3DPanel(injected: Model3DPanelDeps): void {
   w().klausOpenModel3DPanel = (id?: string, sessionId?: string) => {
     const current = deps?.currentSessionId()
     if (typeof sessionId === 'string' && sessionId && current && sessionId !== current) return
-    void activate(current || undefined).then(() => {
-      const target = typeof id === 'string' ? id : undefined
-      const session = deps?.currentSessionId()
-      if (target && session) void loadDocument(session, target)
-    })
+    const targetDoc = typeof id === 'string' && id ? id : undefined
+    if (targetDoc && targetDoc !== document_?.id) framedDocumentId = null
+    void activate(current || undefined, targetDoc)
   }
   w().klausCloseModel3DPanel = () => {
     // 单实例 surface：关掉就回到 Monitor，并释放 WebGL 上下文——浏览器对上下文数量
@@ -606,12 +755,15 @@ export function initModel3DPanel(injected: Model3DPanelDeps): void {
     viewport = undefined
     viewportLoading = undefined
     document_ = null
+    docRows = []
     selected = null
-    hasFramed = false
+    framedDocumentId = null
     boundSession = null
+    renderDocSelect()
     renderOutliner()
     renderInspector()
     setStatus(null)
+    syncGridButton(true)
     deps?.openArtifactsPanel('monitor')
     deps?.syncTopModeButtons()
     deps?.renderSessionList()
@@ -627,6 +779,7 @@ export function initModel3DPanel(injected: Model3DPanelDeps): void {
       viewport?.select(name)
       renderOutliner()
       renderInspector()
+      viewport?.refreshLayout()
     },
     boundSession: () => boundSession,
   }

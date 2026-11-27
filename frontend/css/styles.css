@@ -10567,6 +10567,9 @@ body.sidebar-collapsed.artifacts-maximized .artifacts-panel > .artifacts-header 
   flex-direction: column;
   min-height: 0;
 }
+/* Flex rules on toolbar buttons, outliner, and inspector would otherwise beat
+   the UA `[hidden]` rule and leave empty padded chrome on screen. */
+.model3d-panel [hidden] { display: none !important; }
 .model3d-toolbar {
   display: flex;
   align-items: center;
@@ -10576,7 +10579,9 @@ body.sidebar-collapsed.artifacts-maximized .artifacts-panel > .artifacts-header 
   flex: 0 0 auto;
 }
 .model3d-doc-select {
+  min-width: 0;
   max-width: 200px;
+  flex: 0 1 auto;
   height: 26px;
   padding: 0 8px;
   border: 1px solid var(--input-border);
@@ -10587,6 +10592,8 @@ body.sidebar-collapsed.artifacts-maximized .artifacts-panel > .artifacts-header 
 }
 .model3d-toolbar-spacer { flex: 1 1 auto; }
 .model3d-title {
+  flex: 0 0 auto;
+  white-space: nowrap;
   font-size: var(--text-small);
   font-weight: 500;
   color: var(--fg-secondary);
@@ -10595,6 +10602,7 @@ body.sidebar-collapsed.artifacts-maximized .artifacts-panel > .artifacts-header 
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   width: 26px;
   height: 26px;
   padding: 0;
@@ -10602,10 +10610,23 @@ body.sidebar-collapsed.artifacts-maximized .artifacts-panel > .artifacts-header 
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--fg-secondary);
+  font: inherit;
+  font-size: var(--text-small);
+  white-space: nowrap;
   cursor: pointer;
 }
+.model3d-tool-btn--labeled {
+  width: auto;
+  gap: 5px;
+  padding: 0 8px;
+}
 .model3d-tool-btn:hover { background: var(--bg-hover); color: var(--fg); }
-.model3d-tool-btn svg { width: 16px; height: 16px; }
+.model3d-tool-btn.is-active {
+  background: var(--bg-hover);
+  border-color: var(--border);
+  color: var(--fg);
+}
+.model3d-tool-btn svg { width: 15px; height: 15px; flex: 0 0 auto; }
 /* The WebGL host. Absolutely-positioned overlays (install card, outliner,
    inspector) sit on top of the canvas three.js appends here. */
 .model3d-viewport {
@@ -10615,7 +10636,11 @@ body.sidebar-collapsed.artifacts-maximized .artifacts-panel > .artifacts-header 
   overflow: hidden;
   background: var(--bg-surface);
 }
-.model3d-viewport canvas { display: block; }
+.model3d-viewport canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
 .model3d-empty {
   position: absolute;
   inset: 0;
@@ -10717,6 +10742,7 @@ body.sidebar-collapsed.artifacts-maximized .artifacts-panel > .artifacts-header 
   overflow-y: auto;
 }
 .model3d-inspector-block {
+  flex: 0 0 auto;
   display: flex;
   flex-direction: column;
   gap: 4px;
@@ -10741,6 +10767,7 @@ body.sidebar-collapsed.artifacts-maximized .artifacts-panel > .artifacts-header 
   font-variant-numeric: tabular-nums;
 }
 .model3d-inspector-actions {
+  flex: 0 0 auto;
   display: flex;
   gap: 6px;
   margin-top: 2px;

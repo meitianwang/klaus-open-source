@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { WorkspaceStore } from '../main/services/workspaces';
@@ -567,6 +567,55 @@ h.test('geometryKey changes with a modifier param but not with a transform', () 
   assertEqual(geometryKey(doc, cube), base, 'a transform does not change the geometry key (transforms are cheap, not re-evaluated)');
   cube.modifiers[0]!.params = { iterations: 3 };
   assert(geometryKey(doc, cube) !== base, 'a modifier param change moves the geometry key');
+});
+
+h.test('repeated model3d_scene new calls for the same asset reuse one scene id instead of spawning duplicate documents', async () => {
+  const fresh = 'sess-single-scene';
+  const first = toolValue(await service.execute(fresh, 'model3d_scene', { action: 'new', title: 'Big Shield Gardna' }));
+  const firstId = String(first.id);
+  await service.execute(fresh, 'model3d_add', { kind: 'cube', name: 'Shield_Draft_0' });
+  await service.execute(fresh, 'model3d_add', { kind: 'sphere', name: 'Head_Draft_0' });
+
+  // Omitting id while rebuilding the same-titled asset must reset in place, bump
+  // version, and preserve the single document id so the conversation never stacks
+  // discarded draft panels.
+  const second = toolValue(await service.execute(fresh, 'model3d_scene', { action: 'new', title: 'Big Shield Gardna' }));
+  assertEqual(String(second.id), firstId, 'omitted-id rebuild reuses the existing scene id');
+  assert(Number(record(second.document).version) > Number(record(first.document).version), 'in-place reset bumps document version');
+  assertEqual(Number(record(second.summary).objects), 0, 'the rebuilt scene starts clean');
+  await service.execute(fresh, 'model3d_add', { kind: 'cylinder', name: 'Shield_Final' });
+
+  // Explicit clear also preserves the id and title while emptying objects.
+  const cleared = toolValue(await service.execute(fresh, 'model3d_scene', { action: 'clear' }));
+  assertEqual(String(cleared.id), firstId, 'clear keeps the active scene id');
+  assertEqual(String(record(cleared.document).title), 'Big Shield Gardna', 'clear retains the scene title when omitted');
+  assertEqual(Number(record(cleared.summary).objects), 0, 'clear removes previous objects');
+  await service.execute(fresh, 'model3d_add', { kind: 'cone', name: 'Helmet_Final' });
+
+  const listed = record(await invoke('model3d:list', { sessionId: fresh }));
+  const docs = listed.documents as Json[];
+  assertEqual(docs.length, 1, 'only one document exists in the session after multiple rebuilds');
+  assertEqual(String(record(docs[0]).id), firstId, 'listed document matches the original scene id');
+
+  // Creating a genuinely different asset after the first scene has content preserves both.
+  const distinct = toolValue(await service.execute(fresh, 'model3d_scene', { action: 'new', title: 'Dark Magician' }));
+  assert(String(distinct.id) !== firstId, 'a distinct-titled non-empty asset receives its own scene id');
+
+  // Another session cannot overwrite an existing scene id via action=new.
+  const foreign = await service.execute('sess-intruder', 'model3d_scene', { action: 'new', id: firstId, title: 'Hijack' });
+  assertEqual(foreign.isError, true, 'cross-session overwrite via explicit id is refused');
+
+  service.releaseSession(fresh);
+  service.releaseSession('sess-intruder');
+});
+
+h.test('desktop package manifest declares three as a runtime dependency so packaged authoring tools never miss three/src modules', () => {
+  const pkg = JSON.parse(readFileSync(join(__dirname, '../../package.json'), 'utf8')) as {
+    dependencies?: Record<string, string>;
+    devDependencies?: Record<string, string>;
+  };
+  assert(Boolean(pkg.dependencies?.three), 'three is present in runtime dependencies');
+  assertEqual(Boolean(pkg.devDependencies?.three), false, 'three is not left only in devDependencies');
 });
 
 void h.finish(join(__dirname, 'model3d-result.json'), 'model3d').then(async code => {

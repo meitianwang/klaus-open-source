@@ -5,10 +5,16 @@ import { record, type Data } from '../visuals/data';
 import { string } from '../services/service-types';
 import { findObject, parseDocument, safeName, type MeshBlock, type Model3DDocument, type Object3DRecord } from './model';
 import { worldMatrixOf } from './scene-math';
-import { sculptMesh, unwrapMesh, evaluateGeometryGraph, createRig, rigFromObjects, bindSkin, meshNormals } from './authoring';
+import type * as AuthoringModule from './authoring';
 import { createTexture, paintTexture, type TextureStroke } from './texture-edit';
 import { inspectTextureImage } from './io';
 import type { EvaluatedMesh } from './kernel';
+
+let cachedAuthoring: typeof AuthoringModule | undefined;
+function loadAuthoring(): typeof AuthoringModule {
+  cachedAuthoring ??= require('./authoring') as typeof AuthoringModule;
+  return cachedAuthoring;
+}
 
 type Evaluate = (doc:Model3DDocument,target:Object3DRecord)=>Promise<EvaluatedMesh|null>;
 const numbers = (value:unknown,label:string):number[] => {
@@ -81,6 +87,7 @@ export async function editModelDocument(input:Model3DDocument,verb:string,fields
     const painted=paintTexture(source,strokes as TextureStroke[]);doc.textures[name]=painted.texture;
     return {document:doc,result:{texture:name,pixelsChanged:painted.pixelsChanged}};
   }
+  const { sculptMesh, unwrapMesh, evaluateGeometryGraph, createRig, rigFromObjects, bindSkin, meshNormals } = loadAuthoring();
   if(verb==='model3d_geometry'){
     const name=required(fields.name,'Object name'),definition=record(fields.graph);
     const mesh=evaluateGeometryGraph(definition as unknown as Parameters<typeof evaluateGeometryGraph>[0],name);

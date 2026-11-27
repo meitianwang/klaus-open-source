@@ -1,3 +1,4 @@
+import { existsSync } from 'node:fs';
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve, dirname } from 'node:path';
 import { randomUUID } from 'node:crypto';
@@ -187,9 +188,40 @@ export class Model3DService {
   private async dispatch(sessionId: string, name: string, fields: Data): Promise<Data> {
     switch (name) {
       case 'model3d_scene': {
-        if (string(fields.action) === 'new') {
-          const id = typeof fields.id === 'string' && fields.id ? fields.id : `m3d-${randomUUID()}`;
-          const doc = emptyDocument(id, typeof fields.title === 'string' ? fields.title : 'Untitled', sessionId);
+        const action = string(fields.action);
+        if (action === 'new' || action === 'clear') {
+          const requestedTitle = typeof fields.title === 'string' && fields.title.trim() ? fields.title.trim() : undefined;
+          const explicitId = typeof fields.id === 'string' && fields.id ? fields.id : undefined;
+          let targetId = explicitId;
+          let previous: Model3DDocument | undefined;
+          if (targetId) {
+            if (existsSync(this.store.path(targetId))) previous = this.store.load(targetId, sessionId);
+          } else if (action === 'clear') {
+            targetId = this.store.resolveId(sessionId);
+            previous = this.store.load(targetId, sessionId);
+          } else if (fields.separate !== true) {
+            const existingRows = this.store.list(sessionId);
+            const normalizeTitle = (value: string | undefined): string => {
+              const trimmed = (value ?? '').trim();
+              return !trimmed || trimmed === 'Untitled' || trimmed === '3D scene' ? '' : trimmed.toLowerCase();
+            };
+            const wanted = normalizeTitle(requestedTitle);
+            const matched = existingRows.find(row => {
+              const rowTitle = normalizeTitle(string(row.title));
+              if (wanted && rowTitle === wanted) return true;
+              if (!wanted && !rowTitle) return true;
+              if (Number(row.objects) === 0) return true;
+              return false;
+            });
+            if (matched) {
+              targetId = string(matched.id);
+              previous = this.store.load(targetId, sessionId);
+            }
+          }
+          const id = targetId ?? `m3d-${randomUUID()}`;
+          const title = requestedTitle ?? previous?.title ?? 'Untitled';
+          const doc = emptyDocument(id, title, sessionId);
+          if (previous) doc.version = previous.version + 1;
           this.store.persist(doc);
           this.options.emit('model3d:changed', { id, version: doc.version, sessionId });
           return this.success({ id, document: serializeDocument(doc), summary: documentSummary(doc) }, this.artifact(doc));

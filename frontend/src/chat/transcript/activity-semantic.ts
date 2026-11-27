@@ -151,6 +151,30 @@ const ACTIONS: Record<string, ActionText> = {
   digram_export: ['tool-diagram', '导出图表', 'Exporting diagram', 'Exported diagram', 'export diagram'],
   digram_history: ['tool-diagram', '读取图表历史', 'Reading diagram history', 'Read diagram history', 'read diagram history'],
   digram_revert: ['tool-diagram', '恢复图表版本', 'Restoring diagram version', 'Restored diagram version', 'restore diagram version'],
+  model3d_scene: ['model3d', '打开 3D 场景', 'Opening 3D scene', 'Opened 3D scene', 'open 3D scene'],
+  model3d_scene_new: ['model3d', '创建 3D 场景', 'Creating 3D scene', 'Created 3D scene', 'create 3D scene'],
+  model3d_scene_clear: ['model3d', '清空 3D 场景', 'Clearing 3D scene', 'Cleared 3D scene', 'clear 3D scene'],
+  model3d_add: ['model3d', '添加 3D 对象', 'Adding 3D object', 'Added 3D object', 'add 3D object'],
+  model3d_transform: ['model3d', '调整 3D 变换', 'Transforming 3D object', 'Transformed 3D object', 'transform 3D object'],
+  model3d_modifier: ['model3d', '更新 3D 修改器', 'Updating 3D modifier', 'Updated 3D modifier', 'update 3D modifier'],
+  model3d_material: ['model3d', '设置 3D 材质', 'Updating 3D material', 'Updated 3D material', 'update 3D material'],
+  model3d_scene_settings: ['model3d', '更新 3D 场景设置', 'Updating 3D scene settings', 'Updated 3D scene settings', 'update 3D scene settings'],
+  model3d_render: ['model3d', '渲染 3D 场景', 'Rendering 3D scene', 'Rendered 3D scene', 'render 3D scene'],
+  model3d_animate: ['model3d', '编辑 3D 动画', 'Updating 3D animation', 'Updated 3D animation', 'update 3D animation'],
+  model3d_physics: ['model3d', '模拟 3D 物理', 'Running 3D physics', 'Ran 3D physics', 'run 3D physics'],
+  model3d_io: ['model3d', '导出 3D 模型', 'Exporting 3D asset', 'Exported 3D asset', 'export 3D asset'],
+  model3d_import: ['model3d', '导入 3D 模型', 'Importing 3D asset', 'Imported 3D asset', 'import 3D asset'],
+  model3d_document: ['model3d', '保存 3D 工程', 'Saving 3D project', 'Saved 3D project', 'save 3D project'],
+  model3d_load: ['model3d', '加载 3D 工程', 'Loading 3D project', 'Loaded 3D project', 'load 3D project'],
+  model3d_serialize: ['model3d', '读取 3D 场景', 'Reading 3D scene', 'Read 3D scene', 'read 3D scene'],
+  model3d_mesh: ['model3d', '读取 3D 网格', 'Reading 3D mesh', 'Read 3D mesh', 'read 3D mesh'],
+  model3d_inspect: ['model3d', '查看 3D 场景', 'Inspecting 3D scene', 'Inspected 3D scene', 'inspect 3D scene'],
+  model3d_mesh_edit: ['model3d', '编辑 3D 网格', 'Editing 3D mesh', 'Edited 3D mesh', 'edit 3D mesh'],
+  model3d_sculpt: ['model3d', '雕刻 3D 模型', 'Sculpting 3D mesh', 'Sculpted 3D mesh', 'sculpt 3D mesh'],
+  model3d_uv: ['model3d', '展开 3D UV', 'Unwrapping 3D UVs', 'Unwrapped 3D UVs', 'unwrap 3D UVs'],
+  model3d_geometry: ['model3d', '构建 3D 几何体', 'Building 3D geometry', 'Built 3D geometry', 'build 3D geometry'],
+  model3d_rig: ['model3d', '绑定 3D 骨骼', 'Rigging 3D model', 'Rigged 3D model', 'rig 3D model'],
+  model3d_texture: ['model3d', '编辑 3D 贴图', 'Editing 3D texture', 'Edited 3D texture', 'edit 3D texture'],
   croncreate: ['tool-clock', '创建定时任务', 'Creating scheduled task', 'Created scheduled task', 'create scheduled task'],
   cronlist: ['tool-clock', '查看定时任务', 'Listing scheduled tasks', 'Listed scheduled tasks', 'list scheduled tasks'],
   crondelete: ['tool-clock', '取消定时任务', 'Cancelling scheduled task', 'Cancelled scheduled task', 'cancel scheduled task'],
@@ -244,6 +268,8 @@ export function semanticActivity(toolName: string, input?: unknown, output?: str
   if (ownedMcp && ((ownedMcp[1] === 'klaus-prototype' && ownedMcp[2].startsWith('prototype_')) || (ownedMcp[1] === 'klaus-digram' && ownedMcp[2].startsWith('digram_')) || (ownedMcp[1] === 'klaus-video-editing' && ownedMcp[2].startsWith('video_editing_')) || (ownedMcp[1] === 'klaus-photo-editing' && ownedMcp[2].startsWith('photo_')) || (ownedMcp[1] === 'klaus-motion-graphics' && ownedMcp[2].startsWith('motion_')))) name = ownedMcp[2]
   const equityMcp = /^mcp__(?:klaus-equity|host-equity(?:-research)?|plugin_equity-research_equity-engine|equity-engine)__(equity_.+)$/.exec(name)
   if (equityMcp) name = equityMcp[1]
+  const model3dMcp = /^mcp__(?:klaus-model3d|host-model3d|plugin_model3d_[a-z0-9_-]+)__(model3d_.+)$/.exec(name)
+  if (model3dMcp) name = model3dMcp[1]
   if (name === 'websearch') name = 'web_search'
   if (name === 'webfetch' || name === 'fetch_url') name = 'web_fetch'
   if (!Object.hasOwn(ACTIONS, name)) return null
@@ -253,6 +279,10 @@ export function semanticActivity(toolName: string, input?: unknown, output?: str
     else if (args.action === 'close' || args.action === 'finalize') name = 'browser_close'
     else if (args.action === 'select') name = 'browser_select_tab'
   }
+  if (name === 'model3d_scene' && args.action === 'new') name = 'model3d_scene_new'
+  else if (name === 'model3d_scene' && args.action === 'clear') name = 'model3d_scene_clear'
+  else if (name === 'model3d_io' && args.action === 'import') name = 'model3d_import'
+  else if (name === 'model3d_document' && args.action === 'load') name = 'model3d_load'
   let target = ''
   const url = safeActivityUrl(args.url)
   if (url) target = new URL(url).hostname
@@ -274,8 +304,18 @@ export function semanticActivity(toolName: string, input?: unknown, output?: str
     target = typeof equityTarget === 'string' ? equityTarget.slice(0, 100) : ''
   }
   if (name.startsWith('prototype_') || name.startsWith('photo_') || name.startsWith('motion_') || name.startsWith('video_editing_') || name === 'digram_open') target = typeof args.title === 'string' ? args.title.slice(0, 100) : ''
+  if (name.startsWith('model3d_')) {
+    if (name === 'model3d_scene' || name === 'model3d_scene_new' || name === 'model3d_scene_clear') {
+      target = typeof args.title === 'string' ? args.title.trim().slice(0, 100) : ''
+    } else if (name === 'model3d_io' || name === 'model3d_import' || name === 'model3d_document' || name === 'model3d_load') {
+      const rawPath = typeof args.path === 'string' ? args.path.trim() : ''
+      target = (rawPath.split(/[/\\]/).filter(Boolean).at(-1) ?? '').slice(0, 100)
+    } else {
+      target = typeof args.name === 'string' ? args.name.trim().slice(0, 100) : ''
+    }
+  }
   return { action: name, icon: ACTIONS[name][0], target, ...(friendOutcome ? { friendOutcome } : {}), category: name === 'orchestrate_execution' ? 'orchestration' : name.startsWith('browser_') ? 'browser' : name.startsWith('web_') ? 'web'
-    : name.startsWith('prototype_') || name.startsWith('photo_') || name.startsWith('motion_') || name.startsWith('equity_') ? 'design' : name.startsWith('digram_') ? 'diagram' : name.startsWith('video_editing_') ? 'video' : name.startsWith('cron') || name === 'automation_update' ? 'schedule'
+    : name.startsWith('prototype_') || name.startsWith('photo_') || name.startsWith('motion_') || name.startsWith('equity_') || name.startsWith('model3d_') ? 'design' : name.startsWith('digram_') ? 'diagram' : name.startsWith('video_editing_') ? 'video' : name.startsWith('cron') || name === 'automation_update' ? 'schedule'
       : FRIEND_TOOLS.has(name) ? 'friend' : name === 'save_memory' ? 'memory' : 'dependencies' }
 }
 

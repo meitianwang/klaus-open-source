@@ -57,7 +57,7 @@ function getMarketLangEntry(entry: any): any {
 
 function getSkillTextEntry(skill: SkillItem | null | undefined): string[] | null {
   const key = normalizeMarketKey(skill?.dirName || skill?.name)
-  return getMarketLangEntry(w().SKILL_TEXT_I18N[key])
+  return getMarketLangEntry(w().SKILL_TEXT_I18N?.[key])
 }
 
 export function localizeSkillName(skill: SkillItem | null | undefined): string {

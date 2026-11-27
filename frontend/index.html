@@ -916,22 +916,24 @@
              sit above the canvas: the install card is the only route to the
              ~350 MB runtime download, and the outliner/inspector are the panels
              a 3D user expects. -->
-        <section id="model3d-panel" class="model3d-panel" aria-label="3D Studio">
+        <section id="model3d-panel" class="model3d-panel" data-i18n-aria-label="model3d_title" aria-label="3D Studio">
           <div class="model3d-toolbar">
-            <select id="model3d-doc-select" class="model3d-doc-select" aria-label="3D scene"></select>
+            <select id="model3d-doc-select" class="model3d-doc-select" data-i18n-aria-label="model3d_scene_select" aria-label="3D scene"></select>
             <span id="model3d-title" class="model3d-title" data-i18n="model3d_title">3D Studio</span>
-            <button id="model3d-play" class="model3d-tool-btn" data-i18n-aria-label="model3d_play" aria-label="Play animation" hidden>
+            <button id="model3d-play" class="model3d-tool-btn" type="button" data-i18n-aria-label="model3d_play" aria-label="Play animation" hidden>
               <span data-kls-icon="goal-resume"></span>
             </button>
             <select id="model3d-clip" class="model3d-doc-select" data-i18n-aria-label="model3d_clip" aria-label="Animation clip" hidden></select>
             <input id="model3d-frame" type="range" min="1" max="250" value="1" step="1" data-i18n-aria-label="model3d_frame" aria-label="Animation frame" style="width:100px;min-width:40px" hidden>
             <output id="model3d-frame-value" hidden>1</output>
             <div class="model3d-toolbar-spacer"></div>
-            <button id="model3d-fit" class="model3d-tool-btn" data-i18n-aria-label="model3d_fit" aria-label="Frame all">
+            <button id="model3d-fit" class="model3d-tool-btn model3d-tool-btn--labeled" type="button" data-i18n-aria-label="model3d_fit" aria-label="Fit view">
               <span data-kls-icon="model3d-fit"></span>
+              <span class="model3d-tool-label" data-i18n="model3d_fit">Fit view</span>
             </button>
-            <button id="model3d-grid" class="model3d-tool-btn" data-i18n-aria-label="model3d_grid" aria-label="Toggle grid">
+            <button id="model3d-grid" class="model3d-tool-btn model3d-tool-btn--labeled is-active" type="button" aria-pressed="true" data-i18n-aria-label="model3d_grid" aria-label="Grid">
               <span data-kls-icon="model3d-grid"></span>
+              <span class="model3d-tool-label" data-i18n="model3d_grid">Grid</span>
             </button>
           </div>
           <div id="model3d-viewport" class="model3d-viewport">

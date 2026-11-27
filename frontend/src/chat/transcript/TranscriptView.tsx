@@ -1803,16 +1803,38 @@ function isPersistentTurnNode(node: RenderNode): boolean {
 // 也没有 live 层——它的在途回合就是转录尾组，用 'tail' 表示。
 export type InProgressTurn = { turnId: string } | 'tail'
 
+function normalizedArtifactTitleKey(artifact: VisualArtifact): string {
+  const trimmed = (artifact.title || '').trim()
+  if (!trimmed || trimmed === 'Untitled' || trimmed === '3D scene') return ''
+  return `${artifact.kind}:title:${trimmed.toLowerCase()}`
+}
+
 export function uniqueVisualArtifacts(values: Array<VisualArtifact | undefined>): VisualArtifact[] {
-  const index = new Map<string, number>()
+  const byId = new Map<string, number>()
+  const byTitle = new Map<string, number>()
   const artifacts: VisualArtifact[] = []
   for (const value of values) {
     if (!value) continue
-    const key = `${value.kind}:${value.id}`
-    const at = index.get(key)
-    // A later artifact for the same surface replaces the earlier one: the card
-    // shows the newest state the turn observed (created empty, then drawn into).
-    if (at === undefined) { index.set(key, artifacts.length); artifacts.push(value) } else artifacts[at] = value
+    const idKey = `${value.kind}:${value.id}`
+    const titleKey = normalizedArtifactTitleKey(value)
+    const at = byId.get(idKey) ?? (titleKey ? byTitle.get(titleKey) : undefined)
+    // A later artifact for the same surface (or a later rebuild of the same-titled
+    // surface within the same turn) replaces the earlier draft: the card points at
+    // the newest scene state rather than stacking discarded intermediate attempts.
+    if (at === undefined) {
+      const slot = artifacts.length
+      byId.set(idKey, slot)
+      if (titleKey) byTitle.set(titleKey, slot)
+      artifacts.push(value)
+    } else {
+      const previous = artifacts[at]!
+      byId.delete(`${previous.kind}:${previous.id}`)
+      const prevTitleKey = normalizedArtifactTitleKey(previous)
+      if (prevTitleKey) byTitle.delete(prevTitleKey)
+      artifacts[at] = value
+      byId.set(idKey, at)
+      if (titleKey) byTitle.set(titleKey, at)
+    }
   }
   return artifacts
 }
@@ -3540,7 +3562,7 @@ function VisualArtifactsBlock({ sessionId, artifacts }: { sessionId: string; art
           >
             <RawHtml tag="span" className={styles['diagram-artifact-icon']} html={rawIconHtml(surface.icon)} />
             <span className={styles['diagram-artifact-copy']}>
-              <span className={styles['diagram-artifact-title']}>{artifact.title}</span>
+              <span className={styles['diagram-artifact-title']}>{artifact.kind === 'model3d' && (artifact.title === 'Untitled' || artifact.title === '3D scene') ? t('model3d_untitled') : artifact.title}</span>
               <span className={styles['diagram-artifact-hint']}>{t(visualArtifactHintState(artifact) === 'created' && 'createdKey' in surface ? surface.createdKey : surface.readyKey)}</span>
             </span>
             <span className={styles['diagram-artifact-open']}>{t(surface.openKey)}</span>

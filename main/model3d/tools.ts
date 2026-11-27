@@ -33,8 +33,13 @@ export function model3dTools(): Data[] {
   });
 
   return [
-    spec('model3d_scene', 'Create or read a 3D scene. Returns the document id, an object summary and the panel artifact, so one call at the start of a modelling task gives both the agent and the side panel the same document.',
-      { id, action: { ...string, enum: ['new', 'summary'], description: "'new' resets to an empty document; 'summary' reads the current one. Default 'summary'." }, title: string }, mutating),
+    spec('model3d_scene', 'Create, clear in place, or read a 3D scene. Work on ONE scene id per 3D request: pass the existing id (or use action="clear") when rebuilding or re-importing so iterations update the same side panel instead of spawning duplicate panel cards.',
+      {
+        id,
+        action: { ...string, enum: ['new', 'clear', 'summary'], description: "'new' creates a scene once (or resets the addressed/matching scene in place when id is provided or the title matches); 'clear' empties the current scene in place while preserving its id and panel; 'summary' reads the current one. Default 'summary'." },
+        title: string,
+        separate: { ...boolean, description: 'Set true only when the user explicitly asks for an additional, separate 3D scene alongside an existing one.' },
+      }, mutating),
     spec('model3d_add', 'Add an object: a primitive mesh, a camera, a light or an empty. Returns the real object name, which later tools need.',
       {
         id, kind: { ...string, enum: [...PRIMITIVES, 'camera', 'light', 'empty'], description: 'What to add.' },

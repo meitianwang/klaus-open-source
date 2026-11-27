@@ -839,12 +839,13 @@ expose('klaus', {
     /** One current-session document by id, or that session's newest one. */
     get: (sessionId: string, id?: string) => call('model3d:get', { sessionId, ...(id ? { id } : {}) }),
     /** One object's evaluated geometry as typed arrays (structured-cloned, no base64). */
-    mesh: (sessionId: string, name: string) => call('model3d:mesh', { sessionId, name }),
+    mesh: (sessionId: string, name: string, id?: string) =>
+      call('model3d:mesh', { sessionId, name, ...(id ? { id } : {}) }),
     /** Apply a panel op batch and get the new document back. `baseVersion` guards
      *  against clobbering an agent edit that landed since: a mismatch replies
      *  `{ stale: true, document }` instead of applying. */
-    apply: (sessionId: string, ops: unknown[], baseVersion?: number) =>
-      call('model3d:apply', { sessionId, ops, baseVersion }),
+    apply: (sessionId: string, ops: unknown[], baseVersion?: number, id?: string) =>
+      call('model3d:apply', { sessionId, ops, baseVersion, ...(id ? { id } : {}) }),
     /** Save the document to a user-chosen .model3d.json path. */
     /** A current-session document changed host-side; an open panel re-fetches it. */
     onChanged: (cb: (payload: { id: string; version: number; sessionId: string }) => void) =>

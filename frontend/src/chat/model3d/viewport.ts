@@ -125,7 +125,9 @@ export interface MeshPayload {
 export interface ViewportOptions {
   container: HTMLElement
   /** Fetch one object's evaluated geometry on demand (host IPC). */
-  loadMesh(name: string): Promise<MeshPayload>
+  loadMesh(name: string, documentId?: string): Promise<MeshPayload>
+  /** Horizontal/vertical pixel insets covered by floating overlays (outliner, inspector). */
+  safeAreaInsets?(): { left: number; right: number; top: number; bottom: number }
   /** Called after a drag finishes, with the object's new local transform. */
   onTransform?(name: string, next: { location: number[]; rotation_euler: number[]; scale: number[] }): Promise<void>
   onSelect?(name: string | null): void
@@ -257,6 +259,7 @@ export class Model3DViewport {
   private readonly loop: () => void
   private readonly onPointerDown: (event: PointerEvent) => void
   private readonly onPointerMove: (event: PointerEvent) => void
+  private readonly onWindowResize: () => void
 
   private readonly options: ViewportOptions
 
@@ -306,6 +309,11 @@ export class Model3DViewport {
     this.loop = this.defineLoop()
     this.onPointerDown = this.definePointerDown()
     this.onPointerMove = this.definePointerMove()
+    this.onWindowResize = () => {
+      if (this.disposed || this.rendering) return
+      this.resize()
+      this.startLoop()
+    }
 
     const container = options.container
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true })
@@ -314,6 +322,8 @@ export class Model3DViewport {
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping
     this.renderer.setSize(Math.max(container.clientWidth, 1), Math.max(container.clientHeight, 1), false)
     this.renderer.domElement.style.display = 'block'
+    this.renderer.domElement.style.width = '100%'
+    this.renderer.domElement.style.height = '100%'
     container.appendChild(this.renderer.domElement)
 
     this.camera = new THREE.PerspectiveCamera(45, Math.max(container.clientWidth, 1) / Math.max(container.clientHeight, 1), 0.05, 2000)
@@ -363,12 +373,14 @@ export class Model3DViewport {
     this.transform.addEventListener('mouseUp', () => { void this.commitDrag() })
 
     this.resizeObserver = new ResizeObserver(() => {
+      if (this.rendering) return
       this.resize()
       // Showing the panel again is the only event that knows the viewport is
       // visible, so it is also what wakes the parked loop.
       this.startLoop()
     })
     this.resizeObserver.observe(container)
+    window.addEventListener('resize', this.onWindowResize)
 
     this.startLoop()
   }
@@ -397,13 +409,44 @@ export class Model3DViewport {
     this.loopFrame = null
   }
 
-  private resize(): void {
+  private resize(): { width: number; height: number; safeWidth: number; safeHeight: number } {
     const container = this.options.container
     const width = Math.max(container.clientWidth, 1)
     const height = Math.max(container.clientHeight, 1)
+    const dpr = Math.min(window.devicePixelRatio || 1, 2)
+    if (this.renderer.getPixelRatio() !== dpr) this.renderer.setPixelRatio(dpr)
     this.renderer.setSize(width, height, false)
-    this.camera.aspect = width / height
-    this.camera.updateProjectionMatrix()
+    const insets = this.options.safeAreaInsets?.() ?? { left: 0, right: 0, top: 0, bottom: 0 }
+    let left = Math.max(0, insets.left)
+    let right = Math.max(0, insets.right)
+    let top = Math.max(0, insets.top)
+    let bottom = Math.max(0, insets.bottom)
+    if (width - left - right < width * 0.35) { left = 0; right = 0 }
+    if (height - top - bottom < height * 0.35) { top = 0; bottom = 0 }
+    // Shifting the optical center via setViewOffset centers the orbit target inside
+    // the uncovered region between the floating outliner and inspector while keeping
+    // the full canvas rendered edge-to-edge and raycaster picking exact.
+    if (left > 0 || right > 0 || top > 0 || bottom > 0) {
+      const shiftX = (left - right) * 0.5
+      const shiftY = (top - bottom) * 0.5
+      this.camera.setViewOffset(width, height, -shiftX, -shiftY, width, height)
+    } else {
+      this.camera.clearViewOffset()
+      this.camera.aspect = width / height
+      this.camera.updateProjectionMatrix()
+    }
+    return {
+      width,
+      height,
+      safeWidth: Math.max(width - left - right, 1),
+      safeHeight: Math.max(height - top - bottom, 1),
+    }
+  }
+
+  /** Recompute camera projection when floating overlays open, close, or resize. */
+  refreshLayout(): void {
+    if (this.disposed || this.rendering) return
+    this.resize()
   }
 
   // The render loop, as an arrow assigned in the constructor (see the field-
@@ -437,27 +480,64 @@ export class Model3DViewport {
     }
   }
 
-  /** Frame the camera on everything currently in the scene. */
+  /** Frame the camera on visible scene geometry, preferring meshes over cameras/lights/helpers. */
   fitAll(): void {
+    const { height, safeWidth, safeHeight } = this.resize()
+    this.root.updateMatrixWorld(true)
     const box = new THREE.Box3()
     let any = false
     for (const entry of this.entries.values()) {
-      if (!entry.object.visible) continue
+      if (entry.kind !== 'MESH' || !entry.object.visible) continue
       box.expandByObject(entry.object)
-      any = true
+      any = !box.isEmpty()
     }
     if (!any) {
+      for (const entry of this.entries.values()) {
+        if (!entry.object.visible) continue
+        box.expandByObject(entry.object)
+        any = !box.isEmpty()
+      }
+    }
+    const direction = this.camera.position.clone().sub(this.orbit.target)
+    if (direction.lengthSq() < 1e-8 || !Number.isFinite(direction.lengthSq())) {
+      direction.set(7, 5, 7)
+    }
+    direction.normalize()
+    const wasDamping = this.orbit.enableDamping
+    this.orbit.enableDamping = false
+    // First update with damping disabled consumes and zeroes any leftover pan/orbit inertia.
+    this.orbit.update()
+    if (!any) {
+      this.camera.near = 0.05
+      this.camera.far = 2000
+      this.camera.updateProjectionMatrix()
       this.orbit.target.set(0, 0, 0)
       this.camera.position.set(7, 5, 7)
+      this.orbit.update()
+      this.orbit.enableDamping = wasDamping
+      this.startLoop()
       return
     }
     const center = box.getCenter(new THREE.Vector3())
-    const size = box.getSize(new THREE.Vector3()).length() || 4
-    const distance = size / (2 * Math.tan((this.camera.fov * Math.PI) / 360)) * 1.4
-    const direction = this.camera.position.clone().sub(this.orbit.target).normalize()
+    const dimensions = box.getSize(new THREE.Vector3())
+    const radius = Math.max(dimensions.length() * 0.5, 0.25)
+    const fullHalfVFov = (this.camera.fov * Math.PI) / 360
+    const safeVScale = safeHeight / Math.max(height, 1)
+    const vHalfFov = Math.atan(Math.tan(fullHalfVFov) * safeVScale)
+    const hHalfFov = Math.atan(Math.tan(fullHalfVFov) * (safeWidth / Math.max(height, 1)))
+    const halfFov = Math.max(Math.min(vHalfFov, hHalfFov), 0.05)
+    const distance = Math.max((radius / Math.tan(halfFov)) * 1.2, 0.5)
+    this.camera.near = Math.max(0.001, Math.min(0.05, distance / 100))
+    this.camera.far = Math.max(2000, distance * 20)
+    this.camera.updateProjectionMatrix()
     this.orbit.target.copy(center)
-    this.camera.position.copy(center.clone().add(direction.multiplyScalar(Math.max(distance, 1.5))))
+    this.camera.position.copy(center).addScaledVector(direction, distance)
+    this.orbit.update()
+    this.orbit.enableDamping = wasDamping
+    this.startLoop()
   }
+
+  get hasPendingMeshes(): boolean { return this.loadingObjects.size > 0 }
 
   setGridVisible(visible: boolean): void {
     this.gridVisible = visible
@@ -536,7 +616,8 @@ export class Model3DViewport {
       applyTransform(existing.object, item)
       existing.object.visible = item.visible !== false
       if ((existing.object as THREE.Mesh).isMesh && !existing.placeholder) this.applyMeshAppearance(existing.object as THREE.Mesh, item)
-      if (existing.placeholder && !this.loadingObjects.has(item.name)) this.scheduleMeshLoad(item, existing.geometryKey ?? `${item.name}:unkeyed`, existing.generation)
+      const unkeyed = `${this.document?.id ?? ''}:${item.name}:unkeyed`
+      if (existing.placeholder && !this.loadingObjects.has(item.name)) this.scheduleMeshLoad(item, existing.geometryKey ?? unkeyed, existing.generation)
       return
     }
     if (existing) this.removeEntry(item.name)
@@ -545,7 +626,7 @@ export class Model3DViewport {
     // listed while its buffers are still being fetched; cameras and lights have
     // no geometry to wait for.
     if (item.type === 'MESH') {
-      const key = item.geometry_key ?? `${item.name}:unkeyed`
+      const key = item.geometry_key ?? `${this.document?.id ?? ''}:${item.name}:unkeyed`
       const cached = this.acquireGeometry(key)
       const object = cached ? makeMesh(item, cached, this.materialFor(item)) : this.placeholderFor(item)
       this.mount(item, object, key, generation, cached !== null)
@@ -620,12 +701,13 @@ export class Model3DViewport {
    * object was rebuilt or removed while the request was in flight.
    */
   private async loadMeshGeometry(item: SerializedObject, key: string, generation: number): Promise<void> {
+    const documentId = this.document?.id
     const inFlight = this.pendingMeshes.get(key)
     if (inFlight) {
       await inFlight
     } else {
       const task = (async () => {
-        const payload = await this.options.loadMesh(item.name)
+        const payload = await this.options.loadMesh(item.name, documentId)
         if (!payload) throw new Error(`No geometry returned for ${item.name}`)
         const storedKey = payload.geometry_key || key
         if (storedKey !== key) throw new Error(`Geometry changed while loading ${item.name}; reload the scene`)
@@ -1008,6 +1090,7 @@ export class Model3DViewport {
     this.clearEmphasis()
     this.stopLoop()
     this.resizeObserver.disconnect()
+    window.removeEventListener('resize', this.onWindowResize)
     this.renderer.domElement.removeEventListener('pointerdown', this.onPointerDown)
     this.renderer.domElement.removeEventListener('pointermove', this.onPointerMove)
     this.transform.detach()

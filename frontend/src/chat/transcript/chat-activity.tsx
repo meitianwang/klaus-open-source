@@ -567,14 +567,28 @@ function resolveChatActivityLabel(
  * because a raw name still tells the user WHICH skill loaded.
  */
 export function skillDisplayName(identifier: string): string {
-  const key = normalizeMarketKey(identifier)
-  if (!key) return ''
+  const fullKey = normalizeMarketKey(identifier)
+  if (!fullKey) return ''
+  const bareKey = fullKey.includes(':') ? normalizeMarketKey(fullKey.split(':').at(-1)) : fullKey
+  const keys = bareKey && bareKey !== fullKey ? [fullKey, bareKey] : [fullKey]
   const cache = getSkillsCache()
-  if (!cache) return ''
-  for (const list of [cache.installed, cache.market, cache.builtin]) {
-    const match = list.find(item => normalizeMarketKey(item?.dirName || item?.name) === key || normalizeMarketKey(item?.upstreamSlug) === key)
-    const display = match ? localizeSkillName(match) : ''
-    if (display) return display
+  if (cache) {
+    for (const list of [cache.installed, cache.market, cache.builtin]) {
+      for (const candidate of keys) {
+        const match = list.find(item => normalizeMarketKey(item?.dirName || item?.name) === candidate || normalizeMarketKey(item?.upstreamSlug) === candidate)
+        const display = match ? localizeSkillName(match) : ''
+        if (display) return display
+      }
+    }
+  }
+  const table = (window as any).SKILL_TEXT_I18N
+  if (table && typeof table === 'object') {
+    for (const candidate of keys) {
+      if (Object.hasOwn(table, candidate)) {
+        const display = localizeSkillName({ dirName: candidate, name: candidate })
+        if (display && display !== candidate) return display
+      }
+    }
   }
   return ''
 }
