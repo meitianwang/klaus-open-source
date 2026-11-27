@@ -120,12 +120,7 @@ function position(el: HTMLElement) {
   t.dataset.placement = placeAbove ? 'top' : 'bottom'
 }
 
-function show(el: HTMLElement) {
-  const text = readText(el)
-  if (!text) return
-  suppressNativeTitle(el)
-  const t = ensureTip()
-  const detail = readDetail(el)
+function renderTipContent(t: HTMLDivElement, text: string, detail: string) {
   if (detail) {
     // Two lines: the main sentence and a dimmer remedy beneath it. Built with
     // textContent so neither line can carry markup.
@@ -139,7 +134,36 @@ function show(el: HTMLElement) {
   } else {
     t.textContent = text
   }
+}
+
+const activeTargetObserver = typeof MutationObserver !== 'undefined'
+  ? new MutationObserver(() => {
+    if (!target) return
+    if (!target.isConnected) {
+      hide()
+      return
+    }
+    const text = readText(target)
+    if (!text) {
+      if ((target as any).__klausTipTitle === undefined) hide()
+      return
+    }
+    if (tipEl) {
+      renderTipContent(tipEl, text, readDetail(target))
+      position(target)
+    }
+  })
+  : null
+
+function show(el: HTMLElement) {
+  const text = readText(el)
+  if (!text) return
+  suppressNativeTitle(el)
+  const t = ensureTip()
+  renderTipContent(t, text, readDetail(el))
   target = el
+  activeTargetObserver?.disconnect()
+  activeTargetObserver?.observe(el, { attributes: true, attributeFilter: ['data-klaus-tip', 'title'] })
   // Position first (still opacity:0), then fade in next frame so the tooltip
   // never flashes at top-left during transition.
   position(el)
@@ -151,6 +175,7 @@ function show(el: HTMLElement) {
 function hide() {
   if (showT) clearTimeout(showT)
   showT = null
+  activeTargetObserver?.disconnect()
   if (tipEl) {
     tipEl.classList.remove('show')
     tipEl.dataset.placement = ''

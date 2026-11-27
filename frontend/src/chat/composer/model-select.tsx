@@ -320,6 +320,20 @@ export function modelSelectTriggerAction(items: MainModelItem[], open: boolean):
   return open ? 'close' : 'open'
 }
 
+export function modelSelectRunningTooltip(
+  options: {
+    running: boolean
+    open: boolean
+    disabled: boolean
+    hasModels: boolean
+    tooltipFreeZone?: boolean
+  },
+  translate: (key: string) => string = tt,
+): string {
+  if (!options.running || options.open || options.disabled || !options.hasModels || options.tooltipFreeZone) return ''
+  return translate('main_model_running_switch_tooltip')
+}
+
 /**
  * Whether the reasoning-level submenu may be on screen.
  *
@@ -607,6 +621,17 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
     + (!thinkingRowLabel ? '' : `<span class="${styles['main-model-trigger-thinking']}">${escapeHtml(thinkingRowLabel)}</span>`)
 
 
+  const tooltipFreeZone = Boolean(rootEl.closest?.('[data-klaus-tooltips="off"], [data-mode="side-chat"]'))
+    || rootEl.id === 'side-model-select'
+    || rootEl.id === 'left-side-model-select'
+  const runningTip = modelSelectRunningTooltip({
+    running: Boolean(runtime?.running),
+    open,
+    disabled,
+    hasModels: hasConfiguredMainModel(items),
+    tooltipFreeZone,
+  })
+
   return (
     <>
       <button
@@ -614,7 +639,8 @@ function ModelSelectMenu({ store, onEmptyClick, saveModel, saveThinkingLevel, sa
         disabled={disabled}
         ref={triggerRef}
         {...(titleKey ? { 'data-i18n-title': titleKey } : {})}
-        {...(title ? { title } : {})}
+        {...(title && !runningTip ? { title } : {})}
+        {...(runningTip ? { 'data-klaus-tip': runningTip, 'data-klaus-tip-placement': 'top' } : {})}
         onClick={(event) => {
           event.stopPropagation()
           const action = modelSelectTriggerAction(items, open)

@@ -129,3 +129,51 @@ test('model and permission confirmations cannot survive hiding or publish an old
   expect(modelRoot.childNodes.length + permissionRoot.childNodes.length).toBe(0)
   modelRoot.remove(); permissionRoot.remove()
 })
+
+test('model trigger exposes a next-request tooltip only while a main turn is running and closed', async () => {
+  const mainRoot = container()
+  mainRoot.id = 'main-model-select'
+  const sidePanel = container()
+  sidePanel.setAttribute('data-klaus-tooltips', 'off')
+  const sideRoot = document.createElement('div')
+  sideRoot.id = 'side-model-select'
+  sidePanel.append(sideRoot)
+
+  let mainModel!: NonNullable<ReturnType<typeof modelModule.mountModelSelect>>
+  let sideModel!: NonNullable<ReturnType<typeof modelModule.mountModelSelect>>
+  await act(async () => {
+    mainModel = modelModule.mountModelSelect(mainRoot, { getSessionId: () => 'main-session' })!
+    mainModel.setItems([{ value: 'custom:test', label: 'Main model' }], { value: 'custom:test' })
+    sideModel = modelModule.mountModelSelect(sideRoot, { getSessionId: () => 'side-session' })!
+    sideModel.setItems([{ value: 'custom:test', label: 'Side model' }], { value: 'custom:test' })
+  })
+
+  const mainTrigger = () => mainRoot.querySelector('button.kls-select-trigger') as HTMLElement
+  const sideTrigger = () => sideRoot.querySelector('button.kls-select-trigger') as HTMLElement
+  expect(mainTrigger().getAttribute('data-klaus-tip')).toBeNull()
+  expect(mainTrigger().getAttribute('title')).toBeNull()
+
+  const runningState = { running: true, streamMode: 'requesting', currentInference: null, modelUpdate: null }
+  await act(async () => {
+    mainModel.setRuntime(runningState)
+    sideModel.setRuntime(runningState)
+  })
+  expect(mainTrigger().getAttribute('data-klaus-tip')).toBe('main_model_running_switch_tooltip')
+  expect(mainTrigger().getAttribute('data-klaus-tip-placement')).toBe('top')
+  expect(sideTrigger().getAttribute('data-klaus-tip')).toBeNull()
+  expect(sideTrigger().getAttribute('title')).toBeNull()
+
+  await click(mainTrigger())
+  expect(mainTrigger().getAttribute('data-klaus-tip')).toBeNull()
+  await click(mainTrigger())
+  expect(mainTrigger().getAttribute('data-klaus-tip')).toBe('main_model_running_switch_tooltip')
+
+  await act(async () => {
+    mainModel.setRuntime({ ...runningState, running: false, streamMode: 'idle' })
+  })
+  expect(mainTrigger().getAttribute('data-klaus-tip')).toBeNull()
+  expect(mainTrigger().getAttribute('data-klaus-tip-placement')).toBeNull()
+
+  await act(async () => { mainModel.dispose(); sideModel.dispose() })
+  mainRoot.remove(); sidePanel.remove()
+})

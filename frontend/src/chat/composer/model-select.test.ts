@@ -48,6 +48,7 @@ const {
   modelSelectSessionId,
   modelSelectSubmenuVisible,
   modelSelectTriggerAction,
+  modelSelectRunningTooltip,
   optimisticThinkingForModelSelection,
   priceFactorLabel,
   modelUpdateFailureText,
@@ -707,6 +708,23 @@ test('selecting an unremembered subscription model optimistically adopts its def
       'subscription:opus',
     ),
   ).toBe('high')
+})
+
+describe('running-turn model switch tooltip', () => {
+  const active = { running: true, open: false, disabled: false, hasModels: true, tooltipFreeZone: false }
+
+  test('explains next-request effect in both languages only while a turn is running', () => {
+    expect(modelSelectRunningTooltip(active, translate('en'))).toBe('Model changes take effect on the next request')
+    expect(modelSelectRunningTooltip(active, translate('zh'))).toBe('切换模型将在下次请求生效')
+    expect(modelSelectRunningTooltip({ ...active, running: false }, translate('en'))).toBe('')
+  })
+
+  test('stays silent when the menu is open, disabled, unconfigured, or inside a tooltip-free zone', () => {
+    expect(modelSelectRunningTooltip({ ...active, open: true }, translate('en'))).toBe('')
+    expect(modelSelectRunningTooltip({ ...active, disabled: true }, translate('en'))).toBe('')
+    expect(modelSelectRunningTooltip({ ...active, hasModels: false }, translate('en'))).toBe('')
+    expect(modelSelectRunningTooltip({ ...active, tooltipFreeZone: true }, translate('en'))).toBe('')
+  })
 })
 
 
