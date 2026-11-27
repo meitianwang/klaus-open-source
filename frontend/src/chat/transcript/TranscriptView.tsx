@@ -950,7 +950,7 @@ export function buildUserBubbleHtml(msg: any, composerAuthored: boolean, session
     )
   )
   const parsedQuote = (hasLocalDisplaySnapshot || !composerAuthored) ? null : parseSelectedTextEnvelope(text)
-  const renderedText = parsedQuote?.message ?? text
+  let renderedText = parsedQuote?.message ?? text
   // 历史路径的图只带 path（内容寻址池），在这里转成 klaus-media:// 的 src；
   // 本地乐观气泡的 attachments 已携 objectUrl，不动。
   const replayAttachments = userAttachmentsFromContentBlocks(msg.contentBlocks)
@@ -964,10 +964,32 @@ export function buildUserBubbleHtml(msg: any, composerAuthored: boolean, session
       ...(entry.src || !entry.path ? {} : { src: mediaUrl(entry.path, sessionId) }),
     } : entry)
   let attachments = mergeSubmittedAttachments(localAttachments, replayAttachments)
+  for (let pass = 0; pass < 2 && !hasLocalDisplaySnapshot && composerAuthored && typeof renderedText === 'string'; pass++) {
+    const absolute = /^(?:\/|[A-Za-z]:[\\/]|\\\\)/
+    const block = /(?:^|\r?\n)(?:\r?\n)*(Attached(?: media files)?):\r?\n((?:- [^\r\n]+(?:\r?\n|$))+)$/.exec(renderedText)
+    if (!block) break
+    const media = block[1] === 'Attached media files'
+    const entries = block[2]!.trimEnd().split(/\r?\n/).map(line => {
+      const value = line.slice(2).trim()
+      const named = media && /^(.+) \(([^/\\]+)\)$/.exec(value)
+      return { path: named ? named[1]! : value, name: named ? named[2] : undefined }
+    })
+    if (!entries.every(entry => absolute.test(entry.path))) break
+    renderedText = renderedText.slice(0, block.index).trimEnd()
+    for (const { path, name } of entries) {
+      const basename = path.split(/[\\/]/).pop() || path
+      const existing = attachments.findIndex(entry => entry?.path === path)
+      if (media && name && existing >= 0 && attachments[existing]?.name === basename) {
+        attachments[existing] = { ...attachments[existing], name }
+      } else if (!media && existing < 0) {
+        attachments.push({ type: 'file', name: basename, path, sessionId })
+      }
+    }
+  }
   // Pasted cards render from their record, never from a size guess: the send
   // snapshot carries them, and histories written after references existed carry
   // the `# Files pasted by the user:` section in the message text itself.
-  const referenceSection = (local || !composerAuthored) ? null : parsePastedReferenceSection(renderedText)
+  const referenceSection = (hasLocalDisplaySnapshot || !composerAuthored) ? null : parsePastedReferenceSection(renderedText)
   const pastedCards = Array.isArray(local?.pastedCards)
     ? local.pastedCards
     : (referenceSection?.cards ?? [])
@@ -976,7 +998,7 @@ export function buildUserBubbleHtml(msg: any, composerAuthored: boolean, session
     : (parsedQuote?.selectedTextAttachments ?? [])
   let displayText = local && Object.prototype.hasOwnProperty.call(local, 'displayText')
     ? local.displayText
-    : local ? renderedText : (referenceSection?.displayText ?? renderedText)
+    : (referenceSection?.displayText ?? renderedText)
   // Goal objectives name their owned images with Markdown reference lines so the
   // engine can grant read authority; the bubble shows thumbnails instead of the
   // internal paths, on the live snapshot and on replay alike.

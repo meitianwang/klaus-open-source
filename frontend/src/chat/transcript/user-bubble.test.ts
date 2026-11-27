@@ -631,3 +631,29 @@ describe('submitted document preservation', () => {
     expect(html.indexOf('Device')).toBeLessThan(html.indexOf('after'))
   })
 })
+
+test('historical mobile images recover their display name and clean prose', () => {
+  const path = '/Users/u/.klaus/uploads/uuid.jpg'
+  const text = `Check html\n\nAttached media files:\n- ${path} (mobile-image-1.jpg)`
+  const host = (globalThis as any).window
+  const previous = host.klaus
+  host.klaus = { ...previous, media: { url: () => 'klaus-media://test/s1' } }
+  try {
+    const result = buildUserBubbleHtml({ text, localRender: { clientMessageId: 'm1', inputPresentation: { role: 'turn' } },
+      contentBlocks: [{ type: 'text', text }, { type: 'image', path, mimeType: 'image/jpeg' }] }, true, 's1')
+    expect(result?.html.match(/title="mobile-image-1.jpg"/g)).toHaveLength(1)
+    expect(result?.content?.bubble?.html).toBe('Check html')
+  } finally { host.klaus = previous }
+})
+
+test('historical file-only sends render a chip without an empty bubble', () => {
+  const result = buildUserBubbleHtml({ text: 'Attached:\n- /Users/u/.klaus/uploads/notes.txt' }, true, 's1')
+  expect(result?.html).toContain('notes.txt')
+  expect(result?.content?.bubble).toBeNull()
+})
+
+test('relative attachment lists stay in user prose', () => {
+  const result = buildUserBubbleHtml({ text: 'please look\nAttached:\n- report.md' }, true)
+  expect(result?.content?.bubble?.html).toContain('Attached:')
+  expect(result?.content?.bubble?.html).toContain('- report.md')
+})

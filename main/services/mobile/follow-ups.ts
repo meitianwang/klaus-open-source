@@ -36,7 +36,7 @@ export function mobileFollowUpIntent(payload: JsonObject): MobileFollowUpIntent 
   return intent;
 }
 
-function buildFollowUpTextAndMetadata(text: string, referenced: JsonObject[]): {
+function buildFollowUpTextAndMetadata(text: string, referenced: JsonObject[], hasAttachments = false): {
   finalText: string;
   displayText: string;
   displayMetadata?: JsonObject;
@@ -47,7 +47,7 @@ function buildFollowUpTextAndMetadata(text: string, referenced: JsonObject[]): {
   const finalText = parsed && referenceBlock
     ? encodeSelectedTextEnvelope([parsed.message, referenceBlock].filter(Boolean).join('\n\n'), parsed.selectedTextAttachments)
     : [text, referenceBlock].filter(Boolean).join('\n\n');
-  if (!parsed && !referenced.length) return { finalText, displayText };
+  if (!parsed && !referenced.length && !hasAttachments) return { finalText, displayText };
   const displayMetadata: JsonObject = { displayText };
   if (parsed) {
     displayMetadata.selectedTextAttachments = parsed.selectedTextAttachments.map((entry, index) => ({
@@ -71,7 +71,7 @@ function buildFollowUpTextAndMetadata(text: string, referenced: JsonObject[]): {
 function ordinaryFollowUpPayload(text: string, descriptors: JsonObject[]): JsonObject {
   const inline = descriptors.filter(item => string(item.mimeType).startsWith('image/'));
   const referenced = descriptors.filter(item => !inline.includes(item));
-  const { finalText, displayText, displayMetadata } = buildFollowUpTextAndMetadata(text, referenced);
+  const { finalText, displayText, displayMetadata } = buildFollowUpTextAndMetadata(text, referenced, descriptors.length > 0);
   return {
     finalText, displayText,
     media: inline, mobileAttachments: descriptors,
@@ -90,7 +90,7 @@ export function followUpPayload(text: string, descriptors: JsonObject[], source 
     return mimeType ? [{ ...item, type: 'media', mimeType }] : [];
   });
   const referenced = descriptors.filter(item => !inline.includes(item));
-  const { finalText, displayText, displayMetadata } = buildFollowUpTextAndMetadata(text, referenced);
+  const { finalText, displayText, displayMetadata } = buildFollowUpTextAndMetadata(text, referenced, descriptors.length > 0);
   return {
     finalText, displayText,
     media, mobileAttachments: descriptors,
@@ -165,7 +165,7 @@ export class MobileFollowUpControls {
   }
   async steer(call: MobileCall, sessionId: string, projected: JsonObject, expectedTurnId: string, clientMessageId?: string | null): Promise<JsonObject> {
     const displayMetadata: JsonObject | undefined = clientMessageId
-      ? { ...(projected.displayMetadata ? object(projected.displayMetadata) : {}), clientMessageId }
+      ? { displayText: projected.displayText!, ...(projected.displayMetadata ? object(projected.displayMetadata) : {}), clientMessageId }
       : (projected.displayMetadata ? object(projected.displayMetadata) : undefined);
     const result = object(await call('chat:follow-up', { sessionId, text: projected.finalText!, media: projected.media!, displayText: projected.displayText!, ...(displayMetadata ? { displayMetadata } : {}), mobileAttachments: projected.mobileAttachments!, expectedTurnId }));
     if (result.removed === true && string(result.messageId)) return { followUpMode: 'steer', messageId: result.messageId!, followUpState: 'removed' };

@@ -305,6 +305,18 @@ void (async () => {
       assert.equal((await f.request('POST', '/api/mobile/sessions/s%2F2/delete')).status, 400);
     } finally { await f.close(); }
   });
+  await h.test('draft promotion forwards a clean display snapshot for an inline image', async () => {
+    const f = await mobileFixture(); try {
+      await f.enable();
+      const response = await f.request('POST', '/api/mobile/sessions', {
+        clientDraftId: 'image-draft', workdir: f.root, initialMessage: { text: 'Check html',
+          media: [{ type: 'image', filename: 'mobile-image-1.jpg', mimeType: 'image/jpeg', data: '/9j/2Q==' }] },
+      });
+      assert.equal(response.status, 201);
+      assert.equal(object(f.sent[0]!.payload.displayMetadata).displayText, 'Check html');
+      assert.equal((f.sent[0]!.payload.media as JsonObject[])[0]!.mimeType, 'image/jpeg');
+    } finally { await f.close(); }
+  });
   await h.test('draft promotion creates and sends once, preserves early events, and rolls back failed first turns', async () => {
     const f = await mobileFixture(); try {
       await f.enable();

@@ -6,6 +6,14 @@ import { attachedReferencePaths, defaultExportFileName, editPrepareFromRow, expo
 import { Harness, assert, assertDeepEqual, assertEqual, assertRejects } from './harness';
 
 const h = new Harness();
+h.test('editing historical media recovers the display name without duplicating inline images', () => {
+  const path = '/pool/uuid.jpg';
+  const text = `Check html\n\nAttached media files:\n- ${path} (mobile-image-1.jpg)`;
+  assertDeepEqual(attachedReferencePaths(text), [path], 'extracts the path without its display name');
+  const draft = editPrepareFromRow('u1', { text, contentBlocks: [{ type: 'image', path, mimeType: 'image/jpeg' }] }, null);
+  assertEqual(draft.text, 'Check html', 'strips the media block');
+  assertDeepEqual(draft.attachments, [{ path, name: 'mobile-image-1.jpg', mimeType: 'image/jpeg' }], 'recovers one named image');
+});
 h.test('editing a legacy initial task recovers its prose without protocol markup', async () => {
   const { encodeDelegationEnvelope } = await import('../contracts/thread-delegation');
   const text = encodeDelegationEnvelope('Investigate the flaky test.', 'creator');

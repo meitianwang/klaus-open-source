@@ -1154,7 +1154,7 @@ export class MobileBridgeService {
     const projected = followUpPayload(text, await uploadFollowUpMedia(call, media), readSessionModel(sessionId, this.deps.configRoot).source);
     if (intent.mode === 'steer') return run.followUps.steer(call, sessionId, projected, required(intent.expectedTurnId, 'expectedTurnId'), clientMessageId);
     const displayMetadata: JsonObject | undefined = clientMessageId
-      ? { ...(projected.displayMetadata ? object(projected.displayMetadata) : {}), clientMessageId }
+      ? { displayText: projected.displayText!, ...(projected.displayMetadata ? object(projected.displayMetadata) : {}), clientMessageId }
       : (projected.displayMetadata ? object(projected.displayMetadata) : undefined);
     await call('chat:send', { sessionId, text: projected.finalText!, media: projected.media!, ...(displayMetadata ? { displayMetadata } : {}) });
     return {};

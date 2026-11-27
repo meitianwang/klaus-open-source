@@ -75,19 +75,34 @@ export type EditPrepare = { messageUuid: string; text: string; displayMetadata: 
  * (`Attached:\n- <path>`). It is model-facing plumbing, so it is read back out as
  * attachments and stripped from the refilled prose.
  */
-const ATTACHED_REFERENCE_BLOCK = /(?:^|\n)\n*Attached:\n(?:- [^\n]+\n?)+$/;
+const ATTACHED_REFERENCE_BLOCK = /(?:^|\n)\n*(Attached(?: media files)?):\n((?:- [^\n]+\n?)+)$/;
+
+function peelAttachedReferences(text: string, absoluteOnly = false): { text: string; entries: { path: string; name?: string }[] } {
+  const entries: { path: string; name?: string }[] = [];
+  for (let pass = 0; pass < 2; pass++) {
+    const match = ATTACHED_REFERENCE_BLOCK.exec(text);
+    if (!match) break;
+    const blockEntries = (match?.[2] ?? '').split('\n').filter(line => line.startsWith('- ')).flatMap(line => {
+      const path = line.slice(2).trim();
+      if (!path) return [];
+      const named = match?.[1] === 'Attached media files' && /^(.+) \(([^/\\]+)\)$/.exec(path);
+      return [named && isAbsolute(named[1]!) ? { path: named[1]!, name: named[2]! } : { path }];
+    });
+    if (absoluteOnly && (!blockEntries.length || !blockEntries.every(entry => isAbsolute(entry.path)))) break;
+    entries.unshift(...blockEntries);
+    text = text.slice(0, match.index).trimEnd();
+  }
+  return { text, entries };
+}
 
 /** Attachment paths named by that reference block, in the order they were sent. */
 export function attachedReferencePaths(text: string): string[] {
-  const block = ATTACHED_REFERENCE_BLOCK.exec(text)?.[0] ?? '';
-  return block.split('\n')
-    .map(line => line.startsWith('- ') ? line.slice(2).trim() : '')
-    .filter(Boolean);
+  return peelAttachedReferences(text).entries.map(entry => entry.path);
 }
 
 /** The reference block removed, so a refill carries prose only. */
 export function withoutAttachedReferenceBlock(text: string): string {
-  return text.replace(ATTACHED_REFERENCE_BLOCK, '').trimEnd();
+  return peelAttachedReferences(text).text.trimEnd();
 }
 
 function fileNameOf(path: string, fallback?: string): string {
@@ -118,11 +133,15 @@ export function editPrepareFromRow(uuid: string, row: Record<string, Json> | und
     attachments.push({ path, name: fileNameOf(path, name),
       ...(mimeType ? { mimeType } : {}), ...(originalPath ? { originalPath } : {}) });
   };
+  const rawText = typeof row?.text === 'string' ? row.text : '';
+  const recovered = peelAttachedReferences(rawText, true);
+  const referenced = recovered.entries;
+  const referenceNames = new Map(referenced.map(entry => [entry.path, entry.name]));
   for (const block of blocks) {
     const record = object(block);
     if (record?.type !== 'image' && record?.type !== 'document' && record?.type !== 'media') continue;
     add(typeof record.path === 'string' ? record.path : '',
-      typeof record.filename === 'string' ? record.filename : undefined,
+      typeof record.filename === 'string' && record.filename ? record.filename : referenceNames.get(String(record.path)),
       typeof record.mimeType === 'string' ? record.mimeType : undefined);
   }
   // The display envelope records ordinary files even when later request context
@@ -136,16 +155,12 @@ export function editPrepareFromRow(uuid: string, row: Record<string, Json> | und
       typeof attachment.mimeType === 'string' ? attachment.mimeType : undefined,
       typeof attachment.originalPath === 'string' && isAbsolute(attachment.originalPath) ? attachment.originalPath : undefined);
   }
-  const rawText = typeof row?.text === 'string' ? row.text : '';
-  // A send appends `- <absolute upload path>` lines, so requiring an absolute path is what
-  // separates that block from prose a user happened to end with "Attached:". This is a
-  // heuristic over a contract with exactly one writer (`buildOutgoingPayload`), and the
-  // text is only stripped when a line actually matched, so prose is never eaten.
-  const referenced = attachedReferencePaths(rawText).filter(path => isAbsolute(path));
-  for (const path of referenced) add(path);
+  const hasReferenceBlock = referenced.length > 0;
+  if (hasReferenceBlock) for (const { path, name } of referenced) add(path, name);
   const displayText = displayMetadataText(reconciledMetadata);
-  const text = displayText || parseDelegationEnvelope(rawText)?.input
-    || (referenced.length > 0 ? withoutAttachedReferenceBlock(rawText) : rawText.trim());
+  const text = (typeof metadata?.displayText === 'string' ? displayText : undefined)
+    ?? (parseDelegationEnvelope(rawText)?.input
+      || (hasReferenceBlock ? recovered.text : rawText.trim()));
   return { messageUuid: uuid, text, displayMetadata: reconciledMetadata, attachments };
 }
 
