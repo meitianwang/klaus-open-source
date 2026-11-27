@@ -16,7 +16,7 @@ export interface UnwrappedToolCall {
   unwrapped: boolean
 }
 
-const PROJECTED_HOST_MCP_SERVER = /^mcp__host-(browser|prototype|digram|video-editing|design|ppt|photo-editing|motion-graphics|model3d|macos-[a-z0-9-]+)__/i
+const PROJECTED_HOST_MCP_SERVER = /^mcp__host-(browser|prototype|digram|video-editing|design|ppt|photo-editing|motion-graphics|equity(?:-research)?|model3d|macos-[a-z0-9-]+)__/i
 
 /**
  * Unwrap an indirect `call_mcp_tool` invocation into its target tool name and
@@ -112,6 +112,18 @@ const ACTIONS: Record<string, ActionText> = {
   photo_place: ['tool-generate-image', '置入图像图层', 'Placing image layer', 'Placed image layer', 'place image layer'],
   photo_preview: ['tool-generate-image', '生成图像预览', 'Rendering photo preview', 'Rendered photo preview', 'render photo preview'],
   photo_export: ['tool-generate-image', '导出图像', 'Exporting photo', 'Exported photo', 'export photo'],
+  equity_open: ['canvas', '打开投研工作台', 'Opening equity workbench', 'Opened equity workbench', 'open equity workbench'],
+  equity_inspect: ['canvas', '查看投研工作台', 'Inspecting equity workbench', 'Inspected equity workbench', 'inspect equity workbench'],
+  equity_publish: ['canvas', '更新投研结论与估值', 'Publishing research & valuation', 'Published research & valuation', 'publish research & valuation'],
+  equity_preview: ['canvas', '生成工作台截图', 'Capturing workbench preview', 'Captured workbench preview', 'capture workbench preview'],
+  equity_export: ['canvas', '导出投研模型/报告', 'Exporting research deliverable', 'Exported research deliverable', 'export research deliverable'],
+  equity_resolve: ['canvas', '解析证券代码', 'Resolving security', 'Resolved security', 'resolve security'],
+  equity_snapshot: ['canvas', '拉取实时行情与K线', 'Fetching quote & K-lines', 'Fetched quote & K-lines', 'fetch quote & K-lines'],
+  equity_financials: ['canvas', '拉取多期财报数据', 'Fetching financial statements', 'Fetched financial statements', 'fetch financial statements'],
+  equity_peers_consensus: ['canvas', '拉取同业估值与一致预期', 'Fetching peer comps & consensus', 'Fetched peer comps & consensus', 'fetch peer comps & consensus'],
+  equity_filings: ['canvas', '拉取法定公告与持仓披露', 'Fetching filings & ownership', 'Fetched filings & ownership', 'fetch filings & ownership'],
+  equity_screen: ['canvas', '筛选跨市场标的', 'Screening equities', 'Screened equities', 'screen equities'],
+  equity_build_workspace: ['canvas', '构建确定性估值工作区', 'Building valuation workspace', 'Built valuation workspace', 'build valuation workspace'],
   motion_open: ['tool-generate-video', '打开动效合成', 'Opening motion composition', 'Opened motion composition', 'open motion composition'],
   motion_inspect: ['tool-generate-video', '查看动效工程', 'Inspecting motion composition', 'Inspected motion composition', 'inspect motion composition'],
   motion_commands: ['tool-generate-video', '查找动效命令', 'Finding motion commands', 'Found motion commands', 'find motion commands'],
@@ -230,6 +242,8 @@ export function semanticActivity(toolName: string, input?: unknown, output?: str
   let name = browserActivityToolName(toolName)
   const ownedMcp = /^mcp__(klaus-prototype|klaus-digram|klaus-video-editing|klaus-photo-editing|klaus-motion-graphics)__(.+)$/.exec(name)
   if (ownedMcp && ((ownedMcp[1] === 'klaus-prototype' && ownedMcp[2].startsWith('prototype_')) || (ownedMcp[1] === 'klaus-digram' && ownedMcp[2].startsWith('digram_')) || (ownedMcp[1] === 'klaus-video-editing' && ownedMcp[2].startsWith('video_editing_')) || (ownedMcp[1] === 'klaus-photo-editing' && ownedMcp[2].startsWith('photo_')) || (ownedMcp[1] === 'klaus-motion-graphics' && ownedMcp[2].startsWith('motion_')))) name = ownedMcp[2]
+  const equityMcp = /^mcp__(?:klaus-equity|host-equity(?:-research)?|plugin_equity-research_equity-engine|equity-engine)__(equity_.+)$/.exec(name)
+  if (equityMcp) name = equityMcp[1]
   if (name === 'websearch') name = 'web_search'
   if (name === 'webfetch' || name === 'fetch_url') name = 'web_fetch'
   if (!Object.hasOwn(ACTIONS, name)) return null
@@ -255,9 +269,13 @@ export function semanticActivity(toolName: string, input?: unknown, output?: str
   if (name === 'orchestrate_execution' && typeof args.description === 'string') target = args.description.trim().slice(0, 120)
   if (name === 'web_search') target = String(args.query ?? args.search_query ?? args.q ?? '').trim().slice(0, 160)
   if (name === 'browser_click' || name === 'browser_locator') target = String(args.name ?? args.label ?? '').trim().slice(0, 100)
+  if (name.startsWith('equity_')) {
+    const equityTarget = [args.ticker, args.query, args.title, args.id].find(value => typeof value === 'string' && value.trim())
+    target = typeof equityTarget === 'string' ? equityTarget.slice(0, 100) : ''
+  }
   if (name.startsWith('prototype_') || name.startsWith('photo_') || name.startsWith('motion_') || name.startsWith('video_editing_') || name === 'digram_open') target = typeof args.title === 'string' ? args.title.slice(0, 100) : ''
   return { action: name, icon: ACTIONS[name][0], target, ...(friendOutcome ? { friendOutcome } : {}), category: name === 'orchestrate_execution' ? 'orchestration' : name.startsWith('browser_') ? 'browser' : name.startsWith('web_') ? 'web'
-    : name.startsWith('prototype_') || name.startsWith('photo_') || name.startsWith('motion_') ? 'design' : name.startsWith('digram_') ? 'diagram' : name.startsWith('video_editing_') ? 'video' : name.startsWith('cron') || name === 'automation_update' ? 'schedule'
+    : name.startsWith('prototype_') || name.startsWith('photo_') || name.startsWith('motion_') || name.startsWith('equity_') ? 'design' : name.startsWith('digram_') ? 'diagram' : name.startsWith('video_editing_') ? 'video' : name.startsWith('cron') || name === 'automation_update' ? 'schedule'
       : FRIEND_TOOLS.has(name) ? 'friend' : name === 'save_memory' ? 'memory' : 'dependencies' }
 }
 

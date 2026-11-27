@@ -125,7 +125,7 @@
   },
   "modalPresentation": {
     "reason": "Native child WebContentsViews (Browser and the isolated visual/document editors) paint above renderer HTML regardless of z-index. Modal, full-window, and opt-in wide overlays must temporarily park every active native surface and display a noninteractive still inside its panel until the last overlay closes, preserving live state and unobstructed access to the overlay.",
-    "suspendedSurfaces": ["Browser", "Canvas", "Prototype", "VideoEditing", "Ppt", "Design", "PhotoEditing", "MotionGraphics"],
+    "suspendedSurfaces": ["Browser", "Canvas", "Prototype", "VideoEditing", "Ppt", "Design", "PhotoEditing", "MotionGraphics", "EquityResearch"],
     "markers": ["[aria-modal=\"true\"]", "dialog[open]", ".klaus-dialog-overlay", ".kls-modal-overlay", ".klaus-inline-vis-backdrop", ".drop-overlay.active", "[data-klaus-native-suspend]"],
     "nested": "Keep native surfaces parked until the last visible overlay leaves.",
     "capture": "Read only the surface already on screen; never create a tab, select another page or wake a background document.",

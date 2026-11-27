@@ -426,7 +426,9 @@ function suspendNativeSurfacesForPreview(): () => void {
     klausSuspendPhotoEditingForOverlay?: () => Promise<void> | void
     klausResumePhotoEditingAfterOverlay?: () => Promise<void> | void
     klausSuspendMotionGraphicsForOverlay?: () => Promise<void> | void
+    klausSuspendEquityResearchForOverlay?: () => Promise<void> | void
     klausResumeMotionGraphicsAfterOverlay?: () => Promise<void> | void
+    klausResumeEquityResearchAfterOverlay?: () => Promise<void> | void
   }
   void host.klausSuspendBrowserForOverlay?.()
   void host.klausSuspendCanvasForOverlay?.()
@@ -436,6 +438,7 @@ function suspendNativeSurfacesForPreview(): () => void {
   void host.klausSuspendDesignForOverlay?.()
   void host.klausSuspendPhotoEditingForOverlay?.()
   void host.klausSuspendMotionGraphicsForOverlay?.()
+  void host.klausSuspendEquityResearchForOverlay?.()
   let released = false
   return () => {
     if (released) return
@@ -448,6 +451,7 @@ function suspendNativeSurfacesForPreview(): () => void {
     void host.klausResumeDesignAfterOverlay?.()
     void host.klausResumePhotoEditingAfterOverlay?.()
     void host.klausResumeMotionGraphicsAfterOverlay?.()
+    void host.klausResumeEquityResearchAfterOverlay?.()
   }
 }
 

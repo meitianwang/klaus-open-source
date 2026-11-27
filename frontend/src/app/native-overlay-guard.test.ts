@@ -69,7 +69,7 @@ function visible(element: FakeElement): boolean {
   return element.isConnected
 }
 
-async function fixture(hookNames = ['Browser', 'Canvas', 'Prototype', 'VideoEditing', 'Ppt', 'Design', 'PhotoEditing', 'MotionGraphics']) {
+async function fixture(hookNames = ['Browser', 'Canvas', 'Prototype', 'VideoEditing', 'Ppt', 'Design', 'PhotoEditing', 'MotionGraphics', 'EquityResearch']) {
   const { createNativeOverlayGuard } = await import('./native-overlay-guard')
   root = new FakeElement('body')
   const calls: string[] = []
@@ -117,7 +117,7 @@ test('a confirm dialog parks every native surface once and restores them on clos
   expect(f.guard.held()).toBe(false)
 })
 
-test('modal dialogs, active drop overlays, and opt-in wide popovers suspend all eight native surfaces', async () => {
+test('modal dialogs, active drop overlays, and opt-in wide popovers suspend all nine native surfaces', async () => {
   const f = await fixture()
   const commandDialog = new FakeElement('div', { attrs: { role: 'dialog', 'aria-modal': 'true' } })
   f.added(commandDialog)
@@ -130,6 +130,7 @@ test('modal dialogs, active drop overlays, and opt-in wide popovers suspend all 
     'suspend:Design',
     'suspend:PhotoEditing',
     'suspend:MotionGraphics',
+    'suspend:EquityResearch',
   ])
   f.removed(commandDialog)
   f.calls.length = 0
@@ -139,17 +140,17 @@ test('modal dialogs, active drop overlays, and opt-in wide popovers suspend all 
   expect(f.calls).toEqual([])
   dropOverlay.classes.add('active')
   f.changed(dropOverlay)
-  expect(f.calls).toHaveLength(8)
+  expect(f.calls).toHaveLength(9)
   dropOverlay.classes.delete('active')
   f.changed(dropOverlay)
-  expect(f.calls).toHaveLength(16)
+  expect(f.calls).toHaveLength(18)
   f.calls.length = 0
 
   const widePopover = new FakeElement('div', { attrs: { role: 'dialog', 'data-klaus-native-suspend': 'true' } })
   f.added(widePopover)
-  expect(f.calls).toHaveLength(8)
+  expect(f.calls).toHaveLength(9)
   f.removed(widePopover)
-  expect(f.calls).toHaveLength(16)
+  expect(f.calls).toHaveLength(18)
 })
 
 test('stacked modals hold one lease until the last one closes', async () => {

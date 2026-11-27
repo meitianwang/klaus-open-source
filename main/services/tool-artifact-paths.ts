@@ -12,6 +12,8 @@ const EXPORT_TOOLS = new Set([
   'photo_preview', 'mcp__klaus-photo-editing__photo_preview',
   'motion_export', 'mcp__klaus-motion-graphics__motion_export',
   'motion_preview', 'mcp__klaus-motion-graphics__motion_preview',
+  'equity_export', 'mcp__klaus-equity__equity_export',
+  'equity_preview', 'mcp__klaus-equity__equity_preview',
 ]);
 const READ_TOOLS = new Set(['read', 'Read']);
 

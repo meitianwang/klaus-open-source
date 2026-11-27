@@ -286,7 +286,8 @@ void (async () => {
       // 783 adds the eight `photo-editing:*` owner-panel transport channels for Photo Editing.
       // 791 adds the eight `motion-graphics:*` owner-panel transport channels for Motion Graphics.
       // 794 adds `artifacts:open-default`, `artifacts:write-office`, and `artifacts:save-office-as` for built-in Office/XMind/CSV editing and default-app fallback.
-      assert.equal(channels.size, 794);
+      // 802 adds the eight `equity-research:*` owner-panel invoke channels.
+      assert.equal(channels.size, 802);
       const companionChannels = [...channels].filter(channel => channel.startsWith('desktop-pet:'));
       assert.equal(companionChannels.length, 58);
       for (const channel of companionChannels) {

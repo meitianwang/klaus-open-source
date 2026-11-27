@@ -9420,7 +9420,8 @@ body.sidebar-collapsed.artifacts-maximized .artifacts-panel > .artifacts-header 
 .artifacts-panel[data-mode="ppt"],
 .artifacts-panel[data-mode="design"],
 .artifacts-panel[data-mode="photo-editing"],
-.artifacts-panel[data-mode="motion-graphics"] {
+.artifacts-panel[data-mode="motion-graphics"],
+.artifacts-panel[data-mode="equity-research"] {
   transition: none;
 }
 
@@ -9670,8 +9671,11 @@ body.sidebar-collapsed.artifacts-maximized .artifacts-panel > .artifacts-header 
   flex-direction: column;
 }
 .artifacts-panel[data-mode="motion-graphics"] .artifacts-section { display: none; }
+.artifacts-panel[data-mode="equity-research"] .artifacts-section { display: none; }
 .artifacts-panel:not([data-mode="motion-graphics"]) #motion-graphics-panel { display: none; }
-.artifacts-panel[data-mode="motion-graphics"] .artifacts-body {
+.artifacts-panel:not([data-mode="equity-research"]) #equity-research-panel { display: none; }
+.artifacts-panel[data-mode="motion-graphics"] .artifacts-body,
+.artifacts-panel[data-mode="equity-research"] .artifacts-body {
   padding: 0;
   overflow: hidden;
   display: flex;
@@ -9690,7 +9694,9 @@ body.sidebar-collapsed.artifacts-maximized .artifacts-panel > .artifacts-header 
 .photo-editing-panel,
 .photo-editing-panel-host,
 .motion-graphics-panel,
-.motion-graphics-panel-host {
+.motion-graphics-panel-host,
+.equity-research-panel,
+.equity-research-panel-host {
   position: relative;
   flex: 1;
   min-width: 0;

@@ -91,12 +91,13 @@ const KINDS: Record<string, { fixed: boolean; mode: string; labelKey: string; pe
   design: { fixed: false, mode: 'design', labelKey: 'design_title', persist: true, owned: true },
   'photo-editing': { fixed: false, mode: 'photo-editing', labelKey: 'photo_editing_title', persist: true, owned: true },
   'motion-graphics': { fixed: false, mode: 'motion-graphics', labelKey: 'motion_graphics_title', persist: true, owned: true },
+  'equity-research': { fixed: false, mode: 'equity-research', labelKey: 'equity_research_title', persist: true, owned: true },
 }
 
 // Native editor surfaces keep their documents on the host while the owning
 // chat is away, so their descriptors persist with that chat and come back on
 // the next visit instead of leaving the surface unreachable.
-const NATIVE_EDITOR_KINDS: readonly string[] = ['prototype', 'video-editing', 'ppt', 'design', 'photo-editing', 'motion-graphics']
+const NATIVE_EDITOR_KINDS: readonly string[] = ['prototype', 'video-editing', 'ppt', 'design', 'photo-editing', 'motion-graphics', 'equity-research']
 const NATIVE_RESUME_HOOK: Record<string, string> = {
   prototype: 'klausPrototypeResumeId',
   'video-editing': 'klausVideoEditingResumeId',
@@ -104,6 +105,7 @@ const NATIVE_RESUME_HOOK: Record<string, string> = {
   design: 'klausDesignResumeId',
   'photo-editing': 'klausPhotoEditingResumeId',
   'motion-graphics': 'klausMotionGraphicsResumeId',
+  'equity-research': 'klausEquityResearchResumeId',
 }
 
 const ICONS: Record<string, string> = {
@@ -127,6 +129,7 @@ const ICONS: Record<string, string> = {
   design: icon('canvas'),
   'photo-editing': icon('tool-generate-image'),
   'motion-graphics': icon('tool-generate-video'),
+  'equity-research': icon('canvas'),
 }
 
 // ── State（数据面，按会话/草稿作用域隔离 + LRU 驻留） ──────────────────────
@@ -744,6 +747,7 @@ async function activateTab(tab: Tab | null, { reloadCanvas = false } = {}) {
     case 'design':
     case 'photo-editing':
     case 'motion-graphics':
+    case 'equity-research':
     case 'prototype':
     case 'video-editing': {
       const token = restoreToken
@@ -757,6 +761,8 @@ async function activateTab(tab: Tab | null, { reloadCanvas = false } = {}) {
             ? w().klausActivatePhotoEditingPanel
             : tab.kind === 'motion-graphics'
               ? w().klausActivateMotionGraphicsPanel
+            : tab.kind === 'equity-research'
+              ? w().klausActivateEquityResearchPanel
               : tab.kind === 'prototype'
                 ? w().klausActivatePrototypePanel
                 : w().klausActivateVideoEditingPanel
@@ -768,6 +774,8 @@ async function activateTab(tab: Tab | null, { reloadCanvas = false } = {}) {
             ? w().klausActivePhotoEditingId
             : tab.kind === 'motion-graphics'
               ? w().klausActiveMotionGraphicsId
+            : tab.kind === 'equity-research'
+              ? w().klausActiveEquityResearchId
               : tab.kind === 'prototype'
                 ? w().klausActivePrototypeId
                 : w().klausActiveVideoEditingId
@@ -800,7 +808,7 @@ async function closeTab(tab: Tab | null) {
   if (!tab || isFixed(tab)) return
   activeScope()
   if (tab.kind === 'canvas') { activationToken++; canvasOpenToken++ }
-  if (tab.kind === 'prototype' || tab.kind === 'video-editing' || tab.kind === 'ppt' || tab.kind === 'design' || tab.kind === 'photo-editing' || tab.kind === 'motion-graphics') activationToken++
+  if (tab.kind === 'prototype' || tab.kind === 'video-editing' || tab.kind === 'ppt' || tab.kind === 'design' || tab.kind === 'photo-editing' || tab.kind === 'motion-graphics' || tab.kind === 'equity-research') activationToken++
   const closingSessionToken = restoreToken
   const left = tab.placement === 'left'
   // Read this BEFORE the surface owner runs: tearing a surface down can move
@@ -876,13 +884,16 @@ async function closeTab(tab: Tab | null) {
       case 'motion-graphics':
         await w().klausCloseMotionGraphicsPanel?.(tab.key)
         break
+      case 'equity-research':
+        await w().klausCloseEquityResearchPanel?.(tab.key)
+        break
       default:
         break
     }
   } finally {
     closingTabId = null
   }
-  if ((tab.kind === 'prototype' || tab.kind === 'video-editing' || tab.kind === 'ppt' || tab.kind === 'design' || tab.kind === 'photo-editing' || tab.kind === 'motion-graphics') && (closingSessionToken !== restoreToken || !tabs.includes(tab))) return
+  if ((tab.kind === 'prototype' || tab.kind === 'video-editing' || tab.kind === 'ppt' || tab.kind === 'design' || tab.kind === 'photo-editing' || tab.kind === 'motion-graphics' || tab.kind === 'equity-research') && (closingSessionToken !== restoreToken || !tabs.includes(tab))) return
   // Surface owners remove their own descriptor as they tear down; anything
   // left (pending placeholders) is dropped here.
   if (find(tab.kind, tab.key)) remove(tab.kind, tab.key)
@@ -1158,6 +1169,10 @@ async function listNativeEditorDocuments(kind: string, sessionId: string): Promi
   if (kind === 'motion-graphics' && typeof klaus?.motionGraphics?.list === 'function') {
     const res = await klaus.motionGraphics.list(sessionId)
     return Array.isArray(res?.motionWorkspaces) ? res.motionWorkspaces : null
+  }
+  if (kind === 'equity-research' && typeof klaus?.equityResearch?.list === 'function') {
+    const res = await klaus.equityResearch.list(sessionId)
+    return Array.isArray(res?.equityWorkspaces) ? res.equityWorkspaces : null
   }
   if (kind === 'prototype' && typeof klaus?.prototype?.list === 'function') {
     const res = await klaus.prototype.list(sessionId)
@@ -1713,6 +1728,14 @@ async function openMotionGraphics({ id, title, sessionId }: { id: string; title?
   return activateTab(tab)
 }
 
+async function openEquityResearch({ id, title, sessionId }: { id: string; title?: string; sessionId: string }) {
+  if (!id || !sessionId || sessionId !== w().getCurrentSessionId?.()) return false
+  const tab = ensure('equity-research', id, { title: title || defaultTitle('equity-research') })
+  if (!tab) return false
+  tab.sessionId = sessionId
+  return activateTab(tab)
+}
+
 function clearVideoEditings() {
   activeScope()
   activationToken++
@@ -1745,6 +1768,13 @@ function clearMotionGraphics() {
   activeScope()
   activationToken++
   for (const tab of [...tabs]) if (tab.kind === 'motion-graphics') remove('motion-graphics', tab.key)
+  publish()
+}
+
+function clearEquityResearches() {
+  activeScope()
+  activationToken++
+  for (const tab of [...tabs]) if (tab.kind === 'equity-research') remove('equity-research', tab.key)
   publish()
 }
 
@@ -1819,6 +1849,8 @@ function onModeChanged(mode: string) {
           ? (w().klausActivePhotoEditingId?.() || '')
         : kind === 'motion-graphics'
           ? (w().klausActiveMotionGraphicsId?.() || '')
+        : kind === 'equity-research'
+          ? (w().klausActiveEquityResearchId?.() || '')
         : ''
   // An owner-published kind is only SELECTED here, never created: entering the
   // mode happens before the surface has anything in it (terminal mode opens,
@@ -1976,6 +2008,7 @@ function HeaderMenu({ id, labelledBy, items, menuRef, onClose }: {
     void w().klausSuspendDesignForOverlay?.()
     void w().klausSuspendPhotoEditingForOverlay?.()
     void w().klausSuspendMotionGraphicsForOverlay?.()
+    void w().klausSuspendEquityResearchForOverlay?.()
     return () => {
       void w().klausResumeBrowserAfterOverlay?.()
       void w().klausResumeCanvasAfterOverlay?.()
@@ -1985,6 +2018,7 @@ function HeaderMenu({ id, labelledBy, items, menuRef, onClose }: {
       void w().klausResumeDesignAfterOverlay?.()
       void w().klausResumePhotoEditingAfterOverlay?.()
       void w().klausResumeMotionGraphicsAfterOverlay?.()
+      void w().klausResumeEquityResearchAfterOverlay?.()
     }
   }, [open])
   return (
@@ -2032,6 +2066,7 @@ function TabContextMenu({ x, y, items, onClose }: { x: number; y: number; items:
     void w().klausSuspendDesignForOverlay?.()
     void w().klausSuspendPhotoEditingForOverlay?.()
     void w().klausSuspendMotionGraphicsForOverlay?.()
+    void w().klausSuspendEquityResearchForOverlay?.()
     const menu = ref.current
     const onPointerDown = (ev: PointerEvent) => { if (menu && !menu.contains(ev.target as Node)) onClose() }
     const onKeyDown = (ev: KeyboardEvent) => { if (ev.key === 'Escape') onClose() }
@@ -2054,6 +2089,7 @@ function TabContextMenu({ x, y, items, onClose }: { x: number; y: number; items:
       void w().klausResumeDesignAfterOverlay?.()
       void w().klausResumePhotoEditingAfterOverlay?.()
       void w().klausResumeMotionGraphicsAfterOverlay?.()
+      void w().klausResumeEquityResearchAfterOverlay?.()
     }
   }, [])
   // Same class as the workspace tab menu so both strips share one visual.
@@ -2401,7 +2437,7 @@ window.addEventListener('klaus:lang-change', () => {
       else if (tab.title === 'Video Editing' || tab.title === '视频剪辑' || tab.title === 'Video') tab.title = defaultTitle('video-editing')
       continue
     }
-    if (tab.kind !== 'browser' && tab.kind !== 'side-task' && tab.kind !== 'subagent' && tab.kind !== 'background-process' && tab.kind !== 'spec' && tab.kind !== 'canvas' && tab.kind !== 'prototype' && tab.kind !== 'ppt' && tab.kind !== 'design' && tab.kind !== 'photo-editing' && tab.kind !== 'motion-graphics') tab.title = defaultTitle(tab.kind)
+    if (tab.kind !== 'browser' && tab.kind !== 'side-task' && tab.kind !== 'subagent' && tab.kind !== 'background-process' && tab.kind !== 'spec' && tab.kind !== 'canvas' && tab.kind !== 'prototype' && tab.kind !== 'ppt' && tab.kind !== 'design' && tab.kind !== 'photo-editing' && tab.kind !== 'motion-graphics' && tab.kind !== 'equity-research') tab.title = defaultTitle(tab.kind)
   }
   langTick++
   publish()
@@ -2462,6 +2498,8 @@ if (maximized) applyMaximized()
   openPhotoEditing,
   clearPhotoEditings,
   openMotionGraphics,
+  openEquityResearch,
   clearMotionGraphics,
+  clearEquityResearches,
   onModeChanged,
 }

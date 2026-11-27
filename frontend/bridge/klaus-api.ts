@@ -712,6 +712,22 @@ expose('klaus', {
     onOpenPanel: (cb: (payload: { requestId?: string; id: string; title?: string; sessionId: string }) => void) =>
       subscribe('motion-graphics:open-panel', cb),
   },
+  equityResearch: {
+    list: (sessionId: string) =>
+      call('equity-research:list', { sessionId }) as Promise<{ equityWorkspaces: { id: string; title: string }[]; error?: string }>,
+    open: (id: string, sessionId: string) =>
+      call('equity-research:open', { id, sessionId }) as Promise<{ ok?: boolean; error?: string }>,
+    openResult: (requestId: string, ok: boolean, error?: string) =>
+      call('equity-research:open-result', { requestId, ok, error }),
+    panelShow: (id: string, sessionId: string, bounds: { x: number; y: number; width: number; height: number }) =>
+      call('equity-research:panel-show', { id, sessionId, bounds }) as Promise<{ ok?: boolean; error?: string }>,
+    panelSetBounds: (bounds: { x: number; y: number; width: number; height: number }) =>
+      call('equity-research:panel-set-bounds', { bounds }) as Promise<{ ok?: boolean; error?: string }>,
+    panelHide: () => call('equity-research:panel-hide'),
+    panelClose: () => call('equity-research:panel-close'),
+    onOpenPanel: (cb: (payload: { requestId?: string; id: string; title?: string; sessionId: string }) => void) =>
+      subscribe('equity-research:open-panel', cb),
+  },
   videoEditing: {
     list: (sessionId: string) =>
       call('video-editing:list', { sessionId }) as Promise<{ videos: { id: string; title: string }[]; error?: string }>,

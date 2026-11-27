@@ -135,6 +135,13 @@ declare global {
     klausActiveMotionGraphicsId?: () => string
     klausSuspendMotionGraphicsForOverlay?: () => Promise<void>
     klausResumeMotionGraphicsAfterOverlay?: () => Promise<void>
+    klausActivateEquityResearchPanel?: AnyFn
+    klausOpenEquityResearchPanel?: (id: string, sessionId?: string) => Promise<boolean>
+    klausHideEquityResearchPanel?: () => Promise<void>
+    klausCloseEquityResearchPanel?: AnyFn
+    klausActiveEquityResearchId?: () => string
+    klausSuspendEquityResearchForOverlay?: () => Promise<void>
+    klausResumeEquityResearchAfterOverlay?: () => Promise<void>
     KlausPanelTabs?: Record<string, AnyFn>
     KlausSideTasks?: Record<string, AnyFn>
     KlausSubagentPanel?: Record<string, AnyFn>

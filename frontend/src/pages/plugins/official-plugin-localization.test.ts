@@ -18,6 +18,7 @@ const OFFICIAL_SLUGS = [
   'iphoneuse',
   'model3d',
   'motion-graphics',
+  'equity-research',
   'photo-editing',
   'ppt',
   'prototype-studio',

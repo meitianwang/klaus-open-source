@@ -6,9 +6,9 @@
     "bridgeDir": "frontend/bridge"
   },
   "summary": {
-    "registeredInvoke": 794,
-    "registeredPush": 87,
-    "roles": 14
+    "registeredInvoke": 802,
+    "registeredPush": 88,
+    "roles": 15
   },
   "pushChannels": [
     "agents:progress",
@@ -50,6 +50,7 @@
     "elicit:request",
     "engine:process-crashed",
     "engine:status",
+    "equity-research:open-panel",
     "feature-gates:updated",
     "friend:access-request",
     "friend:access-resolved",
@@ -411,6 +412,13 @@
         "engine:workspaceFileSearchSessionQuery",
         "engine:workspaceFileSearchSessionStart",
         "engine:workspaceFileSearchSessionStop",
+        "equity-research:list",
+        "equity-research:open",
+        "equity-research:open-result",
+        "equity-research:panel-close",
+        "equity-research:panel-hide",
+        "equity-research:panel-set-bounds",
+        "equity-research:panel-show",
         "external-agent-import:detect",
         "external-agent-import:import",
         "external-agent-import:status",
@@ -943,6 +951,7 @@
         "elicit:request",
         "engine:process-crashed",
         "engine:status",
+        "equity-research:open-panel",
         "feature-gates:updated",
         "friend:access-request",
         "friend:access-resolved",
@@ -1110,6 +1119,16 @@
       "bundle": "bridge/motion-graphics-api.ts",
       "invoke": [
         "motion-graphics:runtime-action"
+      ],
+      "push": []
+    },
+    {
+      "role": "equity-research",
+      "label": "equity-research-panel",
+      "entry": "runtime/dist/index.html",
+      "bundle": "bridge/equity-research-api.ts",
+      "invoke": [
+        "equity-research:runtime-action"
       ],
       "push": []
     },

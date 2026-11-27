@@ -1,7 +1,7 @@
 {
   "summary": {
-    "invokeDeclared": 794,
-    "pushDeclared": 87
+    "invokeDeclared": 802,
+    "pushDeclared": 88
   },
   "rows": [
     {
@@ -1166,6 +1166,38 @@
     },
     {
       "channel": "engine:workspaceFileSearchSessionStop",
+      "kind": "invoke"
+    },
+    {
+      "channel": "equity-research:list",
+      "kind": "invoke"
+    },
+    {
+      "channel": "equity-research:open",
+      "kind": "invoke"
+    },
+    {
+      "channel": "equity-research:open-result",
+      "kind": "invoke"
+    },
+    {
+      "channel": "equity-research:panel-close",
+      "kind": "invoke"
+    },
+    {
+      "channel": "equity-research:panel-hide",
+      "kind": "invoke"
+    },
+    {
+      "channel": "equity-research:panel-set-bounds",
+      "kind": "invoke"
+    },
+    {
+      "channel": "equity-research:panel-show",
+      "kind": "invoke"
+    },
+    {
+      "channel": "equity-research:runtime-action",
       "kind": "invoke"
     },
     {
@@ -3334,6 +3366,10 @@
     },
     {
       "channel": "engine:status",
+      "kind": "push"
+    },
+    {
+      "channel": "equity-research:open-panel",
       "kind": "push"
     },
     {

@@ -65,7 +65,7 @@ import { isTrustedAppUrl } from './trusted-origin';
 import { blocksWidgetFrameNavigation } from './widget-navigation';
 
 /** The window roles, matching the contract's `roles[].role`. */
-export type WindowRoleName = 'main' | 'artifact' | 'quick-input' | 'canvas' | 'prototype' | 'video-editing' | 'ppt' | 'design' | 'photo-editing' | 'motion-graphics' | 'recorder' | 'overlay' | 'pet' | 'voice-chat';
+export type WindowRoleName = 'main' | 'artifact' | 'quick-input' | 'canvas' | 'prototype' | 'video-editing' | 'ppt' | 'design' | 'photo-editing' | 'motion-graphics' | 'equity-research' | 'recorder' | 'overlay' | 'pet' | 'voice-chat';
 
 /**
  * Which bundled preload each role gets.
@@ -93,6 +93,7 @@ const PRELOAD_FOR: Record<WindowRoleName, string | null> = {
   design: 'design.js',
   'photo-editing': 'photo-editing.js',
   'motion-graphics': 'motion-graphics.js',
+  'equity-research': 'equity-research.js',
   recorder: 'recorder.js',
   overlay: null,
   pet: 'pet.js',

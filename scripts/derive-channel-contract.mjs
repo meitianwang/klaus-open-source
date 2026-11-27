@@ -80,7 +80,7 @@ function main() {
   const checkOnly = process.argv.includes('--check');
 
   const called = new Set();
-  for (const name of ['klaus-api.ts', 'artifact-api.ts', 'quick-input-api.ts', 'canvas-api.ts', 'prototype-api.ts', 'video-editing-api.ts', 'ppt-api.ts', 'design-api.ts', 'photo-editing-api.ts', 'motion-graphics-api.ts', 'pet-api.ts', 'voice-chat-api.ts']) {
+  for (const name of ['klaus-api.ts', 'artifact-api.ts', 'quick-input-api.ts', 'canvas-api.ts', 'prototype-api.ts', 'video-editing-api.ts', 'ppt-api.ts', 'design-api.ts', 'photo-editing-api.ts', 'motion-graphics-api.ts', 'equity-research-api.ts', 'pet-api.ts', 'voice-chat-api.ts']) {
     const source = fs.readFileSync(path.join(BRIDGE, name), 'utf8');
     for (const match of source.matchAll(/\b(?:call|post)\(\s*['"]([^'"]+)['"]/g)) called.add(match[1]);
   }
@@ -214,6 +214,16 @@ function main() {
     entry: 'runtime/dist/index.html',
     bundle: 'bridge/motion-graphics-api.ts',
     invoke: [...motionGraphics].filter(channel => invokeSet.has(channel)).sort(),
+    push: [],
+  });
+
+  const equityResearch = channelsIn(path.join(BRIDGE, 'equity-research-api.ts'));
+  roles.push({
+    role: 'equity-research',
+    label: 'equity-research-panel',
+    entry: 'runtime/dist/index.html',
+    bundle: 'bridge/equity-research-api.ts',
+    invoke: [...equityResearch].filter(channel => invokeSet.has(channel)).sort(),
     push: [],
   });
 

@@ -245,6 +245,7 @@ import type { PptChatRequest } from '../../bridge/ppt-api'
 import { initDesignPanel, hideDesignPanel, scheduleDesignBoundsSync, preferredDesignPanelWidth } from './design-panel'
 import { initPhotoEditingPanel, hidePhotoEditingPanel, schedulePhotoEditingBoundsSync, preferredPhotoEditingPanelWidth } from './photo-editing-panel'
 import { initMotionGraphicsPanel, hideMotionGraphicsPanel, scheduleMotionGraphicsBoundsSync, preferredMotionGraphicsPanelWidth } from './motion-graphics-panel'
+import { initEquityResearchPanel, hideEquityResearchPanel, scheduleEquityResearchBoundsSync, preferredEquityResearchPanelWidth } from './equity-research-panel'
 import { createDesignChatConsumer } from './design-chat'
 import type { DesignChatRequest } from '../../bridge/design-api'
 import { initBackgroundProcessMonitor } from './background-process-monitor'
@@ -17848,7 +17849,7 @@ function suspendNativeViewsForUserSubmenu() {
   if (resumeNativeForUserSubmenu) return
   const host = window as unknown as Record<string, (() => Promise<void> | void) | undefined>
   const resumes: Array<() => Promise<void> | void> = []
-  for (const name of ['Browser', 'Canvas', 'Prototype', 'VideoEditing', 'Ppt', 'Design', 'PhotoEditing', 'MotionGraphics']) {
+  for (const name of ['Browser', 'Canvas', 'Prototype', 'VideoEditing', 'Ppt', 'Design', 'PhotoEditing', 'MotionGraphics', 'EquityResearch']) {
     const suspend = host[`klausSuspend${name}ForOverlay`]
     const resume = host[`klausResume${name}AfterOverlay`]
     if (typeof suspend !== 'function' || typeof resume !== 'function') continue
@@ -20051,16 +20052,17 @@ initPptPanel()
 initDesignPanel()
 initPhotoEditingPanel()
 initMotionGraphicsPanel()
+initEquityResearchPanel()
 
 // The panel's modes, in one place. Three separate ternary chains used to spell
 // this list out, and each of them silently coerced any mode it had not been
 // taught to 'monitor' — so adding a surface meant remembering all three or
 // watching the new tab open on the summary instead.
-const PANEL_MODES = new Set(['monitor', 'workspace', 'diff', 'browser', 'terminal', 'digram', 'model3d', 'side-chat', 'subagent', 'background-process', 'spec', 'canvas', 'prototype', 'video-editing', 'ppt', 'design', 'photo-editing', 'motion-graphics', 'planning', 'goal'])
+const PANEL_MODES = new Set(['monitor', 'workspace', 'diff', 'browser', 'terminal', 'digram', 'model3d', 'side-chat', 'subagent', 'background-process', 'spec', 'canvas', 'prototype', 'video-editing', 'ppt', 'design', 'photo-editing', 'motion-graphics', 'equity-research', 'planning', 'goal'])
 // Modes whose open/collapsed state is NOT the summary's persisted preference:
 // they are surfaces the user entered on purpose, so leaving one must not teach
 // the panel to come back collapsed next session.
-const TRANSIENT_PANEL_MODES = new Set(['browser', 'terminal', 'digram', 'model3d', 'side-chat', 'subagent', 'background-process', 'spec', 'canvas', 'prototype', 'video-editing', 'ppt', 'design', 'photo-editing', 'motion-graphics', 'planning', 'goal'])
+const TRANSIENT_PANEL_MODES = new Set(['browser', 'terminal', 'digram', 'model3d', 'side-chat', 'subagent', 'background-process', 'spec', 'canvas', 'prototype', 'video-editing', 'ppt', 'design', 'photo-editing', 'motion-graphics', 'equity-research', 'planning', 'goal'])
 // Modes whose open/collapsed state is NOT the summary's persisted preference:
 // they are surfaces the user entered on purpose, so leaving one must not teach
 // the panel to come back collapsed next session.
@@ -20081,6 +20083,7 @@ function setArtifactsPanelMode(mode: string) {
   if (next !== 'design') void hideDesignPanel()
   if (next !== 'photo-editing') void hidePhotoEditingPanel()
   if (next !== 'motion-graphics') void hideMotionGraphicsPanel()
+  if (next !== 'equity-research') void hideEquityResearchPanel()
   if (next !== 'diff' && !TRANSIENT_PANEL_MODES.has(next)) persistLocalValue(windowStateKey('klaus_artifacts_mode'), next)
   // Whoever moved the panel (tab click, side rail, engine event, restore), the
   // strip follows: the registry re-derives which tab is active from the mode
@@ -20138,6 +20141,11 @@ function openArtifactsPanel(mode: string = 'monitor') {
     const widened = preferredMotionGraphicsPanelWidth(rightPanelRatioToWidth(rightPanelWidthRatio, wsWidth), wsWidth)
     if (widened !== null) setRightPanelWidthPx(widened, { updateRatio: true })
   }
+  if (nextMode === 'equity-research' && !document.body.classList.contains('artifacts-maximized')) {
+    const wsWidth = currentWorkspaceWidth()
+    const widened = preferredEquityResearchPanelWidth(rightPanelRatioToWidth(rightPanelWidthRatio, wsWidth), wsWidth)
+    if (widened !== null) setRightPanelWidthPx(widened, { updateRatio: true })
+  }
   if (nextMode === 'monitor') chatMonitorExpanded = true
   if (nextMode === 'diff') {
     diffFilesPanelCollapsed = false
@@ -20187,6 +20195,7 @@ function closeArtifactsPanel() {
   if (mode === 'design') void hideDesignPanel()
   if (mode === 'photo-editing') void hidePhotoEditingPanel()
   if (mode === 'motion-graphics') void hideMotionGraphicsPanel()
+  if (mode === 'equity-research') void hideEquityResearchPanel()
   if (mode === 'terminal') setTerminalOpen(false)
   syncArtifactsToggleVisibility()
 }
@@ -20251,6 +20260,7 @@ window.klausOnArtifactsLayoutChange = () => {
   scheduleDesignBoundsSync()
   schedulePhotoEditingBoundsSync()
   scheduleMotionGraphicsBoundsSync()
+  scheduleEquityResearchBoundsSync()
   scheduleTerminalResize()
 }
 artifactsToggleBtnInner?.addEventListener('click', closeArtifactsPanel)
@@ -20270,6 +20280,7 @@ function hideArtifactsPanelForNonChatView() {
   void hideDesignPanel()
   void hidePhotoEditingPanel()
   void hideMotionGraphicsPanel()
+  void hideEquityResearchPanel()
   artifactsPanel.classList.add('collapsed')
   syncArtifactsToggleVisibility()
 }
