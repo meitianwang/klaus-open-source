@@ -1,3 +1,4 @@
+import { kvGet } from '../services/settings';
 import { BaseWindow, Menu, WebContentsView, session as electronSession, shell, type BrowserWindow, type Session, type WebContents } from 'electron';
 import { existsSync, mkdirSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -763,8 +764,42 @@ export class BrowserManager {
       const template: Electron.MenuItemConstructorOptions[] = [];
       if (params.isEditable) template.push({ role: 'cut' }, { role: 'copy' }, { role: 'paste' }, { role: 'selectAll' });
       else if (params.selectionText) template.push({ role: 'copy' });
+      const selected = params.selectionText?.trim();
+      if (selected) template.splice(params.isEditable ? 2 : 1, 0, { id: 'browser-add-to-chat', label: kvGet('language', this.options.configRoot) === 'zh' ? '添加到会话' : 'Add to chat', click: () => { void this.quoteSelection(page, selected); } });
       if (template.length) Menu.buildFromTemplate(template).popup({ window: this.options.window });
     });
+  }
+
+  private async quoteSelection(page: BrowserPage, text: string): Promise<void> {
+    if (!this.alive(page) || this.shown !== page) return;
+    const contents = page.view.webContents, url = contents.getURL(), title = contents.getTitle();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    let meta: { section?: string; selector?: string } | undefined;
+    try {
+      const result: unknown = await Promise.race([
+        contents.mainFrame.executeJavaScript(`(() => {
+          const node = window.getSelection()?.anchorNode;
+          const el = node?.nodeType === 1 ? node : node?.parentElement;
+          if (!el) return null;
+          const path = [];
+          for (let item = el; item && path.length < 4; item = item.parentElement) {
+            path.unshift(item.localName + (item.id ? '#' + CSS.escape(item.id) : '') + [...item.classList].slice(0, 2).map(c => '.' + CSS.escape(c)).join(''));
+          }
+          let heading = el.closest('h1,h2,h3,h4,h5,h6');
+          if (!heading) for (const candidate of document.querySelectorAll('h1,h2,h3,h4,h5,h6')) {
+            if (candidate.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING) heading = candidate;
+          }
+          return { section: heading?.textContent?.trim().slice(0, 200), selector: path.join(' > ').slice(0, 300) };
+        })()`),
+        new Promise(resolve => { timer = setTimeout(resolve, 200); }),
+      ]);
+      if (result && typeof result === 'object') {
+        const value = result as Record<string, unknown>;
+        meta = { section: typeof value.section === 'string' ? value.section.slice(0, 200) : undefined, selector: typeof value.selector === 'string' ? value.selector.slice(0, 300) : undefined };
+      }
+    } catch {} finally { clearTimeout(timer); }
+    if (this.disposed || !this.alive(page) || this.shown !== page || contents.getURL() !== url) return;
+    this.options.emit('browser-use:state', json({ ...this.state(), quoteSelection: { id: randomUUID(), sessionId: page.owner, text, url, title, ...meta } }));
   }
 
   private isHistoryUrl(url: string): boolean {

@@ -1,7 +1,7 @@
 import { fileIconName } from './file-icon-name'
 import { afterAll, beforeAll, expect, test } from 'bun:test'
 import { I18N } from '../i18n/messages'
-import { mountOfficeViewer } from './workspace-office-viewer'
+import { mountOfficeViewer, officeSheetQuote } from './workspace-office-viewer'
 
 class Element {
   parent?: Element
@@ -124,6 +124,7 @@ test('documents display headings, merged cells, safe images and external links',
     { kind: 'table', rows: [{ cells: [{ rowSpan: 2, colSpan: 3, blocks: [] }] }] },
   ] }, { openExternal: url => links.push(url) })
   expect(host.all('h1')).toHaveLength(1)
+  expect(host.all('p')[0]?.attributes).toMatchObject({ 'data-doc-section': 'Heading', 'data-doc-paragraph': '2' })
   expect(host.all('span').map(e => e.textContent)).toContain('• ')
   expect(host.all('td').map(e => [e.rowSpan, e.colSpan])).toEqual([[2, 3]])
   expect(host.all('img').map(e => e.src)).toEqual(['data:image/png;base64,AAAA', '', ''])
@@ -139,6 +140,7 @@ test('presentation positions and crops elements in percentages and navigates sli
   ] })
   const has = (text: string) => host.all().some(e => e.textContent === text)
   expect(has('Slide 1')).toBe(true)
+  expect(host.all('article').map(node => node.attributes['data-slide-number'])).toEqual(['1', '2'])
   expect(host.all().find(e => e.style.left === '10%')?.style.width).toBe('30%')
   expect(host.all('img')[0]!.style.width).toBe('200%')
   expect(has('Note text')).toBe(true)
@@ -161,6 +163,7 @@ test('Office errors show localized fallback messages', () => {
 test('PDF previews show page text, empty state, and localized errors', () => {
   const host = new Element('host')
   mountOfficeViewer(container(host), { kind: 'pdf', pageCount: 2, pages: [1, 2].map(index => ({ index, blocks: [{ kind: 'paragraph', runs: [{ text: `Text ${index}` }] }] })) })
+  expect(host.all('article').map(node => node.attributes['data-pdf-page'])).toEqual(['1', '2'])
   const texts = () => host.all().map(node => node.textContent)
   for (const value of ['Page 1', 'Text 1', 'Page 2', 'Text 2']) expect(texts()).toContain(value)
   mountOfficeViewer(container(host), { kind: 'pdf', pageCount: 0, pages: [] })
@@ -302,4 +305,16 @@ test('editable document, presentation, and XMind mindmap editors mutate structur
   }
   await mindHandle.save()
   expect(savedMind).toBe(true)
+})
+
+
+test('spreadsheet quote expands a reverse rectangular selection through merged cells and grounds values', () => {
+  const sheet = { name: 'Data', totalRows: 5, totalCols: 5, renderedRows: 5, renderedCols: 5, cells: [
+    { r: 0, c: 1, v: 'Revenue' }, { r: 0, c: 2, v: 'Cost' },
+    { r: 1, c: 1, v: '10', f: 'SUM(A1:A2)' }, { r: 2, c: 2, v: '7', cs: 2 },
+  ] }
+  expect(officeSheetQuote(sheet, 2, 2, 1, 1)).toMatchObject({
+    cellRange: 'B2:D3', text: '10\t\t\n\t7\t', columnHeaders: 'B="Revenue", C="Cost"', formulas: 'B2==SUM(A1:A2)',
+  })
+  expect(officeSheetQuote(sheet, 4, 4, 4, 4).text).toBe('(E5 empty)')
 })

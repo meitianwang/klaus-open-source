@@ -22,7 +22,9 @@ export { noteBrowserPanelManualResize, reclampBrowserAutoWidth }
 // ---- window.klaus 最小面（bridge 无导出类型，结构化声明本域用到的通道） ----
 interface BrowserBounds { x: number; y: number; width: number; height: number }
 interface BrowserTabInfo { id: string; title?: string; url?: string; active?: boolean; loading?: boolean }
+let lastHandledBrowserQuoteId: string | undefined
 interface BrowserUseState {
+  quoteSelection?: { id: string; sessionId: string; text: string; url: string; title: string; section?: string; selector?: string }
   conversationId?: string
   focusRevision?: number
   enabled?: boolean
@@ -197,6 +199,11 @@ export function isBrowserPanelVisible(): boolean {
 
 export function updateBrowserPanelState(state: BrowserUseState | null = browserState): boolean {
   if (state && !acceptBrowserViewState(state)) return false
+  const q = state?.quoteSelection
+  if (q && q.id !== lastHandledBrowserQuoteId && q.sessionId === (window.currentSessionId || 'manual')) {
+    lastHandledBrowserQuoteId = q.id
+    window.klausQuoteAddToChat?.(q.text, { source: { kind: 'web', url: q.url, title: q.title, section: q.section, selector: q.selector } })
+  }
   if (state && (state.tabId !== browserState?.tabId || state.conversationId !== browserState?.conversationId)) {
     clearBrowserOverlaySnapshot()
   }

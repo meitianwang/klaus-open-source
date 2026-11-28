@@ -12,7 +12,7 @@ import type { DiffFile, DiffSource } from './store'
 import { ChangeStats, FileFilter, MenuItem, ReviewIcon, ReviewMenu } from './review-controls'
 import { ReviewFile, type ReviewAction } from './review-file'
 import { ReviewTree } from './review-tree'
-import { commentFeedback, readComments, writeComments, type ReviewComment } from './review-feedback'
+import { commentFeedback, reviewCommentQuoteItems, readComments, writeComments, type ReviewComment } from './review-feedback'
 import styles from './diff.module.css'
 
 const w = () => window as any
@@ -146,8 +146,11 @@ function ReviewBody({ scope }: { scope: string }) {
   const allCollapsed = all.length > 0 && all.every(file => state.collapsedPaths.has(fileKey(file)))
   const submitFeedback = () => {
     const owner = state.ownerSessionId ?? w().getCurrentSessionId?.()
-    const text = commentFeedback(comments, t('changes_feedback_heading'))
-    if (!w().klausComposer?.appendReviewFeedback?.(text, owner)) { w().showToast?.(t('changes_feedback_stale')); return }
+    const composer = w().klausComposer
+    const accepted = composer?.appendReviewComments
+      ? composer.appendReviewComments(reviewCommentQuoteItems(comments, state.summary?.root), owner)
+      : composer?.appendReviewFeedback?.(commentFeedback(comments, t('changes_feedback_heading')), owner)
+    if (!accepted) { w().showToast?.(t('changes_feedback_stale')); return }
     updateComments([])
   }
   return <div ref={shell} className={styles['review-shell']} aria-label={t('diff_view_title')} aria-busy={state.loading || mutating}>

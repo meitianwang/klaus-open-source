@@ -11742,3 +11742,43 @@ html[data-reading-mode="efficient"] :is(#side-input-wrapper, #left-side-input-wr
 
 html[data-reading-mode="efficient"] .msg-group.user { padding: 8px 0 2px; }
 html[data-reading-mode="efficient"] .msg-group.assistant { padding: 2px 0; }
+
+.kls-panel-quote-toolbar {
+  position: fixed;
+  z-index: 10020;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  max-width: calc(100vw - 16px);
+  box-sizing: border-box;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  box-shadow: var(--shadow-md);
+}
+.kls-panel-quote-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg-secondary);
+  font: 500 12.5px/16px var(--font);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.kls-panel-quote-btn:hover, .kls-panel-quote-btn:focus-visible {
+  background: var(--bg-hover);
+  color: var(--fg);
+}
+.kls-panel-quote-divider {
+  flex: 0 0 1px;
+  height: 14px;
+  background: var(--border-subtle);
+}
+.workspace-context-menu.kls-panel-quote-menu { z-index: 10021; }
+.kls-panel-quote-menu .workspace-context-menu-item { justify-content: flex-start; gap: 6px; }
+.kls-panel-quote-btn svg, .kls-panel-quote-menu svg { width: 14px; height: 14px; flex: none; }

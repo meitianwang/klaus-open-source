@@ -474,6 +474,7 @@ async function renderOfficePreview(payload: OfficePreviewPayload) {
   bodyEl.replaceChildren()
   const editable = kind === 'artifact' && payload.kind !== 'pdf' && payload.kind !== 'error'
   mountedOffice = mountOfficeViewer(bodyEl, payload, {
+    filePath,
     translate: (key, vars) => text(key, key, vars),
     editable,
     canSaveInPlace: officeWritable,

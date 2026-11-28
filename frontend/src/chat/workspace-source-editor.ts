@@ -1,3 +1,5 @@
+import { attachPanelQuoteToolbar, openShadowRoots, panelDomSelection } from './panel-quote-toolbar'
+import { writeClipboardText } from '../clipboard'
 import { CodeView, type CodeViewFileItem, type CodeViewOptions } from '@pierre/diffs'
 import { Editor, type EditState, type EditorOptions } from '@pierre/diffs/edit'
 import styles from './workspace-source-editor.module.css'
@@ -11,11 +13,21 @@ export interface SourceEditorSnapshot {
 export interface SourceEditorOptions {
   parent: HTMLElement
   path: string
+  quoteKind?: 'code' | 'markdown'
   content: string
   readOnly: boolean
   initialState?: SourceEditorSnapshot
   onChange(content: string): void
   onSave(): void | Promise<unknown>
+}
+
+type CodePoint = { line: number; character: number }
+export function sourceQuoteRange(value: string, start: CodePoint, end: CodePoint) {
+  if (start.line > end.line || (start.line === end.line && start.character > end.character)) [start, end] = [end, start]
+  const lines = value.split('\n')
+  const offset = ({ line, character }: CodePoint) => lines.slice(0, line).reduce((total, row) => total + row.length + 1, character)
+  return { text: value.slice(offset(start), offset(end)), startLine: start.line + 1,
+    endLine: end.character === 0 && end.line > start.line ? end.line : end.line + 1 }
 }
 
 /** A virtualized code viewer and an editor share one syntax-highlighted surface. */
@@ -133,6 +145,45 @@ export function createSourceEditor(options: SourceEditorOptions) {
     }
   }
   host.addEventListener('keydown', onKeyDown, true)
+  const quoteSource = (value: string, startLine?: number, endLine?: number) => {
+    const kind = options.quoteKind || 'code'
+    const rows = kind === 'markdown' && startLine ? value.split('\n').slice(0, startLine).reverse() : []
+    const section = rows.map(row => /^#{1,6}\s+(.+?)\s*#*$/.exec(row)?.[1]?.trim()).find(Boolean)
+    return { kind, path: options.path, startLine, endLine, ...(section ? { section } : {}) }
+  }
+  const quote = attachPanelQuoteToolbar(host, {
+    canClearSelection: () => readOnly,
+    copySelection: text => { void writeClipboardText(text).catch(() => {}) },
+    resolveCurrent() {
+      if (readOnly || !attached || !editor) return null
+      const selected = editor.getViewState().selections?.find(({ start, end }) => start.line !== end.line || start.character !== end.character)
+      if (!selected) return null
+      const { text, startLine, endLine } = sourceQuoteRange(editor.getText(), selected.start, selected.end)
+      const domRect = panelDomSelection(host)?.range.getBoundingClientRect()
+      const line = [host, ...openShadowRoots(host)].map(root => root.querySelector(`[data-line="${startLine}"]`)).find(Boolean)
+      return { text, source: quoteSource(editor.getText(), startLine, endLine),
+        anchorRect: domRect && (domRect.width || domRect.height) ? domRect : line?.getBoundingClientRect() || host.getBoundingClientRect() }
+    },
+    resolveSelection(_selection, range) {
+      const line = (node: Node) => {
+        const row = (node.nodeType === Node.ELEMENT_NODE ? node as Element : node.parentElement)?.closest('[data-line], [data-line-number]')
+        return row
+      }
+      const start = line(range.startContainer), end = line(range.endContainer)
+      const number = (row: Element | null | undefined) => Number(row?.getAttribute('data-line') || row?.getAttribute('data-line-number')) || undefined
+      const startLine = number(start), endLine = number(end)
+      if (!start || !end || !startLine || !endLine) return { text: range.toString(), source: quoteSource(content, startLine, endLine) }
+      const offset = (row: Element, node: Node, index: number) => {
+        const prefix = row.ownerDocument.createRange()
+        prefix.selectNodeContents(row)
+        prefix.setEnd(node, index)
+        return prefix.toString().length
+      }
+      const result = sourceQuoteRange(content, { line: startLine - 1, character: offset(start, range.startContainer, range.startOffset) },
+        { line: endLine - 1, character: offset(end, range.endContainer, range.endOffset) })
+      return { text: result.text, source: quoteSource(content, result.startLine, result.endLine) }
+    },
+  })
   return {
     getContent: () => editor?.getText() ?? content,
     updateContent(next: string) {
@@ -178,6 +229,7 @@ export function createSourceEditor(options: SourceEditorOptions) {
     destroy() {
       if (disposed) return
       disposed = true
+      quote()
       themeObserver.disconnect()
       for (const observer of surfaceObservers.values()) observer.disconnect()
       host.removeEventListener('keydown', onKeyDown, true)

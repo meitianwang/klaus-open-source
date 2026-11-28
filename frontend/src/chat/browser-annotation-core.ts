@@ -1,3 +1,4 @@
+import type { QuoteSourceMetadata } from './selected-text-envelope'
 import type { PendingFileEntry } from './engine-events'
 
 export type BrowserAnnotationScreenshotMode = 'always' | 'necessary'
@@ -63,6 +64,7 @@ export interface BrowserAnnotationSelection {
 
 export interface BrowserAnnotationComposerPayload {
   text: string
+  source?: QuoteSourceMetadata
   attachment: PendingFileEntry
 }
 
@@ -202,6 +204,7 @@ export function finalizeBrowserAnnotation(
   return {
     text: buildBrowserAnnotationText(selection),
     attachment: browserAnnotationAttachment(saved),
+    source: { kind: 'web', url: selection.snapshot.url, title: selection.snapshot.title, selector: selection.anchor.kind === 'element' ? selection.anchor.selector : undefined, annotation: selection.note.trim() },
   }
 }
 

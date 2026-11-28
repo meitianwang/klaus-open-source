@@ -194,7 +194,8 @@ declare global {
     klausSideSurfaceSessionId?: () => string | null
     klausStopVoiceChatForSession?: (sessionId: string) => Promise<void>
     /** 选区引用浮层（transcript/quote-selection.tsx）：主转录选中 → 主 composer。 */
-    klausQuoteAddToChat?: (text: string, requestOffset?: number) => void
+    __KLAUS_PANEL_QUOTE_PDF__?: (selection: { text: string; frameUrl: string }) => Promise<void>
+    klausQuoteAddToChat?: (text: string, options?: import('../chat/selected-text-envelope').QuoteAddOptions) => void
     klausPastedTextAddToChat?: (text: string, reference?: { path?: string; preview?: string; characterCount?: number }) => void
     klausDisplayCardsAddToChat?: (selectedTextAttachments: unknown[], pastedCards: unknown[]) => void
     /**

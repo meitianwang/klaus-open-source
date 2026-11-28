@@ -1,3 +1,4 @@
+import { findPdfQuotePage } from './workspace-pdf-quote'
 import { parseDelimitedSpreadsheet, serializeDelimitedSpreadsheet } from '../../../contracts/office-formula'
 import { isInPlaceWritableOfficeExtension, isRecognizedUnsupportedMediaExtension, isTextSpreadsheetExtension, type OfficePreviewPayload } from '../../../contracts/office-preview'
 import type { WorkspaceOfficeViewState, mountOfficeViewer } from './workspace-office-viewer'
@@ -519,7 +520,8 @@ function syncWorkspaceFileViewToggle() {
   workspaceFileViewSourceBtn?.setAttribute('aria-label', tt(spreadsheetText ? 'office_preview_view_source' : 'artifacts_view_source'))
   workspaceFileViewPreviewBtn?.setAttribute('aria-pressed', previewActive ? 'true' : 'false')
   workspaceFileViewSourceBtn?.setAttribute('aria-pressed', sourceActive ? 'true' : 'false')
-  const markdown = workspaceIsMarkdown(workspaceFileContentPath)
+  const pdf = getActiveWorkspaceTab()?.directKind === 'pdf'
+  const markdown = pdf || workspaceIsMarkdown(workspaceFileContentPath)
   workspaceFileViewToggle.classList.toggle('is-document-toggle', markdown)
   if (markdown) {
     const active = previewActive ? workspaceFileViewSourceBtn : workspaceFileViewPreviewBtn
@@ -527,7 +529,7 @@ function syncWorkspaceFileViewToggle() {
     inactive?.setAttribute('hidden', '')
     active?.removeAttribute('hidden')
     if (active) {
-      const label = tt(previewActive ? 'workspace_file_view_source' : 'workspace_file_view_preview')
+      const label = tt(pdf ? (previewActive ? 'panel_pdf_text_view' : 'panel_pdf_page_view') : (previewActive ? 'workspace_file_view_source' : 'workspace_file_view_preview'))
       active.textContent = label
       active.setAttribute('aria-label', label)
     }
@@ -745,8 +747,8 @@ function resolveWorkspaceLocalResourcePath(baseFile: string, ref: string) {
 function syncWorkspaceActiveTabGlobals(tab: WorkspaceTab | null) {
   workspaceFilePreviewPath = tab?.imageSource ? tab.imageSource.path || '' : tab?.path || ''
   workspaceFileContent = tab ? (tab.draftContent || '') : ''
-  workspaceFileContentPath = tab && !tab.imageSource && !tab.directKind && tab.loaded && !tab.error ? tab.path : ''
-  workspaceFileCanPreview = !!tab?.canPreview && !tab.office
+  workspaceFileContentPath = tab && !tab.imageSource && (!tab.directKind || tab.directKind === 'pdf' && tab.viewMode === 'source') && tab.loaded && !tab.error ? tab.path : ''
+  workspaceFileCanPreview = tab?.directKind === 'pdf' || (!!tab?.canPreview && !tab.office)
   workspaceFileViewMode = tab?.viewMode || 'source'
   syncWorkspaceFileViewToggle()
 }
@@ -755,7 +757,7 @@ function updateWorkspaceFileChromeForTab(tab: WorkspaceTab | null) {
   if (!tab) return
   showWorkspaceFileShell(tab.path)
   if (tab.office) {
-    if (workspaceFileViewToggle) workspaceFileViewToggle.hidden = true
+    if (workspaceFileViewToggle && tab.directKind !== 'pdf') workspaceFileViewToggle.hidden = true
     if (workspaceFileZoomControls) workspaceFileZoomControls.hidden = true
   }
   workspaceFileCopyBtn?.setAttribute('aria-label', tt(tab.imageSource ? 'image_copy' : 'artifacts_copy_path'))
@@ -1130,6 +1132,7 @@ async function renderWorkspaceTextEditor(tab: WorkspaceTab, mode: 'source' | 'pr
       const { createMarkdownEditor } = await import('./workspace-markdown-editor')
       if (stale()) return
       const handle = createMarkdownEditor({
+        path: tab.path,
         parent: workspaceFileBody,
         content: tab.draftContent,
         readOnly: !workspaceTabIsEditable(tab),
@@ -1163,6 +1166,7 @@ async function renderWorkspaceTextEditor(tab: WorkspaceTab, mode: 'source' | 'pr
       const { createSourceEditor } = await import('./workspace-source-editor')
       if (stale()) return
       const handle = createSourceEditor({ parent: workspaceFileBody, path: tab.path, content: tab.draftContent,
+        quoteKind: workspaceIsMarkdown(tab.path) ? 'markdown' : 'code',
         readOnly: !workspaceTabIsEditable(tab), initialState: state.source, onChange, onSave })
       workspaceMountedEditor = { tab, mode, handle, capture() { state.source = handle.snapshot() } }
     }
@@ -1254,6 +1258,7 @@ async function renderWorkspaceFileHtmlPreview(filePath: string, forceReload = fa
   wrap.className = styles['workspace-file-html-preview']
   const frame = document.createElement('iframe')
   frame.setAttribute('aria-label', workspaceBaseName(filePath))
+  // Opaque previews never expose their DOM; quote the HTML in Source view.
   frame.setAttribute('sandbox', 'allow-scripts')
   frame.setAttribute('referrerpolicy', 'no-referrer')
   wrap.appendChild(frame)
@@ -1302,7 +1307,7 @@ function renderWorkspaceFileContent(reloadMedia = false) {
       const state = workspaceOfficeStates.get(activeTab) ?? {}
       workspaceOfficeStates.set(activeTab, state)
       const handle = mountOfficeViewer(host, payload, {
-        state, translate: tt,
+        state, translate: tt, filePath: activeTab.path,
         editable: payload.kind !== 'pdf' && payload.kind !== 'error',
         canSaveInPlace,
         singleSheet: workspaceIsSpreadsheetText(activeTab.path),
@@ -1517,6 +1522,8 @@ export async function loadWorkspaceFile(filePath: string, { force = false, reloa
   if (!force && tab.loaded && !tab.loading) {
     if (tab.error) {
       renderWorkspaceFileMessage(tab.error)
+    } else if (tab.directKind === 'pdf' && tab.viewMode === 'source') {
+      await renderWorkspacePdfText(tab, requestSessionId)
     } else if (tab.directKind) {
       renderWorkspaceFileMedia(tab.mediaUrl, tab.directKind, tab.path, tab, false)
     } else {
@@ -1573,6 +1580,7 @@ export async function loadWorkspaceFile(filePath: string, { force = false, reloa
         return
       }
       tab.office = null
+      if (directKind === 'pdf' && tab.directKind !== 'pdf') tab.viewMode = 'preview'
       tab.directKind = directKind
       tab.mediaUrl = data.url
       tab.binary = false
@@ -1581,7 +1589,8 @@ export async function loadWorkspaceFile(filePath: string, { force = false, reloa
       tab.loaded = true
       syncWorkspaceActiveTabGlobals(tab)
       updateWorkspaceFileChromeForTab(tab)
-      renderWorkspaceFileMedia(tab.mediaUrl, tab.directKind, tab.path, tab, reloadMedia)
+      if (tab.directKind === 'pdf' && tab.viewMode === 'source') await renderWorkspacePdfText(tab, requestSessionId)
+      else renderWorkspaceFileMedia(tab.mediaUrl, tab.directKind, tab.path, tab, reloadMedia)
       return
     }
     const documentRevision = workspaceDocumentRevisions.get(tab) ?? 0
@@ -1791,9 +1800,40 @@ workspaceFileRevealBtn?.addEventListener('click', async () => {
   const res = await klausApi().workspace.reveal(activeWorkspaceScopeId(), getActiveWorkspaceTab()?.previewPath || workspaceFilePreviewPath).catch((err: unknown) => ({ ok: false as const, path: undefined, error: String(err) }))
   if (res?.error) await klausDialog().alert(res.error || tt('workspace_reveal_failed'))
 })
+async function readWorkspacePdf(tab: WorkspaceTab, owner: string) {
+  if (tab.office?.kind === 'pdf' || tab.office?.kind === 'error') return tab.office
+  const result = await klausApi().artifacts.read(owner, tab.previewPath || tab.path)
+  const office = result?.office as OfficePreviewPayload | undefined
+  if (office?.kind === 'pdf' || office?.kind === 'error') return tab.office = office
+  return null
+}
+
+async function renderWorkspacePdfText(tab: WorkspaceTab, owner: string) {
+  const isCurrent = () => owner === activeWorkspaceScopeId() && tab === getActiveWorkspaceTab() && tab.viewMode === 'source'
+  if (!tab.office) renderWorkspaceFileMessage(tt('artifacts_loading'))
+  const office = await readWorkspacePdf(tab, owner).catch(() => null)
+  if (!isCurrent()) return
+  if (office) renderWorkspaceFileContent()
+  else renderWorkspaceFileMessage(tt('artifacts_load_failed'))
+}
+
+window.__KLAUS_PANEL_QUOTE_PDF__ = async ({ text, frameUrl }) => {
+  const scope = activeWorkspaceScopeId()
+  const exact = [...workspaceOpenTabs].find(([, tabs]) => tabs.some(tab => tab.directKind === 'pdf' && tab.mediaUrl === frameUrl))
+  const active = getActiveWorkspaceTab()
+  const tab = exact?.[1].find(tab => tab.directKind === 'pdf' && tab.mediaUrl === frameUrl)
+    || (!frameUrl.startsWith('blob:') && active && (active.directKind === 'pdf' || workspaceFileExt(active.path) === 'pdf') ? active : null)
+  const owner = exact?.[0] || scope
+  const office = tab && owner ? await readWorkspacePdf(tab, owner).catch(() => null) : null
+  if (scope !== activeWorkspaceScopeId()) return
+  const page = office?.kind === 'pdf' ? findPdfQuotePage(office, text) : undefined
+  window.klausQuoteAddToChat?.(text, { source: { kind: 'pdf', path: tab?.path, title: tab ? undefined : 'PDF',
+    ...(page && office?.kind === 'pdf' ? { page, totalPages: office.pageCount || office.pages.length } : {}) } })
+}
+
 async function setWorkspaceFileView(next: 'source' | 'preview') {
   const tab = getActiveWorkspaceTab()
-  const canPreview = !!tab?.canPreview || workspaceFileCanPreview
+  const canPreview = tab?.directKind === 'pdf' || !!tab?.canPreview || workspaceFileCanPreview
   const target = canPreview && next === 'preview' ? 'preview' : 'source'
   if (target === workspaceFileViewMode) return
   const owner = activeWorkspaceScopeId()
@@ -1807,6 +1847,12 @@ async function setWorkspaceFileView(next: 'source' | 'preview') {
   if (tab) tab.viewMode = target
   workspaceFileViewMode = target
   syncWorkspaceFileViewToggle()
+  if (tab?.directKind === 'pdf' && owner) {
+    syncWorkspaceActiveTabGlobals(tab)
+    if (target === 'preview') renderWorkspaceFileMedia(tab.mediaUrl, tab.directKind, tab.path, tab, false)
+    else await renderWorkspacePdfText(tab, owner)
+    return
+  }
   if (!workspaceFileContentPath) return
   syncWorkspaceActiveTabGlobals(tab)
   renderWorkspaceFileContent()

@@ -15,7 +15,7 @@ import { deviceNameForHost, localDeviceId } from '../device-names'
 import { activityToolIconName } from './activity-tool-model'
 import { renderMarkdownHtml } from '../markdown'
 import { delegationDisplayAttachments, parseDelegationEnvelope, type DelegationAttachment } from '../../../../contracts/thread-delegation'
-import { parseSelectedTextEnvelope } from '../selected-text-envelope'
+import { parseSelectedTextEnvelope, formatQuoteChipLabel, formatQuoteReaderText, quoteSourceIconName } from '../selected-text-envelope'
 import { stripGoalImageReferences } from '../goals/goal-image-references'
 import { formatWorkflowDuration, type GoalCompletionSummary } from './goal-completion'
 import { pastedCardPreview, parsePastedReferenceSection, pastedTextPreview } from '../composer/pasted-text'
@@ -430,15 +430,15 @@ export function renderSentPastedCardHtml(card: any): string {
 }
 
 export function renderSentQuoteCardHtml(card: any, inline = false): string {
-  const preview = card?.previewText || pastedTextPreview(card?.text || '')
+  const preview = card?.previewText || (card?.source ? formatQuoteChipLabel(card.source, card.text || '', window.currentLang) : pastedTextPreview(card?.text || ''))
   if (!preview) return ''
-  const fullText = String(card?.text || preview)
+  const fullText = formatQuoteReaderText(card?.source, String(card?.text || preview))
   // Single-line HTML: see renderSentPastedCardHtml — pre-wrap bubbles render
   // template indentation around an inline chip as visible line breaks.
   // The hover title carries the full quoted text: the chip truncates it, and
   // reading it must not require opening the click-through dialog.
   return `<button type="button" class="kls-attach-chip is-quote${inline || Number.isInteger(card?.requestOffset) ? ' is-inline' : ''}" title="${escapeHtml(fullText)}" data-user-quote="${escapeHtml(fullText)}" aria-label="${escapeHtml(`${tGlobal('quoted_text_badge') || 'QUOTE'}: ${preview}`)}">`
-    + `<span class="kls-attach-chip-icon">${rawIconHtml('quoted-text')}</span>`
+    + `<span class="kls-attach-chip-icon">${rawIconHtml(quoteSourceIconName(card?.source))}</span>`
     + `<span class="kls-attach-chip-name">${escapeHtml(preview)}</span>`
     + `</button>`
 }

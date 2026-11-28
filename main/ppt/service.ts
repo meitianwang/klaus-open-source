@@ -1,4 +1,4 @@
-import { app, dialog, MessageChannelMain, session, shell, WebContentsView, type BrowserWindow, type Session, type DownloadItem } from 'electron';
+import { app, dialog, Menu, MessageChannelMain, session, shell, WebContentsView, type BrowserWindow, type Session, type DownloadItem } from 'electron';
 import { createHash, randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, realpathSync, statSync, writeFileSync } from 'node:fs';
 import { basename, extname, isAbsolute, join } from 'node:path';
@@ -389,6 +389,19 @@ export class PptService {
     const editor: Editor = { owner, id, window: this.hostWindow(owner), view, partition, locale: this.appLanguage(), loading: Promise.resolve() };
     this.editors.set(key, editor);
     this.options.registerRenderer(view.webContents.id, 'ppt');
+    view.webContents.on('context-menu', (_event, params) => {
+      const selected = params.selectionText?.trim();
+      const windowId = this.windowId(editor.window);
+      if (!selected || this.active.get(windowId) !== editor || !view.getVisible()) return;
+      const zh = this.appLanguage().startsWith('zh');
+      Menu.buildFromTemplate([{ role: 'copy', label: zh ? '复制' : 'Copy' }, {
+        id: 'ppt-add-to-chat', label: zh ? '添加到会话' : 'Add to chat', click: () => {
+          if (this.active.get(windowId) !== editor || view.webContents.isDestroyed() || !view.getVisible()) return;
+          this.options.emit('ppt:chat-request', { requestId: randomUUID(), sessionId: owner, id, text: selected, submit: false, acknowledge: false,
+            quote: { text: selected, source: { kind: 'ppt', presentationId: id, title: this.store.get(owner, id).title } } }, windowId);
+        },
+      }]).popup({ window: editor.window });
+    });
     view.webContents.on('will-navigate', (event, destination) => { if (destination !== url) event.preventDefault(); });
     view.webContents.on('will-redirect', event => { if (event.isMainFrame) event.preventDefault(); });
     view.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:\/\//.test(url)) void shell.openExternal(url); return { action: 'deny' }; });
@@ -649,7 +662,15 @@ export class PptService {
     }
     const requestId = randomUUID();
     const result = new Promise<Data>(resolve => { this.openRequests.set(requestId, { windowId: this.windowId(editor.window), resolve, timer: setTimeout(() => { this.openRequests.delete(requestId); resolve({ ok: false, error: 'The chat did not acknowledge the presentation request.' }); }, 60_000) }); });
-    this.options.emit('ppt:chat-request', { requestId, sessionId: editor.owner, id: editor.id, text: promptText, submit: args.deliver === 'send' }, this.windowId(editor.window));
+    const positive = (value: unknown) => typeof value === 'number' && Number.isSafeInteger(value) && value > 0 ? value : undefined;
+    const slide = positive(data.slideNumber) ?? (typeof data.slideIndex === 'number' ? positive(data.slideIndex + 1) : undefined);
+    const totalSlides = positive(data.totalSlides);
+    const quote = args.deliver === 'stage' ? {
+      text: (typeof data.selectedText === 'string' && data.selectedText.trim()) || (typeof data.request === 'string' && data.request.trim()) || promptText,
+      source: { kind: 'ppt', presentationId: editor.id, title: typeof data.title === 'string' ? data.title : this.store.get(editor.owner, editor.id).title,
+        ...(slide ? { slide } : {}), ...(totalSlides ? { totalSlides } : {}), ...(typeof data.elementLabel === 'string' ? { elementLabel: data.elementLabel } : {}) },
+    } : undefined;
+    this.options.emit('ppt:chat-request', { ...(quote ? { quote } : {}), requestId, sessionId: editor.owner, id: editor.id, text: promptText, submit: args.deliver === 'send' }, this.windowId(editor.window));
     const outcome = await result;
     if (isCommentSummon && outcome.ok !== true) {
       try {

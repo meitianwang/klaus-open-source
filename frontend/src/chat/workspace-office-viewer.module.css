@@ -86,3 +86,8 @@
 .mindFieldLabel { color: var(--fg-tertiary); font-weight: var(--weight-medium); white-space: nowrap; }
 .mindFieldInput { flex: 1; min-width: 120px; border: 1px solid var(--border); border-radius: var(--radius-xs, 6px); padding: 4px 8px; font-size: var(--text-caption); background: var(--bg-surface); color: var(--fg); outline: none; }
 .mindFieldInput:focus { border-color: var(--theme-accent); background: var(--bg); }
+
+:global(td.is-in-range) { box-shadow: inset 0 0 0 100vmax color-mix(in srgb, var(--accent, #2563eb) 10%, transparent); }
+:global(.kls-panel-quote-inline-btn) { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+:global(.kls-panel-quote-inline-btn[hidden]) { display: none; }
+:global(.kls-panel-quote-inline-btn svg) { width: 14px; height: 14px; }

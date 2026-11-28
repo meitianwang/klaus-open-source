@@ -1,3 +1,4 @@
+import { attachPanelQuoteToolbar } from './panel-quote-toolbar'
 import { Annotation, Compartment, EditorSelection, EditorState, StateEffect, StateField, Transaction, type Extension } from '@codemirror/state'
 import { Decoration, EditorView, WidgetType, drawSelection, dropCursor, keymap, type DecorationSet } from '@codemirror/view'
 import { defaultHighlightStyle, syntaxHighlighting } from '@codemirror/language'
@@ -25,6 +26,7 @@ export interface MarkdownEditorSnapshot {
 
 export interface MarkdownEditorOptions {
   parent: HTMLElement
+  path?: string
   content: string
   readOnly?: boolean
   onChange(content: string): void
@@ -553,6 +555,16 @@ const markdownHighlight = HighlightStyle.define([
   { tag: tags.meta, color: 'var(--fg-secondary)' },
 ])
 
+export function markdownQuoteLocation(doc: EditorState['doc'], from: number, to: number) {
+  const startLine = doc.lineAt(Math.min(from, to)).number
+  const endLine = doc.lineAt(Math.max(Math.min(from, to), Math.max(from, to) - 1)).number
+  for (let line = startLine; line >= 1; line--) {
+    const heading = /^#{1,6}\s+(.+?)\s*#*$/.exec(doc.line(line).text)
+    if (heading) return { startLine, endLine, section: heading[1]!.trim() }
+  }
+  return { startLine, endLine }
+}
+
 export function createMarkdownEditor(options: MarkdownEditorOptions): MarkdownEditor {
   let readOnly = !!options.readOnly
   let destroyed = false
@@ -673,6 +685,26 @@ export function createMarkdownEditor(options: MarkdownEditorOptions): MarkdownEd
       mountEditor: mainEl => new EditorView({ state, parent: mainEl, ...(scrollTo ? { scrollTo } : {}) }),
     })
   const view = tocBinding ? tocBinding.view : new EditorView({ state, parent: options.parent, ...(scrollTo ? { scrollTo } : {}) })
+  const quote = attachPanelQuoteToolbar(view.dom, {
+    clearSelectionOnInsert: false,
+    resolveCurrent() {
+      const { from, to, empty } = view.state.selection.main
+      if (empty || !view.hasFocus) return null
+      const rect = view.coordsAtPos(from) || view.coordsAtPos(to)
+      return { text: view.state.sliceDoc(from, to), source: { kind: 'markdown', path: options.path, ...markdownQuoteLocation(view.state.doc, from, to) },
+        anchorRect: rect ? new DOMRect(rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top) : undefined }
+    },
+    resolveSelection(_selection, range) {
+      try {
+        const from = view.posAtDOM(range.startContainer, range.startOffset)
+        const to = view.posAtDOM(range.endContainer, range.endOffset)
+        const startLine = (range.startContainer.parentElement)?.closest('.cm-line')
+        const endLine = (range.endContainer.parentElement)?.closest('.cm-line')
+        const text = startLine && endLine ? view.state.sliceDoc(from, to) : range.toString()
+        return { text, source: { kind: 'markdown', path: options.path, ...markdownQuoteLocation(view.state.doc, from, to) } }
+      } catch { return null }
+    },
+  })
   const rawContentFocus = view.contentDOM.focus.bind(view.contentDOM)
   view.contentDOM.focus = (focusOptions?: FocusOptions) => {
     rawContentFocus({ ...focusOptions, preventScroll: focusOptions?.preventScroll ?? !allowFocusScroll })
@@ -784,6 +816,7 @@ export function createMarkdownEditor(options: MarkdownEditorOptions): MarkdownEd
     destroy() {
       if (!destroyed) {
         destroyed = true
+      quote()
         window.removeEventListener('klaus:lang-change', refreshSearchLanguage)
         view.scrollDOM.removeEventListener('scroll', onScrollSteady)
         view.dom.removeEventListener('mousedown', onPointerDownCapture, true)

@@ -1,3 +1,4 @@
+import { attachPanelQuoteToolbar } from '../../chat/panel-quote-toolbar'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { FileDiff } from '@pierre/diffs/react'
 import type { DiffLineAnnotation, SelectedLineRange } from '@pierre/diffs'
@@ -23,14 +24,16 @@ export function absoluteFilePath(file: DiffFile): string {
   return /^(?:\/|[A-Za-z]:[\\/])/.test(file.path) ? file.path : `${file.repositoryRoot ?? state.summary?.root ?? ''}/${file.path}`
 }
 
-function MarkdownPreview({ text, sessionId }: { text: string; sessionId: string | null }) {
+function MarkdownPreview({ text, sessionId, file, side }: { text: string; sessionId: string | null; file: DiffFile; side: 'before' | 'after' }) {
+  const container = useRef<HTMLDivElement>(null)
+  useEffect(() => container.current ? attachPanelQuoteToolbar(container.current, { resolveSelection: (_, range) => ({ text: range.toString(), source: { kind: 'diff', path: absoluteFilePath(file), side } }) }) : undefined, [file, side, text])
   const html = useMemo(() => {
     const root = document.createElement('div')
     root.innerHTML = renderMarkdownHtml(text, sessionId ?? undefined)
     root.querySelectorAll('[title],[data-klaus-tip]').forEach(element => { element.removeAttribute('title'); element.removeAttribute('data-klaus-tip') })
     return root.innerHTML
   }, [text, sessionId])
-  return <div className={`${styles['review-markdown']} markdown-body`} dangerouslySetInnerHTML={{ __html: html }} />
+  return <div ref={container} className={`${styles['review-markdown']} markdown-body`} dangerouslySetInnerHTML={{ __html: html }} />
 }
 
 function SnapshotPdf({ dataUrl, path }: { dataUrl: string; path: string }) {
@@ -123,7 +126,7 @@ export function ReviewFile({ file, paneWidth, theme, comments, onComments, onAct
     annotations.push({ side: old ? 'deletions' : 'additions', lineNumber: Math.max(1, (old ? hunk.oldStart ?? 0 : hunk.newStart ?? 0) + Math.max(0, leading)), metadata: { kind: 'hunk-actions', index } })
   }
   const capturedHunk = (range: SelectedLineRange) => patchForHunks((hunks ?? []).filter(hunk => {
-    const old = range.side === 'deletions', start = old ? hunk.oldStart ?? 0 : hunk.newStart ?? 0
+    const old = (range.endSide ?? range.side) === 'deletions', start = old ? hunk.oldStart ?? 0 : hunk.newStart ?? 0
     const length = old ? hunk.oldLines ?? 0 : hunk.newLines ?? 0
     return Math.min(range.start, range.end) < start + length && Math.max(range.start, range.end) >= start
   }))
@@ -161,8 +164,8 @@ export function ReviewFile({ file, paneWidth, theme, comments, onComments, onAct
     </div> : null)}
   </div>
   else if (markdownPreview) body = <div className={styles['review-markdown-pair']}>
-    {detail!.oldContent ? <div className={styles['review-media-before']}><MarkdownPreview text={detail!.oldContent} sessionId={state.sessionId} /></div> : null}
-    <div className={styles['review-media-after']}><MarkdownPreview text={detail!.newContent!} sessionId={state.sessionId} /></div>
+    {detail!.oldContent ? <div className={styles['review-media-before']}><MarkdownPreview file={file} side="before" text={detail!.oldContent} sessionId={state.sessionId} /></div> : null}
+    <div className={styles['review-media-after']}><MarkdownPreview file={file} side="after" text={detail!.newContent!} sessionId={state.sessionId} /></div>
   </div>
   else if (file.isBinary || detail?.isBinary) body = <div className={styles['diff-detail-empty']}>{t('diff_binary_detail')}</div>
   else if (state.hunkTruncated.has(key)) body = <div className={styles['diff-detail-empty']}>{t('diff_patch_truncated')}</div>
@@ -210,7 +213,22 @@ export function ReviewFile({ file, paneWidth, theme, comments, onComments, onAct
           <button type="button" aria-label={t('changes_edit_comment')} onClick={() => setEditor({ id: metadata.id, range: metadata.range, body: metadata.body, localDiffHunk: metadata.localDiffHunk, snapshotId: file.snapshotId })}>{t('edit')}</button>
           <button type="button" aria-label={t('changes_remove_comment')} onClick={() => onComments(comments.filter(row => row.id !== metadata.id))}>{t('delete')}</button>
         </div></div> : null} />
-    {selection && !editor ? <button type="button" className={styles['review-selection-comment']} onClick={() => openComment(selection)}><Icon name="plus" size={14} />{t('changes_add_comment')}</button> : null}
+    {selection && !editor ? <div className={styles['review-selection-comment']}><button type="button" onClick={() => {
+      const side = (selection.endSide ?? selection.side) === 'deletions' ? 'before' : 'after'
+      const startLine = Math.min(selection.start, selection.end), endLine = Math.max(selection.start, selection.end)
+      const content = side === 'before' ? detail?.oldContent : detail?.newContent
+      const selectedLines = (hunks ?? []).flatMap(hunk => {
+        let lineNumber = (side === 'before' ? hunk.oldStart : hunk.newStart) ?? 0
+        return (hunk.lines ?? []).flatMap(line => {
+          if (!line.startsWith(' ') && !line.startsWith(side === 'before' ? '-' : '+')) return []
+          const number = lineNumber++
+          return number >= startLine && number <= endLine ? [line.slice(1)] : []
+        })
+      })
+      const text = content?.split('\n').slice(startLine - 1, endLine).join('\n') || selectedLines.join('\n') || capturedHunk(selection)
+      window.klausQuoteAddToChat?.(text, { source: { kind: 'diff', path: absoluteFilePath(file), repositoryRoot: file.repositoryRoot ?? state.summary?.root, side, startLine, endLine } })
+      setSelection(null)
+    }}><Icon name="quoted-text" size={14} />{t('panel_quote_add_to_chat')}</button><button type="button" onClick={() => openComment(selection)}><Icon name="plus" size={14} />{t('changes_add_comment')}</button></div> : null}
   </>
   return <section ref={node => { container.current = node; sectionRef(node) }} className={styles['review-file']}
     data-file-key={key} data-collapsed={collapsed} data-viewed={isViewed(file)}>

@@ -3991,6 +3991,11 @@ browser_ext_connected: 'Extension connected',
     // 选区引用（transcript/quote-selection.tsx）
     quote_selection_label: 'Quote selection',
     quote_add_to_chat: 'Add to Chat',
+    panel_quote_add_to_chat: 'Add to chat',
+    panel_quote_copy: 'Copy',
+    panel_quote_spreadsheet_range: 'Quote range',
+    panel_pdf_text_view: 'Text view',
+    panel_pdf_page_view: 'Page view',
     quote_ask_in_side_task: 'Ask in Side Task',
     // Subscription section (settings)
     sub_account_fallback: 'Claude account',
@@ -8357,6 +8362,11 @@ browser_ext_connected: '扩展已连接',
     // 选区引用（transcript/quote-selection.tsx）
     quote_selection_label: '引用选区',
     quote_add_to_chat: '添加到会话',
+    panel_quote_add_to_chat: '添加到会话',
+    panel_quote_copy: '复制',
+    panel_quote_spreadsheet_range: '引用选区',
+    panel_pdf_text_view: '文本视图',
+    panel_pdf_page_view: '原始视图',
     quote_ask_in_side_task: '在侧任务中提问',
     // Subscription section (settings)
     sub_account_fallback: 'Claude 账号',

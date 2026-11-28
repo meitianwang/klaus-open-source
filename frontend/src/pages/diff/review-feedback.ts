@@ -1,3 +1,4 @@
+import type { QuoteSourceMetadata } from '../../chat/selected-text-envelope'
 import type { SelectedLineRange } from '@pierre/diffs'
 
 export interface ReviewComment {
@@ -61,4 +62,12 @@ export function commentFeedback(comments: readonly ReviewComment[], heading: str
     const fence = '`'.repeat(Math.max(3, ...[...context.matchAll(/`+/g)].map(match => match[0].length + 1)))
     return `${comment.path}:${location}\n${comment.body}${context ? `\n\n${fence}diff\n${context}${fence}` : ''}`
   }).join('\n\n')
+}
+
+export function reviewCommentQuoteItems(comments: readonly ReviewComment[], repositoryRoot?: string) {
+  return comments.map(comment => ({ text: comment.localDiffHunk || comment.body, source: {
+    kind: 'diff', path: comment.path, repositoryRoot,
+    side: (comment.range.endSide ?? comment.range.side) === 'deletions' ? 'before' : 'after',
+    startLine: Math.min(comment.range.start, comment.range.end), endLine: Math.max(comment.range.start, comment.range.end), annotation: comment.body,
+  } satisfies QuoteSourceMetadata }))
 }

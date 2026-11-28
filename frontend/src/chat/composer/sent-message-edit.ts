@@ -14,7 +14,11 @@ export function restoredMessageTextCards(prepared: RestoredMessageDraft) {
   const envelope = parseSelectedTextEnvelope(String(prepared.text || ''))
   const selections = Array.isArray(metadata?.selectedTextAttachments) ? metadata.selectedTextAttachments : []
   const quotedText = typeof metadata?.quotedText === 'string' ? metadata.quotedText : ''
-  const selectedTextAttachments = selections.length ? selections
+  const selectedTextAttachments = selections.length ? selections.map((card: any, index: number) => {
+    const stored = envelope?.selectedTextAttachments[index]
+    return stored?.source && !card?.source && stored.text === card?.text
+      ? { ...card, source: stored.source } : card
+  })
     : envelope?.selectedTextAttachments || (quotedText ? [{ text: quotedText, requestOffset: 0 }] : [])
   const text = typeof metadata?.displayText === 'string' ? metadata.displayText
     : metadata?.quoteOnly === true ? '' : envelope?.message ?? String(prepared.text || '')

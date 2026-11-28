@@ -512,6 +512,7 @@ export interface SlashCommandInfo {
 // Composer attachment rows. Uploads acquire uploadPath asynchronously; pasted
 // text, quotes, and imported paths use a lightweight File-shaped descriptor.
 export interface PendingFileEntry {
+  source?: import('./selected-text-envelope').QuoteSourceMetadata
   appshotContext?: import('../../../contracts/desktop-pet-composer').PetAppshotContext;
   file: File | { name: string; type: string; size: number }
   uploading: boolean

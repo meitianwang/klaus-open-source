@@ -130,3 +130,12 @@ describe('what may be sent as an edit', () => {
     expect(editCanSubmit('\n\t ', 0)).toBe(false)
   })
 })
+
+test('restores quote source when older display metadata omits it', () => {
+  const source = { kind: 'pdf' as const, path: 'guide.pdf', page: 2 }
+  const quote = { text: 'Keep this paragraph', requestOffset: 1 }
+  const text = encodeSelectedTextEnvelope('Review', [{ ...quote, source }])
+  const restored = restoredMessageTextCards({ text, displayMetadata: { selectedTextAttachments: [quote] } })
+  expect(restored.text).toBe('Review')
+  expect(restored.selectedTextAttachments).toEqual([{ ...quote, source }])
+})

@@ -1,3 +1,6 @@
+import { escapeHtml } from './factories'
+import { rawIconHtml } from '../../components/Icon'
+import { formatQuoteChipLabel, quoteSourceIconName, type QuoteSourceMetadata } from '../selected-text-envelope'
 import { useLayoutEffect, useRef, useSyncExternalStore } from 'react'
 import { useT } from '../../i18n'
 import { composerKeyWasHandled, installContenteditableTextControl, type ComposerTextControl } from '../composer/contenteditable-control'
@@ -40,9 +43,13 @@ export function InlineUserEditor({ editKey }: { editKey: string }) {
     const input = root.current as unknown as HTMLTextAreaElement
     let tokens: InlineTokenSnapshot[] = [], references: ComposerReferenceToken[] = []
     const editor = installContenteditableTextControl(root.current, value => tokens.map(token => {
-      const element = document.createElement('span'), data = token.data as { kind?: string; name?: string; command?: SlashCommandInfo; previewText?: string; text?: string }
+      const element = document.createElement('span'), data = token.data as { kind?: string; name?: string; command?: SlashCommandInfo; previewText?: string; text?: string; source?: QuoteSourceMetadata }
       if (!data || typeof data !== 'object') element.textContent = token.value
-      else if (data.kind === 'selected-text') { element.className = 'kls-inline-quote'; element.textContent = data.previewText || data.text || '' }
+      else if (data.kind === 'selected-text') {
+        element.className = 'kls-inline-quote'
+        const label = data.previewText || formatQuoteChipLabel(data.source, data.text || '', window.currentLang)
+        element.innerHTML = `<span class="kls-inline-quote-content"><span class="kls-attach-chip-icon">${rawIconHtml(quoteSourceIconName(data.source))}</span><span class="kls-attach-chip-name">${escapeHtml(label)}</span></span>`
+      }
       else if (data.kind === 'command') { element.className = 'composer-reference-token'; element.textContent = data.name || data.command?.displayName || data.command?.name || token.value }
       else element.innerHTML = renderComposerReferencePillHtml(data as ComposerReferenceToken)
       return { ...token, value: value.slice(token.start, token.end), element }

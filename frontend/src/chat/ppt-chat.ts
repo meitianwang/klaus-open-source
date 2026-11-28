@@ -3,6 +3,7 @@ import type { PptChatRequest } from '../../bridge/ppt-api'
 export interface PptChatEnvironment {
   currentSession(): string | null
   stage(text: string): void
+  stageQuote?(payload: PptChatRequest): void
   focus(): void
   send(onAccepted: () => void, expectedSessionId: string): Promise<unknown>
   reply(requestId: string, ok: boolean, error?: string): Promise<unknown>
@@ -21,7 +22,8 @@ export function createPptChatConsumer(env: PptChatEnvironment) {
       if (!payload?.requestId || !payload.sessionId || !payload.id || typeof payload.text !== 'string' || typeof payload.submit !== 'boolean') throw new Error(env.text('ppt_chat_invalid_request'))
       if (payload.sessionId !== env.currentSession()) throw new Error(env.text('ppt_chat_wrong_session'))
       if (!payload.text.trim()) throw new Error(env.text('ppt_chat_empty_request'))
-      env.stage(payload.text)
+      if (!payload.submit && env.stageQuote) env.stageQuote(payload)
+      else env.stage(payload.text)
       if (payload.submit) {
         await env.send(() => { accepted = true }, payload.sessionId)
         ok = accepted
@@ -37,7 +39,7 @@ export function createPptChatConsumer(env: PptChatEnvironment) {
       if (!accepted) error = failure
       env.toast(failure)
     } finally {
-      try { await env.reply(payload?.requestId || '', ok, error) }
+      try { if (payload?.acknowledge !== false) await env.reply(payload?.requestId || '', ok, error) }
       catch (reason) { env.toast(reason instanceof Error ? reason.message : String(reason)) }
     }
   }

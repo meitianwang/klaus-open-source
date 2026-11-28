@@ -1,3 +1,4 @@
+import type { QuoteSourceMetadata } from '../../contracts/selected-text-envelope'
 import type { NativeEditorBounds, NativeEditorOpenPayload, NativeEditorPanelApi } from '../src/chat/native-editor-panel'
 
 /** Only the isolated presentation preload holds these two host operations. */
@@ -11,7 +12,7 @@ export function createPptTransportHost(call: (channel: string, args: unknown) =>
 
 export type PptBounds = NativeEditorBounds
 export type PptOpenPayload = NativeEditorOpenPayload
-export interface PptChatRequest { requestId: string; sessionId: string; id: string; text: string; submit: boolean }
+export interface PptChatRequest { requestId: string; sessionId: string; id: string; text: string; submit: boolean; quote?: { text: string; source: QuoteSourceMetadata }; acknowledge?: boolean }
 export interface PptPanelApi extends NativeEditorPanelApi {
   list(sessionId: string): Promise<{ presentations: { id: string; title: string }[]; error?: string }>
   open(id: string, sessionId: string): Promise<{ ok?: boolean; error?: string }>

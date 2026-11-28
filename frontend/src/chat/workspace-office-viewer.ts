@@ -1,3 +1,6 @@
+import { attachPanelQuoteToolbar, openPanelQuoteContextMenu } from './panel-quote-toolbar'
+import { rawIconHtml } from '../components/Icon'
+import type { QuoteSourceMetadata } from './selected-text-envelope'
 import { recalculateSpreadsheet } from '../../../contracts/office-formula'
 import type {
   OfficeDocBlock,
@@ -14,6 +17,32 @@ import type {
 } from '../../../contracts/office-preview'
 import { officePreviewEn } from '../i18n/office-preview-messages'
 import css from './workspace-office-viewer.module.css'
+
+export function officeSheetQuote(sheet: OfficeWorksheet, r: number, c: number, endR: number, endC: number, includeContent = true) {
+  let minR = Math.min(r, endR), maxR = Math.max(r, endR), minC = Math.min(c, endC), maxC = Math.max(c, endC)
+  let changed: boolean
+  do {
+    changed = false
+    for (const cell of sheet.cells) {
+      const bottom = cell.r + (cell.rs || 1) - 1, right = cell.c + (cell.cs || 1) - 1
+      if (cell.r > maxR || bottom < minR || cell.c > maxC || right < minC) continue
+      if (cell.r < minR || bottom > maxR || cell.c < minC || right > maxC) changed = true
+      minR = Math.min(minR, cell.r); maxR = Math.max(maxR, bottom)
+      minC = Math.min(minC, cell.c); maxC = Math.max(maxC, right)
+    }
+  } while (changed)
+  const start = `${column(minC)}${minR + 1}`, end = `${column(maxC)}${maxR + 1}`
+  const cellRange = start === end ? start : `${start}:${end}`
+  if (!includeContent) return { minR, maxR, minC, maxC, cellRange, text: '', raw: '', columnHeaders: '', formulas: '' }
+  const cells = new Map(sheet.cells.map(cell => [`${cell.r}:${cell.c}`, cell]))
+  const columns = Array.from({ length: maxC - minC + 1 }, (_, index) => minC + index)
+  const rows = Array.from({ length: maxR - minR + 1 }, (_, index) => minR + index)
+  const raw = rows.map(row => columns.map(col => cells.get(`${row}:${col}`)?.v || '').join('\t')).join('\n')
+  const columnHeaders = minR ? columns.flatMap(col => { const value = cells.get(`0:${col}`)?.v; return value ? [`${column(col)}=${JSON.stringify(value)}`] : [] }).join(', ').slice(0, 160) : ''
+  const formulas = sheet.cells.filter(cell => cell.f && cell.r >= minR && cell.r <= maxR && cell.c >= minC && cell.c <= maxC).slice(0, 12)
+    .map(cell => `${column(cell.c)}${cell.r + 1}==${cell.f!.replace(/^=/, '')}`).join(', ')
+  return { minR, maxR, minC, maxC, cellRange, text: raw.trim() ? raw : `(${cellRange} empty)`, raw, columnHeaders, formulas }
+}
 
 export interface WorkspaceOfficeViewState {
   activeSheet?: number
@@ -38,6 +67,7 @@ export interface OfficeSaveResult {
 type Vars = Record<string, string | number>
 
 export interface MountOfficeViewerOptions {
+  filePath?: string
   state?: WorkspaceOfficeViewState
   translate?: (key: string, vars?: Vars) => string
   openExternal?: (url: string) => void
@@ -197,6 +227,26 @@ function countHiddenDescendants(topic: OfficeMindMapTopic): number {
 }
 
 export function mountOfficeViewer(host: HTMLElement, payload: OfficePreviewPayload, options: MountOfficeViewerOptions = {}): MountedOfficeViewer {
+  const quoteBindings: (() => void)[] = []
+  const quoteEnabled = !!host.ownerDocument?.defaultView?.klausQuoteAddToChat
+  const addQuote = (text: string, source: QuoteSourceMetadata) => host.ownerDocument.defaultView?.klausQuoteAddToChat?.(text, { source: { path: options.filePath, ...source } })
+  const closest = (node: Node, selector: string) => (node.nodeType === 1 ? node as Element : node.parentElement)?.closest<HTMLElement>(selector)
+  function quoteButton(parent: HTMLElement, action: () => void) {
+    const button = el('button', parent, 'kls-panel-quote-inline-btn')
+    button.type = 'button'
+    button.innerHTML = rawIconHtml('quoted-text')
+    button.append(options.translate?.('panel_quote_add_to_chat') || 'Add to chat')
+    button.onclick = action
+    return button
+  }
+  function bindTextQuote(parent: HTMLElement, resolve: (range: Range) => QuoteSourceMetadata, current?: () => { text: string; source: QuoteSourceMetadata; anchorRect: DOMRect } | null) {
+    if (!quoteEnabled) return
+    quoteBindings.push(attachPanelQuoteToolbar(parent, {
+      resolveCurrent: current,
+      resolveSelection: (_, range) => ({ text: range.toString(), source: { path: options.filePath, ...resolve(range) } }),
+    }))
+  }
+
   const state = options.state ?? {}
   let canSaveInPlace = options.canSaveInPlace !== false
   let dirty = Boolean(options.dirty)
@@ -903,6 +953,30 @@ export function mountOfficeViewer(host: HTMLElement, payload: OfficePreviewPaylo
       const r = rs.find(i => i >= cell.r), c = cs.find(i => i >= cell.c)
       if (r !== undefined && c !== undefined && r < cell.r + (cell.rs ?? 1) && c < cell.c + (cell.cs ?? 1)) masters.set(key(r, c), cell)
     }
+    let rangeEnd: Slot | undefined
+    let dragging = false
+    const range = (includeContent = true) => selectedSlot && officeSheetQuote(sheet, selectedSlot.r, selectedSlot.c, (rangeEnd || selectedSlot).endR, (rangeEnd || selectedSlot).endC, includeContent)
+    const quoteRange = () => {
+      const info = range()
+      if (!info) return
+      addQuote(info.text, { kind: 'spreadsheet', sheet: sheet.name, multiSheet: next.sheets.length > 1 && !/\.(csv|tsv)$/i.test(options.filePath || ''),
+        cellRange: info.cellRange, columnHeaders: info.columnHeaders || undefined, formulas: info.formulas || undefined })
+    }
+    const quoteRangeButton = quoteEnabled ? quoteButton(bar, quoteRange) : undefined
+    const paintRange = () => {
+      if (!quoteEnabled) return
+      const info = range(false)
+      if (quoteRangeButton) quoteRangeButton.hidden = !info
+      if (info) address.textContent = info.cellRange
+      for (const slot of new Set(slots.values())) slot.td.classList.toggle('is-in-range', !!info && slot.r >= info.minR && slot.r <= info.maxR && slot.c >= info.minC && slot.c <= info.maxC)
+    }
+    if (quoteEnabled) {
+      const win = stage.ownerDocument.defaultView!
+      const stop = () => { dragging = false }
+      win.addEventListener('mouseup', stop)
+      win.addEventListener('blur', stop)
+      quoteBindings.push(() => { win.removeEventListener('mouseup', stop); win.removeEventListener('blur', stop) })
+    }
     const rowHeaders = new Map<number, HTMLElement>()
     const colHeaders = new Map<number, HTMLElement>()
     function markHeaders(slot: Slot, active: boolean) {
@@ -916,6 +990,7 @@ export function mountOfficeViewer(host: HTMLElement, payload: OfficePreviewPaylo
       selectedSlot?.td.classList.remove(css.selected!)
       if (selectedSlot) markHeaders(selectedSlot, false)
       selectedSlot = slot
+      rangeEnd = undefined
       if (!formulaInputEl) formulaEl.classList.toggle(css.formulaPlaceholder!, !slot)
       if (slot) {
         slot.td.classList.add(css.selected!)
@@ -926,6 +1001,7 @@ export function mountOfficeViewer(host: HTMLElement, payload: OfficePreviewPaylo
       const cell = slot?.cell
       const a = cell ? `${column(cell.c)}${cell.r + 1}` : '—'
       address.textContent = cell && ((cell.rs ?? 1) > 1 || (cell.cs ?? 1) > 1) ? `${a}:${column(cell.c + (cell.cs ?? 1) - 1)}${cell.r + (cell.rs ?? 1)}` : a
+      paintRange()
       if (formulaInputEl) {
         formulaInputEl.value = rawFormulaOrValue(cell)
         formulaInputEl.disabled = !slot
@@ -1066,7 +1142,26 @@ export function mountOfficeViewer(host: HTMLElement, payload: OfficePreviewPaylo
           for (const edge of ['borderTop', 'borderRight', 'borderBottom', 'borderLeft'] as const) if (style?.[edge]) td.style[edge] = style[edge]
           const slot = { td, cell, r, c, endR: mergedRows.at(-1)!, endC: mergedCols.at(-1)! }
           for (const rr of mergedRows) for (const cc of mergedCols) slots.set(key(rr, cc), slot)
-          td.onclick = () => { select(slot); stage.focus({ preventScroll: true }) }
+          td.onclick = () => { if (!quoteEnabled) select(slot); stage.focus({ preventScroll: true }) }
+          if (quoteEnabled) {
+            td.dataset.r = String(r); td.dataset.c = String(c)
+            td.onmousedown = event => {
+              if (event.button !== 0 || (event.target as Element).closest('input, textarea')) return
+              if (event.shiftKey && selectedSlot) { rangeEnd = slot; paintRange() }
+              else select(slot)
+              dragging = true
+              event.preventDefault()
+            }
+            td.onmouseover = () => { if (dragging) { rangeEnd = slot; paintRange() } }
+            td.oncontextmenu = event => {
+              const info = range(false)
+              if (!info || r < info.minR || r > info.maxR || c < info.minC || c > info.maxC) select(slot)
+              openPanelQuoteContextMenu(event, [
+                { label: options.translate?.('panel_quote_add_to_chat') || 'Add to chat', iconName: 'quoted-text', onSelect: quoteRange },
+                { label: options.translate?.('panel_quote_copy') || 'Copy', iconName: 'copy', onSelect: () => { const text = range()?.raw || ''; if (options.copyText) options.copyText(text); else void navigator.clipboard?.writeText(text).catch(() => {}) } },
+              ])
+            }
+          }
           if (editable) {
             td.ondblclick = () => startCellInlineEdit(slot)
           }
@@ -1396,7 +1491,11 @@ export function mountOfficeViewer(host: HTMLElement, payload: OfficePreviewPaylo
 
     const cards = next.slides.map((slide, sIdx) => {
       const card = el('article', deck, `${css.slide}${editable && sIdx === active ? ` ${css.slideActive}` : ''}`)
+      card.setAttribute('data-slide-number', String(sIdx + 1))
       const header = el('div', card, css.bar, t('slide_label', { index: slide.index }))
+      const slideSource = (element?: HTMLElement | null): QuoteSourceMetadata => ({ kind: 'ppt', path: options.filePath, slide: sIdx + 1, totalSlides: next.slides.length, elementLabel: element?.dataset.slideElement })
+      const quoteSlide = (element?: HTMLElement | null) => addQuote(element?.textContent?.trim() || canvas.textContent?.trim() || `Slide ${sIdx + 1}`, slideSource(element))
+      if (quoteEnabled) quoteButton(header, () => quoteSlide(sIdx === active ? canvas.querySelector<HTMLElement>(`[data-slide-element="${selectedElementIdx + 1}"]`) : null))
       if (slide.hidden) el('span', header, css.badge, t('slide_hidden_badge'))
       const canvas = el('div', card, css.canvas)
       canvas.style.aspectRatio = `${w} / ${h}`
@@ -1413,6 +1512,12 @@ export function mountOfficeViewer(host: HTMLElement, payload: OfficePreviewPaylo
       slide.elements.forEach((item, elemIdx) => {
         const isSelected = editable && sIdx === active && elemIdx === selectedElementIdx
         const box = el('div', canvas, `${css.positioned}${isSelected ? ` ${css.selectedElement}` : ''}`)
+        box.setAttribute('data-slide-element', String(elemIdx + 1))
+        if (quoteEnabled) box.oncontextmenu = event => {
+          if (card.ownerDocument.getSelection()?.toString().trim()) return
+          openPanelQuoteContextMenu(event, [{ label: options.translate?.('panel_quote_add_to_chat') || 'Add to chat', iconName: 'quoted-text', onSelect: () => quoteSlide(box) }])
+        }
+
         Object.assign(box.style, { left: `${item.x}%`, top: `${item.y}%`, width: `${item.w}%`, height: `${item.h}%` })
         box.style.setProperty('--office-slide-fs', `${1800 / w}cqw`)
         if (item.rotation) box.style.transform = `rotate(${item.rotation}deg)`
@@ -1524,6 +1629,11 @@ export function mountOfficeViewer(host: HTMLElement, payload: OfficePreviewPaylo
         el('strong', notes, undefined, t('slide_notes'))
         el('div', notes, undefined, slide.notes)
       }
+      bindTextQuote(card, range => slideSource(closest(range.startContainer, '[data-slide-element]')), () => {
+        const area = card.ownerDocument.activeElement as HTMLTextAreaElement | null
+        if (area?.tagName !== 'TEXTAREA' || !card.contains(area) || area.selectionStart === area.selectionEnd) return null
+        return { text: area.value.slice(area.selectionStart, area.selectionEnd), source: slideSource(), anchorRect: area.getBoundingClientRect() }
+      })
       return card
     })
 
@@ -2044,7 +2154,9 @@ export function mountOfficeViewer(host: HTMLElement, payload: OfficePreviewPaylo
     }
   }
 
+  function clearQuoteBindings() { for (const dispose of quoteBindings.splice(0)) dispose() }
   function render(next: OfficePreviewPayload, resetHistory = true) {
+    clearQuoteBindings()
     if (resetHistory) {
       current = clonePayload(next)
       undoStack.length = 0
@@ -2069,7 +2181,17 @@ export function mountOfficeViewer(host: HTMLElement, payload: OfficePreviewPaylo
       const stage = el('div', root, css.document)
       const paper = el('article', stage, css.paper)
       if (next.truncated) el('div', paper, css.notice, t('doc_truncated'))
-      blocks(paper, next.blocks)
+      let section = ''
+      next.blocks.forEach((block, index) => {
+        if (block.kind === 'paragraph' && block.heading) section = block.runs.map(run => run.text).join('').trim()
+        blocks(paper, [block])
+        const element = paper.children[paper.children.length - 1] as HTMLElement | undefined
+        if (element) { element.setAttribute('data-doc-paragraph', String(index + 1)); if (section) element.setAttribute('data-doc-section', section) }
+      })
+      bindTextQuote(paper, range => {
+        const data = closest(range.startContainer, '[data-doc-paragraph]')?.dataset
+        return { kind: 'word', ...(data?.docSection ? { section: data.docSection } : { paragraph: Number(data?.docParagraph) || undefined }) }
+      })
       if (next.footnotes?.length) {
         el('h2', paper, undefined, t('doc_footnotes'))
         for (const note of next.footnotes) blocks(paper, note.blocks)
@@ -2087,10 +2209,16 @@ export function mountOfficeViewer(host: HTMLElement, payload: OfficePreviewPaylo
       const stage = el('div', root, css.document)
       for (const [index, page] of next.pages.entries()) {
         const paper = el('article', stage, css.paper)
+        paper.setAttribute('data-pdf-page', String(page.index))
         if (!index && next.truncated) el('div', paper, css.notice, t('doc_truncated'))
         el('div', paper, css.subtitle, t('pdf_page', { index: page.index }))
         blocks(paper, page.blocks)
       }
+      bindTextQuote(stage, range => {
+        const paper = closest(range.startContainer, '[data-pdf-page]')
+        const page = paper && paper.contains(range.endContainer) ? Number(paper.dataset.pdfPage) : undefined
+        return { kind: 'pdf', ...(page ? { page, totalPages: next.pageCount || next.pages.length } : {}) }
+      })
       stage.scrollTop = state.scrollTop ?? 0
       stage.onscroll = () => { state.scrollTop = stage.scrollTop }
       return
@@ -2132,6 +2260,7 @@ export function mountOfficeViewer(host: HTMLElement, payload: OfficePreviewPaylo
     destroy: () => {
       pendingFlush?.()
       pendingFlush = null
+      clearQuoteBindings()
       root.remove?.()
     },
     update: (next, meta) => {

@@ -576,3 +576,5 @@
 .review-add-comment { display:flex; align-items:center; justify-content:center; width:18px; height:18px; padding:0; border:0; border-radius:4px; background:var(--fg); color:var(--bg); cursor:pointer; }
 .review-generated-filter { display:flex; align-items:center; gap:6px; margin:6px 3px 0; font-size:11px; color:var(--fg-tertiary); }
 .review-generated-filter input { margin:0; }
+
+.review-selection-comment > button { display:inline-flex; align-items:center; gap:5px; color:inherit; background:transparent; border:0; cursor:pointer; font:inherit; }

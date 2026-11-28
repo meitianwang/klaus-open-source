@@ -1,3 +1,4 @@
+import { app } from 'electron'
 import type { TextContextEditCommand } from '../../shared/text-context-menu'
 import type { BrowserWindow, ContextMenuParams, Menu, MenuItemConstructorOptions, WebContents } from 'electron'
 
@@ -63,8 +64,30 @@ export function installTextContextMenu(window: BrowserWindow, build: (template: 
   let active: Menu | null = null, attached = true, generation = 0
   const current = () => attached && !window.isDestroyed() && !window.webContents.isDestroyed()
   const close = () => { const menu = active; active = null; if (menu && !window.isDestroyed()) menu.closePopup(window) }
+  const showPdf = (event: Electron.Event, params: ContextMenuParams, origin: WebContents) => {
+    const text = params.selectionText?.trim()
+    const urls = [params.frame?.url, params.frameURL, params.pageURL, origin.getURL?.()].filter((url): url is string => !!url)
+    const frameUrl = urls.find(url => /^(?:klaus-media:\/\/file\/|blob:)/i.test(url))
+      || urls.find(url => /^chrome-extension:\/\/mhjfbmdgcfjbbpaeojofoehgiehjai(?:\/|$)/i.test(url))
+    if (!current() || !text || !frameUrl) return
+    event.preventDefault()
+    close()
+    const capturedGeneration = ++generation
+    const zh = chinese()
+    const menu = build([
+      { id: 'pdf-copy', label: zh ? '复制' : 'Copy', role: 'copy' },
+      { id: 'pdf-add-to-chat', label: zh ? '添加到会话' : 'Add to chat', click: () => {
+        if (!current() || generation !== capturedGeneration || origin.isDestroyed()) return
+        void window.webContents.executeJavaScript(`window.__KLAUS_PANEL_QUOTE_PDF__?.(${JSON.stringify({ text, frameUrl })})`).catch(actions.log)
+      } },
+    ])
+    active = menu
+    menu.popup({ window, x: params.x, y: params.y, ...(params.frame ? { frame: params.frame } : {}),
+      sourceType: params.menuSourceType, callback: () => { if (active === menu) active = null } })
+  }
   const listener = (event: Electron.Event, params: ContextMenuParams) => {
-    if (!current() || params.frame && params.frame !== window.webContents.mainFrame) return
+    if (!current()) return
+    if (params.frame && params.frame !== window.webContents.mainFrame) { showPdf(event, params, contents); return }
     event.preventDefault()
     close()
     const capturedGeneration = ++generation
@@ -85,11 +108,29 @@ export function installTextContextMenu(window: BrowserWindow, build: (template: 
       sourceType: params.menuSourceType, callback: () => { if (active === menu) active = null } })
   }
   const contents = window.webContents
+  const guests = new Map<WebContents, () => void>()
+  const created = (_event: Electron.Event, guest: WebContents) => {
+    if (guest.hostWebContents !== contents || guests.has(guest)) return
+    const handler = (event: Electron.Event, params: ContextMenuParams) => showPdf(event, params, guest)
+    const cleanup = () => {
+      guests.delete(guest)
+      if (!guest.isDestroyed()) {
+        guest.removeListener('context-menu', handler)
+        guest.removeListener('destroyed', cleanup)
+      }
+    }
+    guests.set(guest, cleanup)
+    guest.on('context-menu', handler)
+    guest.once('destroyed', cleanup)
+  }
+  app?.on('web-contents-created', created)
   contents.on('context-menu', listener)
   return () => {
     if (!attached) return
     attached = false
     generation++
+    app?.removeListener('web-contents-created', created)
+    for (const cleanup of guests.values()) cleanup()
     if (!contents.isDestroyed()) contents.removeListener('context-menu', listener)
     close()
   }

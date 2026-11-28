@@ -1,3 +1,4 @@
+import { attachPanelQuoteToolbar } from './panel-quote-toolbar'
 import { friendDispatchAttempts } from './composer/friend-dispatch-attempt'
 import { subscribePredictionRefresh } from './composer/prediction-refresh'
 import { friendComposeMetadata, friendComposeTarget, friendIntentEditable, friendSendLabel, reconcileFriendComposeContext, hasFriendQuoteInstruction, type FriendComposeContext } from './composer/friend-compose'
@@ -152,7 +153,7 @@ import { queuedRowContent, queuedComposerReferences } from './composer/queue-row
 import { engineFollowUpRows } from './engine-follow-up-queue'
 import type { QueueSnapshotEvent } from './engine-events'
 import { needsPausedQueueConfirmation, decisionFromDialog } from './composer/paused-queue-submit'
-import { encodeSelectedTextEnvelope, parseSelectedTextEnvelope } from './selected-text-envelope'
+import { encodeSelectedTextEnvelope, parseSelectedTextEnvelope, formatQuoteChipLabel, quoteSourceIconName, type QuoteAddOptions, type QuoteSourceMetadata } from './selected-text-envelope'
 import { dispatchWidgetInteraction, type WidgetInteractionRequest } from './widget-interaction'
 import { mountSidebar, type SessionRowSpec } from './sidebar/session-list'
 import { friendGroupThreadTitle } from './sidebar/friend-title'
@@ -2755,11 +2756,12 @@ function initSideComposer(placement: SidePanePlacement = 'right', runtime = side
   // envelope as main chat: one shared composer behavior across both surfaces.
   function sideAddSelection(text: string, requestOffset?: number, metadata: Partial<PendingFileEntry> = {}) {
     if (!sideInput) return
-    const normalized = String(text || '').replace(/\r\n?/g, '\n')
+    const normalized = metadata.source ? String(text || '') : String(text || '').replace(/\r\n?/g, '\n')
     if (!normalized.trim()) return
     const entry = buildSelectedTextEntry(normalized)
     if (metadata.quoteId) entry.quoteId = metadata.quoteId
-    if (metadata.previewText) entry.previewText = metadata.previewText
+    if (metadata.source) entry.source = { ...metadata.source }
+    entry.previewText = metadata.previewText || (entry.source ? formatQuoteChipLabel(entry.source, normalized, window.currentLang) : pastedTextPreview(normalized))
     if (metadata.specAnnotation) entry.specAnnotation = { ...metadata.specAnnotation }
     const start = Number.isInteger(requestOffset)
       ? composerOffsetFromDisplayOffset(Number(requestOffset), sideInput.value.length, sideSelectedSlashCommandRange, sideSelectedSlashCommand ? `/${sideSelectedSlashCommand.name}`.length : 0)
@@ -4298,7 +4300,7 @@ function createComposerInlineQuote(entry: PendingFileEntry, onRemove: (entry: Pe
   const meta = isPasted ? formatPreviewMeta(entry) : ''
   const token = document.createElement('span')
   token.className = `kls-inline-quote${isPasted ? ' is-pasted' : ''}`
-  token.innerHTML = `<span class="kls-inline-quote-content"><span class="kls-attach-chip-icon">${klausIcon(isPasted ? 'pasted-text' : 'quoted-text')}</span><span class="kls-attach-chip-name">${escapeHtml(entry.previewText || pastedTextPreview(entry.text || ''))}</span>${meta ? `<span class="kls-attach-chip-meta">${escapeHtml(meta)}</span>` : ''}</span><button class="kls-inline-quote-remove" type="button" aria-label="${escapeHtml(tt('delete_title'))}">${klausIcon('workdir-clear')}</button>`
+  token.innerHTML = `<span class="kls-inline-quote-content"><span class="kls-attach-chip-icon">${klausIcon(isPasted ? 'pasted-text' : quoteSourceIconName(entry.source))}</span><span class="kls-attach-chip-name">${escapeHtml(entry.previewText || pastedTextPreview(entry.text || ''))}</span>${meta ? `<span class="kls-attach-chip-meta">${escapeHtml(meta)}</span>` : ''}</span><button class="kls-inline-quote-remove" type="button" aria-label="${escapeHtml(tt('delete_title'))}">${klausIcon('workdir-clear')}</button>`
   token.querySelector<HTMLButtonElement>('.kls-inline-quote-remove')?.addEventListener('mousedown', (event) => {
     event.preventDefault()
     event.stopPropagation()
@@ -4805,6 +4807,12 @@ window.klausComposer = {
     }
     await send()
   },
+  appendReviewComments(items: Array<{ text: string; source: QuoteSourceMetadata }>, sessionId: string): boolean {
+    if (window.currentSessionId !== sessionId || !items.length) return false
+    inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length)
+    for (const item of items) addChatSelectionToComposer(item.text, { source: item.source })
+    return true
+  },
   appendReviewFeedback(text: string, sessionId: string): boolean {
     if (window.currentSessionId !== sessionId || !text.trim()) return false
     const existing = inputEl.value || ''
@@ -4820,13 +4828,11 @@ window.klausComposer = {
     inputEl.focus()
     return true
   },
-  appendBrowserAnnotation(payload: { text: string; attachment: PendingFileEntry }, sessionId: string): boolean {
+  appendBrowserAnnotation(payload: { text: string; attachment: PendingFileEntry; source?: QuoteSourceMetadata }, sessionId: string): boolean {
     if ((window.currentSessionId || 'manual') !== sessionId || !payload.text.trim() || !payload.attachment.uploadPath) return false
-    const existing = inputEl.value || ''
-    const addition = (existing ? '\n\n' : '') + payload.text
-    if (mainComposerControl) mainComposerControl.replaceRange(existing.length, existing.length, addition, 'insertText')
-    else setInputValue(existing + addition)
     pendingFiles.push(payload.attachment)
+    inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length)
+    addChatSelectionToComposer(payload.text, { source: payload.source || { kind: 'web' } })
     renderPreviews()
     autoResize()
     updateSendBtn()
@@ -10124,6 +10130,7 @@ function buildOutgoingPayload(
     .map((entry) => ({
       text: entry.text || '',
       previewText: entry.previewText || pastedTextPreview(entry.text || ''),
+      ...(entry.source ? { source: entry.source } : {}),
       ...(entry.quoteId ? { quoteId: entry.quoteId } : {}),
       ...(Number.isInteger(entry.requestOffset) ? { requestOffset: Number(entry.requestOffset) } : {}),
       ...(Number.isInteger(entry.displayOrder) ? { displayOrder: Number(entry.displayOrder) } : {}),
@@ -12885,7 +12892,7 @@ function attachSpecAnnotating(host: HTMLElement, docEl: HTMLElement, { sessionId
     host.appendChild(bubble)
     // 定位在选区下方，以 host 为参系（host 已是 position:relative）。
     const hostRect = host.getBoundingClientRect()
-    bubble.style.top = `${rect.bottom - hostRect.top + 6}px`
+    bubble.style.top = `${rect.bottom - hostRect.top + host.scrollTop + 6}px`
     bubble.style.left = `${Math.max(8, Math.min(rect.left - hostRect.left, hostRect.width - 260))}px`
     const input = bubble.querySelector<HTMLTextAreaElement>('.spec-annotate-input')
     ;(input as HTMLElement).focus()
@@ -12942,15 +12949,15 @@ function attachSpecAnnotating(host: HTMLElement, docEl: HTMLElement, { sessionId
     return marks
   }
 
-  const onMouseUp = () => {
-    const sel = window.getSelection()
-    if (!sel || sel.isCollapsed || sel.rangeCount === 0) return
-    const range = sel.getRangeAt(0)
-    if (!docEl.contains(range.commonAncestorContainer)) return
-    if (!range.toString().trim()) return
-    openBubble(range.cloneRange(), range.getBoundingClientRect())
-  }
-  docEl.addEventListener('mouseup', onMouseUp)
+  let captured: Range | undefined
+  const disposeQuote = attachPanelQuoteToolbar(docEl, {
+    resolveSelection(_, range) {
+      captured = range.cloneRange()
+      const section = Array.from(docEl.querySelectorAll('h1,h2,h3,h4,h5,h6')).filter(heading => heading.contains(range.startContainer) || Boolean(heading.compareDocumentPosition(range.startContainer) & Node.DOCUMENT_POSITION_FOLLOWING)).at(-1)?.textContent?.trim()
+      return { text: range.toString().trim(), source: { kind: 'plan', path: path || undefined, section } }
+    },
+    secondaryAction: { label: () => tt('spec_annotation_confirm'), iconName: 'edit', onTrigger: (_, rect) => { if (captured) openBubble(captured.cloneRange(), rect) } },
+  })
 
   const handle = {
     count: () => items.length,
@@ -12969,7 +12976,7 @@ function attachSpecAnnotating(host: HTMLElement, docEl: HTMLElement, { sessionId
     },
     destroy: () => {
       closeBubble()
-      docEl.removeEventListener('mouseup', onMouseUp)
+      disposeQuote()
       items.forEach(item => item.marks.forEach(mark => mark.classList.remove('spec-annotated')))
       items.length = 0
       render()
@@ -19249,19 +19256,22 @@ function restoreDisplayCardsToComposer(selectedTextAttachments: any, pastedCards
   }
   for (const entry of selections) {
     if (entry.quoteId && pendingFiles.some(candidate => candidate.quoteId === entry.quoteId)) continue
-    addChatSelectionToComposer(entry.text, entry.requestOffset, entry)
+    addChatSelectionToComposer(entry.text, { ...entry, expandMaximized: false })
   }
 }
 
 // A selected transcript range becomes a pending quote chip. Submission encodes
 // it in a text envelope that the engine persists unchanged; replay splits the
 // quote from the user's request again.
-function addChatSelectionToComposer(text: string, requestOffset?: number, metadata: Partial<PendingFileEntry> = {}) {
-  const normalized = String(text || '').replace(/\r\n?/g, '\n')
+function addChatSelectionToComposer(text: string, metadata: QuoteAddOptions & Pick<PendingFileEntry, 'quoteId' | 'specAnnotation'> = {}) {
+  const { requestOffset } = metadata
+  const normalized = metadata.source ? String(text || '') : String(text || '').replace(/\r\n?/g, '\n')
   if (!normalized.trim()) return
+  if (metadata.expandMaximized !== false && maximizedComposer?.isEligible()) maximizedComposer.expand({ focusInput: false })
   const entry = buildSelectedTextEntry(normalized)
   if (metadata.quoteId) entry.quoteId = metadata.quoteId
-  if (metadata.previewText) entry.previewText = metadata.previewText
+  if (metadata.source) entry.source = { ...metadata.source }
+  entry.previewText = metadata.previewText || (entry.source ? formatQuoteChipLabel(entry.source, normalized, window.currentLang) : pastedTextPreview(normalized))
   if (metadata.specAnnotation) entry.specAnnotation = { ...metadata.specAnnotation }
   const start = Number.isInteger(requestOffset)
     ? displayOffsetToComposerOffset(Number(requestOffset))
@@ -19817,6 +19827,10 @@ klausApi.canvas.onSendToChat(
 const consumePptChat = createPptChatConsumer({
   currentSession: () => window.currentSessionId || null,
   stage: text => { setComposerText(text); autoResize(); updateSendBtn() },
+  stageQuote: payload => {
+    inputEl.setSelectionRange(inputEl.value.length, inputEl.value.length)
+    addChatSelectionToComposer(payload.quote?.text || payload.text, { source: payload.quote?.source || { kind: 'ppt', presentationId: payload.id } })
+  },
   focus: () => { inputEl?.focus() },
   send: (onAccepted, expectedSessionId) => send({ onAccepted, expectedSessionId }),
   reply: (requestId, ok, error) => klausApi.ppt.chatResult(requestId, ok, error),

@@ -1,7 +1,8 @@
+
 import { describe, expect, test } from 'bun:test'
 import { EditorState, Transaction } from '@codemirror/state'
 import { history, undo, undoDepth } from '@codemirror/commands'
-import { markdownExternalChanges, markdownLineSeparator, markdownTaskChange, planMarkdownPresentation, safeMarkdownHref } from './workspace-markdown-editor'
+import { markdownExternalChanges, markdownLineSeparator, markdownQuoteLocation, markdownTaskChange, planMarkdownPresentation, safeMarkdownHref } from './workspace-markdown-editor'
 
 describe('live Markdown presentation', () => {
   test('escaped punctuation is rendered without exposing its source marker', () => {
@@ -185,4 +186,11 @@ describe('external document synchronization', () => {
     expect(undo({ state, dispatch(transaction) { state = transaction.state } })).toBe(true)
     expect(state.doc.toString()).toBe('Source edit\n# Heading\n\nBody')
   })
+})
+
+test('quotes the nearest heading and excludes the untouched next line', () => {
+  const source = '# First\n## Details ##\nselected\nnext'
+  const doc = EditorState.create({ doc: source }).doc
+  expect(markdownQuoteLocation(doc, source.indexOf('selected'), source.indexOf('next')))
+    .toEqual({ startLine: 3, endLine: 3, section: 'Details' })
 })

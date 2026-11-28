@@ -1,11 +1,11 @@
 import type { BrowserWindow, ContextMenuParams, Menu, MenuItemConstructorOptions, WebContents } from 'electron'
-import { readFileSync } from 'node:fs'
+import { mkdirSync, readFileSync } from 'node:fs'
 import { EventEmitter } from 'node:events'
 import { join } from 'node:path'
 import { installTextContextMenu, textContextMenuTemplate } from '../main/app/text-context-menu'
 import { assert, assertEqual, assertDeepEqual, Harness } from './harness'
 const h = new Harness()
-const vectors = JSON.parse(readFileSync(join(__dirname, '../contracts/vectors/text-context-menu-vectors.json'), 'utf8'))
+const vectors = JSON.parse(readFileSync(join(__dirname, '../../contracts/vectors/text-context-menu-vectors.json'), 'utf8'))
 const params = (overrides: Partial<ContextMenuParams> = {}): ContextMenuParams => ({
   isEditable: true, selectionText: '', linkURL: '', linkText: '', mediaType: 'none', misspelledWord: '', dictionarySuggestions: [],
   editFlags: { canCut: true, canCopy: true, canPaste: true, canDelete: true, canUndo: false, canRedo: false, canSelectAll: true, canEditRichly: true },
@@ -91,6 +91,13 @@ h.test('child frames cannot bypass the document text admission policy', async ()
   f.emitter.emit('context-menu',{preventDefault:()=>{throw new Error('excluded event was consumed')}},params({frame:{} as ContextMenuParams['frame']}))
   await Promise.resolve();assertEqual(built.length,0,'foreign frame has no native text popup');close()
 })
+h.test('PDF child frames offer copy and quote', () => {
+  const f = fixture(), built: MenuItemConstructorOptions[][] = []
+  const close = installTextContextMenu({ isDestroyed: () => false, webContents: f.contents } as BrowserWindow,
+    template => { built.push(template); return { popup() {}, closePopup() {} } as unknown as Menu }, f.actions, () => false)
+  f.emitter.emit('context-menu', { preventDefault() {} }, params({ selectionText: 'Page text', frame: { url: 'klaus-media://file/report.pdf' } as ContextMenuParams['frame'] }))
+  assertDeepEqual(built[0]?.map(item => item.id), ['pdf-copy', 'pdf-add-to-chat'], 'PDF actions'); close()
+})
 h.test('window destruction retires its context menu without reading the destroyed window', () => {
   for (const contentsDestroyed of [false, true]) {
     const f = fixture()
@@ -147,4 +154,5 @@ h.test('asynchronous ownership refusal prevents dispatch and records rejected ch
   click(failed,'text-paste');await Promise.resolve();await Promise.resolve();await Promise.resolve()
   assertEqual(f.calls[0]?.[0],'error','rejected owner checks are reported')
 })
-void (async()=>{process.exit(await h.finish(join(__dirname,'../dist/composer-interaction-logs/text-context-menu-unit-result.json'),'text-context-menu'))})()
+mkdirSync(join(__dirname, '../composer-interaction-logs'), { recursive: true })
+void (async()=>{process.exit(await h.finish(join(__dirname,'../composer-interaction-logs/text-context-menu-unit-result.json'),'text-context-menu'))})()

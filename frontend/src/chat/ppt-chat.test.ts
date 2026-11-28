@@ -119,3 +119,13 @@ test('empty and incomplete requests are acknowledged without changing the compos
   expect(f.staged).toHaveLength(0)
   expect(f.replies).toEqual([['request-a', false, 'ppt_chat_empty_request'], ['request-b', false, 'ppt_chat_invalid_request']])
 })
+
+test('native selection stages a quote without replacing text or acknowledging a host request', async () => {
+  const staged: PptChatRequest[] = []
+  const consume = createPptChatConsumer({ currentSession: () => 'chat-a', stage: () => { throw Error('replaced draft') },
+    stageQuote: payload => { staged.push(payload) }, focus() {}, send: async () => { throw Error('sent quote') },
+    reply: async () => { throw Error('acknowledged native event') }, toast: message => { throw Error(message) }, text: key => key })
+  const payload = request({ acknowledge: false, quote: { text: 'Slide selection', source: { kind: 'ppt', slide: 2 } } })
+  await consume(payload)
+  expect(staged).toEqual([payload])
+})

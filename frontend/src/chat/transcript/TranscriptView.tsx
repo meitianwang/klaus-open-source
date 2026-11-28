@@ -540,7 +540,7 @@ async function runMessageAction(action: string, sessionId: string, uuid: string,
             restored.selectedTextAttachments
               .slice()
               .sort((a, b) => (Number(b.requestOffset) || 0) - (Number(a.requestOffset) || 0))
-              .forEach(selection => w().klausQuoteAddToChat?.(selection.text, selection.requestOffset))
+              .forEach(selection => w().klausQuoteAddToChat?.(selection.text, { ...selection }))
           } else {
             w().setComposerText?.(res.text)
           }
