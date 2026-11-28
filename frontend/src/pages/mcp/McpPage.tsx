@@ -1,3 +1,4 @@
+import { rememberComposerMcpVisuals } from '../../chat/composer/capability-chip-visuals'
 // MCP connector page (React island).
 // market（三页共用双列卡片）/ installed（单列条目卡）双档 + 全局/项目两级
 // 作用域 + 内置连接器组卡（归全局档）；详情/状态/表单弹窗见 modals。
@@ -181,6 +182,7 @@ export function McpPage() {
       }
 
       if (seq !== seqRef.current) return
+      rememberComposerMcpVisuals(builtin)
       setLoadError('')
       setScope(curScope)
       setData({

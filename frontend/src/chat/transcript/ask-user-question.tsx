@@ -1,3 +1,4 @@
+import { resolveFileCardBadge } from '../composer/file-card-visuals'
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import { createPortal } from 'react-dom'
 import { Icon } from '../../components/Icon'
@@ -494,9 +495,10 @@ export function AskUserQuestionCard({ req, resolved, sessionId, composer, source
             </div>
           )
         }
+        const info = resolveFileCardBadge(file.name)
         return (
           <div className="kls-attach-item" key={`${file.path}:${index}`}>
-            <button type="button" className="kls-attach-chip" title={file.name} aria-label={file.name}
+            <button type="button" className="kls-attach-chip" data-file-tone={info.tone} title={file.name} aria-label={file.name}
               onClick={() => { void (async () => {
                 try {
                   const result = await api().klaus.artifacts.openWindow(sessionId, file.path, file.name)
@@ -505,9 +507,9 @@ export function AskUserQuestionCard({ req, resolved, sessionId, composer, source
                   (window as any).showToast?.(`${t('preview_failed_short')}${file.name} ${cause instanceof Error ? cause.message : ''}`)
                 }
               })() }}>
-              <span className="kls-attach-chip-icon"><Icon name="file-2" /></span>
-              <span className="kls-attach-chip-name">{file.name}</span>
-              <span className="kls-attach-chip-meta">{formatAttachmentSize(file.size)}</span>
+              <span className="kls-attach-chip-icon"><Icon name={info.iconName} /><span className="kls-attach-chip-ext">{info.badge}</span></span>
+              <span className="kls-attach-chip-text"><span className="kls-attach-chip-name">{file.name}</span>
+              <span className="kls-attach-chip-meta">{formatAttachmentSize(file.size)}</span></span>
             </button>
             {removeBtn}
           </div>

@@ -1,3 +1,4 @@
+import { rememberComposerPluginVisuals, referenceCapabilityTile } from './capability-chip-visuals'
 import type { FriendSummary } from '../../../../shared/friends'
 import type { MentionEntry } from './slash-menu'
 import { queryClient } from '../../app/query-client'
@@ -35,7 +36,7 @@ export type Translate = (key: string) => string
 
 // --- Raw row shapes (what a queryFn resolves; no labels) ---
 
-export interface PluginRow { id: string; name: string }
+export interface PluginRow { id: string; name: string; iconDataUrl?: string }
 export interface DeviceRow { id: string; name: string; platform: string; status: string; isCurrent: boolean }
 export interface ConversationRow { id: string; title: string }
 export interface BrowserTabsResult { tabs: BrowserTabMention[]; errors: Array<{ browserId: string; message: string; code?: string }> }
@@ -114,13 +115,15 @@ export async function fetchPluginRows(sessionId: string | null): Promise<PluginR
   const api = klaus()?.plugins
   if (!api?.list) return []
   const listed = await api.list(sessionId)
-  return (Array.isArray(listed) ? listed : [])
+  const rows = (Array.isArray(listed) ? listed : [])
     .filter((row: any) => row?.installed && row?.enabled)
     .map((row: any) => {
       const name = String(row.name || row.id || '')
-      return { id: String(row.id || name), name }
+      return { id: String(row.id || name), name, ...(typeof row.iconDataUrl === 'string' ? { iconDataUrl: row.iconDataUrl } : {}) }
     })
     .filter((row: PluginRow) => !!row.name)
+  rememberComposerPluginVisuals(rows)
+  return rows
 }
 
 /** Friend requests are management-only; mention choices are accepted relationships. */
@@ -202,7 +205,7 @@ export function projectPluginRows(rows: PluginRow[], names?: (row: PluginRow) =>
     const resolved = names?.(row)
     const display = resolved?.display || row.name
     const aliases = resolved?.aliases?.length ? { aliases: resolved.aliases } : {}
-    return { name: display, path: row.id, rel: row.name, isDir: false, kind: 'plugin' as const, ...aliases }
+    return { name: display, path: row.id, rel: row.name, isDir: false, kind: 'plugin' as const, ...(row.iconDataUrl ? { icon: referenceCapabilityTile({ kind: 'plugin', id: row.id, name: display, iconUrl: row.iconDataUrl }, '') } : {}), ...aliases }
   })
 }
 

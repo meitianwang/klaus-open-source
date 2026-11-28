@@ -1,3 +1,4 @@
+import { resolveFileCardBadge } from '../composer/file-card-visuals'
 import { composerTokenClipboardText } from '../composer/clipboard-token-text'
 import { composerDocumentText, restoreComposerDocument } from '../composer/document-model'
 import { questionResolution, resolvedQuestionPresentation } from './question-state'
@@ -387,13 +388,14 @@ export function renderMediaFigureHtml(items: Array<{ src: string; name?: string;
 
 export function renderSentFileCardHtml(file: any): string {
   const name = String(file?.name || 'file').trim() || 'file'
+  const info = resolveFileCardBadge(name, file?.mimeType)
   const path = typeof file?.path === 'string' ? file.path : ''
   const tag = path ? 'button' : 'div'
   const action = path ? ` type="button" data-user-file="${escapeHtml(path)}" data-user-file-session="${escapeHtml(file?.sessionId || '')}"` : ''
   return `
-    <${tag} class="kls-attach-chip" aria-label="${escapeHtml(name)}"${action}>
-      <span class="kls-attach-chip-icon">${rawIconHtml('file-2')}</span>
-      <span class="kls-attach-chip-name">${escapeHtml(name)}</span>
+    <${tag} class="kls-attach-chip" data-file-tone="${info.tone}" aria-label="${escapeHtml(name)}"${action}>
+      <span class="kls-attach-chip-icon">${rawIconHtml(info.iconName)}<span class="kls-attach-chip-ext">${info.badge}</span></span>
+      <span class="kls-attach-chip-text"><span class="kls-attach-chip-name">${escapeHtml(name)}</span><span class="kls-attach-chip-meta">${info.badge}</span></span>
     </${tag}>
   `
 }
@@ -424,7 +426,7 @@ export function renderSentPastedCardHtml(card: any): string {
   // pre-wrap whitespace would render template indentation as real line breaks.
   return `<span class="kls-paste-card is-thread" data-paste-path="${escapeHtml(path)}"${!path && typeof card?.text === 'string' ? ` data-paste-text="${escapeHtml(card.text)}"` : ''}>`
     + (hasContent ? `<button class="kls-paste-card-open" type="button" data-paste-open="1" aria-label="${escapeHtml(preview)}"></button>` : '')
-    + `<span class="kls-paste-card-icon">${rawIconHtml('pasted-text')}</span>`
+    + `<span class="kls-paste-card-icon">${rawIconHtml('pasted-text')}<span class="kls-attach-chip-ext">TXT</span></span>`
     + `<span class="kls-paste-card-text"><span class="kls-paste-card-title">${escapeHtml(preview)}</span>${subtitle}</span>`
     + `</span>`
 }

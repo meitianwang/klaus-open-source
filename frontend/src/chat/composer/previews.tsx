@@ -1,3 +1,4 @@
+import { resolveFileCardBadge } from './file-card-visuals'
 // Pending composer attachments. Images and file chips keep the compact chip
 // shape; large pasted text rides as a host-owned file reference and renders as
 // a card (icon tile, preview title, identity or restore subtitle) so the same
@@ -31,7 +32,7 @@ export interface PreviewsApi {
 const tt = (key: string): string => (window as any).tt?.(key) || ''
 
 function PastedCard({ entry, actions }: { entry: PreviewEntry; actions: PreviewsActions }) {
-  const title = entry.previewText || tt('pasted_text_identity')
+  const title = entry.previewText || tt('pasted_text_identity') || 'Pasted text'
   const restorable = !!entry.uploadPath && !entry.uploading
     && (!Number.isFinite(entry.characterCount) || (entry.characterCount ?? 0) <= PASTE_RESTORE_CHAR_LIMIT)
   return (
@@ -39,7 +40,7 @@ function PastedCard({ entry, actions }: { entry: PreviewEntry; actions: Previews
       {entry.uploadPath
         ? <button className="kls-paste-card-open" type="button" aria-label={title} onClick={() => actions.onOpenFile(entry)} />
         : null}
-      <span className="kls-paste-card-icon"><Icon name="pasted-text" /></span>
+      <span className="kls-paste-card-icon"><Icon name="pasted-text" /><span className="kls-attach-chip-ext">TXT</span></span>
       <span className="kls-paste-card-text">
         <span className="kls-paste-card-title">{title}</span>
         {entry.uploading
@@ -50,11 +51,11 @@ function PastedCard({ entry, actions }: { entry: PreviewEntry; actions: Previews
                 className="kls-paste-card-restore" type="button"
                 onClick={(event) => { event.stopPropagation(); actions.onRestorePasted(entry) }}
               >
-                {tt('pasted_text_show_in_field')}
+                {tt('pasted_text_show_in_field') || 'Show in field'}
                 <Icon name="arrow-up-right" />
               </button>
             )
-            : <span className="kls-paste-card-subtitle">{entry.uploadPath ? tt('pasted_text_identity') : tt('pasted_text_unavailable')}</span>}
+            : <span className="kls-paste-card-subtitle">{entry.uploadPath ? tt('pasted_text_identity') || 'Pasted text' : tt('pasted_text_unavailable')}</span>}
       </span>
       <button
         className="kls-paste-card-remove" type="button" aria-label={tt('pasted_text_remove_aria')}
@@ -102,19 +103,25 @@ function PreviewsList({ store, actions, container }: {
         const meta = actions.formatMeta(entry)
         // Quote chips show their one-line preview; file chips show the filename.
         const label = isQuote ? (entry.previewText || entry.file.name) : entry.file.name
+        const info = resolveFileCardBadge(entry.file.name, entry.file.type)
         const cardDisabled = !isQuote && (entry.uploading || !entry.uploadPath)
         return (
           <div className={`kls-attach-item${isQuote ? ` ${styles['quote-preview-item']}` : ''}`} key={i}>
             <button
               className={`kls-attach-chip${isQuote ? ' is-quote' : ''}`} type="button"
+              data-file-tone={isQuote ? undefined : info.tone}
               title={isQuote ? undefined : label}
               aria-label={isQuote ? (tt('quoted_text_badge') || 'QUOTE') : entry.file.name}
               disabled={!!cardDisabled}
               onClick={entry.specAnnotation ? () => (window as any).openSpecAnnotation?.(entry.specAnnotation) : isQuote ? undefined : () => actions.onOpenFile(entry)}
             >
-              <span className="kls-attach-chip-icon"><Icon name={isQuote ? 'quoted-text' : 'file-2'} /></span>
+              {isQuote ? <>
+              <span className="kls-attach-chip-icon"><Icon name="quoted-text" /></span>
               <span className="kls-attach-chip-name">{label}</span>
               {meta ? <span className="kls-attach-chip-meta">{meta}</span> : null}
+              </> : <><span className="kls-attach-chip-icon"><Icon name={info.iconName} /><span className="kls-attach-chip-ext">{info.badge}</span></span>
+              <span className="kls-attach-chip-text"><span className="kls-attach-chip-name">{label}</span>{meta ? <span className="kls-attach-chip-meta">{meta}</span> : null}</span></>}
+
             </button>
             {removeBtn}
           </div>

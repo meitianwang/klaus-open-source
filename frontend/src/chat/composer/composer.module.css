@@ -447,3 +447,13 @@
 .bypass-confirm-learn-more:hover {
   color: var(--accent-hover);
 }
+
+/* Do not alter the separate static remove control on quote previews. */
+:global(.kls-attach-item:not(:has(.kls-attach-chip.is-quote)) .kls-attach-remove), :global(.kls-paste-card .kls-paste-card-remove) {
+  position: absolute; top: -6px; right: -6px; width: 18px; height: 18px;
+  border-radius: 999px; background: #2c2e33; color: #fff; border: none;
+  box-shadow: 0 0 0 2px var(--input-bg, var(--bg)); opacity: 0;
+  transition: opacity .12s ease, transform .12s ease;
+}
+:global([data-theme="dark"] .kls-attach-item:not(:has(.kls-attach-chip.is-quote)) .kls-attach-remove), :global([data-theme="dark"] .kls-paste-card .kls-paste-card-remove) { background: #484a50; }
+:global(.kls-attach-item:not(:has(.kls-attach-chip.is-quote)):is(:hover,:focus-within) .kls-attach-remove), :global(.kls-paste-card:is(:hover,:focus-within) .kls-paste-card-remove) { opacity: 1; }

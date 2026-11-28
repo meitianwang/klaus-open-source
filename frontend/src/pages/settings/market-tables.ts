@@ -1156,3 +1156,5 @@ export function installMarketTables(target: object): void {
 }
 
 if (typeof window !== 'undefined') installMarketTables(window)
+
+export { PLUGIN_NAME_EN_OVERRIDES, PLUGIN_NAME_ZH_OVERRIDES }

@@ -1,3 +1,4 @@
+import { mcpReferenceLabel, referenceCapabilityTile, type ComposerMcpVisual } from './capability-chip-visuals'
 import { ApprovalReviewDenialsMenu } from '../transcript/approval-review'
 // Slash commands and workspace mentions share the same menu container.
 // chat.ts detects triggers and handles keyboard navigation; this component
@@ -47,6 +48,8 @@ export interface MentionEntry {
   rel: string
   isDir: boolean
   /** Device mentions carry the account device id the chip addresses. */
+  connectorId?: string
+  needsAuth?: boolean
   deviceId?: string
   /** Friend mentions address the accepted relationship, resolved by the host. */
   friendId?: string
@@ -99,7 +102,7 @@ export interface SlashMenuActions {
   openFileSearchSession(sessionId: string | null, root?: string): WorkspaceFileSearchSession | null
   contextCommands?(sessionId: string | null, root?: string): Promise<any[]>
   contextCatalogScope?: string
-  contextMcp?(sessionId: string | null, root?: string): Promise<Array<{ name?: string }>>
+  contextMcp?(sessionId: string | null, root?: string): Promise<ComposerMcpVisual[]>
   contextActions?(): MentionEntry[]
   onRequestClose?(): void
   /** Dismiss a settled empty query that has continued into prose. */
@@ -377,8 +380,8 @@ function MentionMenu({ request, actions, store }: {
         loading: 'mention_group_plugins_loading', error: 'mention_group_plugins_error', empty: 'mention_group_empty',
       }),
       { key: 'mcp', labelKey: 'mcp', rows: (mcp.data || []).map(server => ({
-        name: server.name || '', path: server.name || '', rel: '', isDir: false, kind: 'mcp' as const,
-        icon: rawIconHtml('mcp-grid-fill'),
+        name: mcpReferenceLabel({ ...server, name: server.name || '' }), path: server.connectorId || server.id || server.name || '', connectorId: server.connectorId, needsAuth: server.needsAuth, rel: '', isDir: false, kind: 'mcp' as const,
+        icon: referenceCapabilityTile({ kind: 'mcp', name: server.name || '', id: server.id, connectorId: server.connectorId, needsAuth: server.needsAuth }, ''),
       })).filter(row => !!row.name), ...(mcp.isError ? { state: { kind: 'error' as const, labelKey: 'composer_load_failed' } }
         : !mcp.data && mcp.isFetching ? { state: { kind: 'loading' as const, labelKey: 'loading' } } : {}) },
       { key: 'agents', labelKey: 'agents', rows: (agents.data || []).filter(agent => !!agent.agentType).map(agent => ({

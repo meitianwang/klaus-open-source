@@ -1,3 +1,4 @@
+import { loadComposerMcpCatalog, rememberComposerMcpVisuals, rememberComposerSkillVisuals, renderCapabilityMiniTileHtml } from './composer/capability-chip-visuals'
 import { attachPanelQuoteToolbar } from './panel-quote-toolbar'
 import { friendDispatchAttempts } from './composer/friend-dispatch-attempt'
 import { subscribePredictionRefresh } from './composer/prediction-refresh'
@@ -112,7 +113,7 @@ import { invalidateSkillsDataCache } from '../pages/skills/data'
 import { composeInlineQuotes, composeInlineQuoteSubmission, composeSlashTextCards, composerOffsetFromDisplayOffset, expandSelectionAcrossInlineQuotes, insertInlineQuotePlaceholder, positionAfterRemovingInlineTokens, replaceInlineTokenRange, restoreInlineQuotePlaceholders, syncInlineQuoteRanges } from './composer/inline-quote'
 import { configuredAgentReferences, normalizeComposerReferences, replaceComposerReferenceRange, syncComposerReferences, type ComposerReferenceToken } from './composer/reference-token'
 import { isSkillCommand, migrateSkillDraft, referencesFromEditor, resourceReference, resourceReferenceContext, skillReference } from './composer/resource-reference'
-import { composerReferenceClass, composerReferenceIconSvg, friendReferenceIdentity, renderComposerReferencePillHtml } from './composer/reference-pill'
+import { composerReferenceClass, composerReferenceIconSvg, composerReferenceLabel, friendReferenceIdentity, renderComposerReferencePillHtml } from './composer/reference-pill'
 import { friendDisplayName } from '../pages/friends/display-name'
 import { updateFriendsRuntime } from '../pages/friends/runtime-state'
 import { selectComposerSkillRows } from './composer/composer-skills'
@@ -3857,6 +3858,12 @@ function commandIconSvg(command: SlashCommandInfo | null | undefined, className 
   }
 }
 
+function commandChipIconHtml(command: SlashCommandInfo | null | undefined, cls: string) {
+  const group = commandGroupKey(command)
+  const family = group === 'skills' ? 'skill' : group === 'plugins' ? 'plugin' : group === 'mcp' ? 'mcp' : 'shortcut'
+  return renderCapabilityMiniTileHtml(family, cls, family === 'shortcut' && !isManualCompactCommand(command) && !(command && (isPlanShortcut(command) || isGoalShortcut(command))) ? klausIcon('slash-command-fill') : commandIconSvg(command))
+}
+
 function slashCommandGroupLabel(group: string) {
   if (group === 'skills') return tt('skills')
   if (group === 'plugins') return tt('plugins')
@@ -3910,7 +3917,7 @@ function measureComposerText(text: string) {
 }
 
 function measureSlashCommandTokenWidth(command: SlashCommandInfo | null | undefined) {
-  if (!document?.body) return 16 + 5 + measureComposerText(slashCommandDisplayName(command))
+  if (!document?.body) return 26 + measureComposerText(slashCommandDisplayName(command))
   const el = document.createElement('span')
   el.className = `slash-token composer-slash-mirror-token ${commandGroupClass(command)}`
   el.style.font = getComputedStyle(inputEl).font
@@ -3924,7 +3931,7 @@ function measureSlashCommandTokenWidth(command: SlashCommandInfo | null | undefi
   document.body.appendChild(el)
   const width = el.getBoundingClientRect().width
   el.remove()
-  return width || (16 + 5 + measureComposerText(slashCommandDisplayName(command)))
+  return width || (26 + measureComposerText(slashCommandDisplayName(command)))
 }
 
 function inlineQuotePlaceholder() {
@@ -3982,7 +3989,7 @@ function syncComposerReferenceRanges(previous: string, next: string) {
 
 function createComposerReferenceElement(reference: ComposerReferenceToken) {
   const token = document.createElement('span')
-  const name = reference.kind === 'friend' ? friendReferenceIdentity(reference).name : reference.name
+  const name = composerReferenceLabel(reference)
   token.className = `slash-token composer-reference-token ${composerReferenceClass(reference)}`
   token.innerHTML = `${composerReferenceIconSvg(reference, 'slash-token-icon')}<span class="slash-token-label">${escapeHtml(name)}</span>${reference.kind === 'friend' ? `<small class="friend-identity-tag">${escapeHtml(tt('friend_identity_tag'))}</small>` : ''}`
   token.setAttribute('aria-label', name)
@@ -4132,7 +4139,7 @@ function slashPillRegexForCommand(command: SlashCommandInfo) {
 
 function renderSlashPillHtml(name: string, command: SlashCommandInfo | null = null) {
   const resolvedCommand = resolveSlashCommand(command, name)
-  const icon = commandIconSvg(resolvedCommand, 'slash-pill-icon')
+  const icon = commandChipIconHtml(resolvedCommand, 'slash-pill-icon')
   return `<span class="slash-pill ${commandGroupClass(resolvedCommand)}">${icon}<span class="slash-pill-label">${escapeHtml(name)}</span></span>`
 }
 
@@ -4288,7 +4295,7 @@ function appendComposerSlashToken(parent: Node) {
 }
 
 function composerSlashTokenInnerHtml(command: SlashCommandInfo | null | undefined) {
-  return `<span class="composer-slash-mirror-token-inner">${commandIconSvg(command, 'slash-token-icon')}<span class="slash-token-label">${escapeHtml(slashCommandDisplayName(command))}</span></span>`
+  return `<span class="composer-slash-mirror-token-inner">${commandChipIconHtml(command, 'slash-token-icon')}<span class="slash-token-label">${escapeHtml(slashCommandDisplayName(command))}</span></span>`
 }
 
 function appendComposerReferenceToken(parent: Node, reference: ComposerReferenceToken) {
@@ -4553,7 +4560,7 @@ function renderSelectedSlashCommand() {
   slashToken?.classList.toggle('hidden', !hasToken || !!mainComposerControl)
   slashToken?.classList.remove('is-shortcuts-command', 'is-skills-command', 'is-plugins-command', 'is-mcp-command')
   if (slashToken && hasToken) {
-    const icon = commandIconSvg(selectedSlashCommand, 'slash-token-icon')
+    const icon = commandChipIconHtml(selectedSlashCommand, 'slash-token-icon')
     const currentIcon = slashToken.querySelector('.slash-token-icon')
     if (currentIcon) currentIcon.outerHTML = icon
     else slashToken.insertAdjacentHTML('afterbegin', icon)
@@ -13938,18 +13945,22 @@ function renderTaskPanelSpecBinding(section: HTMLElement) {
 async function loadComposerContextMcp(sessionId: string | null, root?: string) {
   const resolved = sessionId && sessionId !== window.currentSessionId ? await klausApi.session.getResolvedWorkdir(sessionId) : null
   const workdir = root || resolved?.workdir || (sessionId === window.currentSessionId ? selectedProjectWorkdir() : '')
-  const [status, connectors] = await Promise.all([
+  const [status, connectors, catalog] = await Promise.all([
     klausApi.mcp?.sessionStatus ? klausApi.mcp.sessionStatus(sessionId || undefined, workdir || undefined) : Promise.resolve(null),
     klausApi.connectors?.list ? klausApi.connectors.list() : Promise.resolve([]),
+    loadComposerMcpCatalog(klausApi.mcp),
   ])
   if (status?.ok === false || status?.error) throw new Error(status?.error || tt('composer_load_failed'))
   if (!Array.isArray(connectors)) throw new Error(connectors?.error || tt('composer_load_failed'))
   const projectStatus = normalizeProjectMcpData(status, workdir || '')
   if (!projectStatus) throw new Error(tt('composer_load_failed'))
-  return [
-    ...projectStatus.servers.filter((server: { scope?: string }) => workdir || (server.scope !== 'project' && server.scope !== 'local')),
-    ...connectors.filter(connector => connector.enabled).map(connector => ({ name: connector.name || connector.id })),
+  const servers = projectStatus.servers.filter((server: { scope?: string }) => workdir || (server.scope !== 'project' && server.scope !== 'local'))
+  const rows = [
+    ...servers.map(server => ({ ...catalog.find(entry => entry.id === server.name), ...server, needsAuth: server.status === 'needs-auth' })),
+    ...connectors.filter(connector => connector.enabled).map(connector => ({ name: connector.name || connector.id, id: connector.id, connectorId: connector.id, iconDataUrl: connector.iconDataUrl, needsAuth: servers.find(server => server.name === connector.id)?.status === 'needs-auth' })),
   ]
+  if (typeof rememberComposerMcpVisuals === 'function') rememberComposerMcpVisuals(rows)
+  return rows
 }
 
 async function refreshSelectedSlashCommand() {
@@ -14036,11 +14047,13 @@ async function getComposerSkills(options: { forceReload?: boolean } = {}) {
   if (scope !== slashCatalogScope()) throw new StaleSlashCatalogRequest()
   // 宿主 skills:builtin 返回 { items, error } 对象（引擎查询失败时 items 仍带
   // 兜底条目），解包与合并语义在 composer-skills 纯函数里，两形态都容忍。
-  return selectComposerSkillRows({
+  const rows = selectComposerSkillRows({
     ...dependencies,
     projectCommands,
     loadFailedMessage: tt('composer_load_failed'),
   })
+  if (typeof rememberComposerSkillVisuals === 'function') rememberComposerSkillVisuals(rows)
+  return rows
 }
 
 function selectComposerCommand(command: SlashCommandInfo, triggerRange?: { start: number; end: number } | null) {
@@ -14201,7 +14214,7 @@ function selectWorkspaceMentionItem(entry: MentionEntry, intent: 'insert' | 'com
     return
   }
   if (entry.kind === 'mcp') {
-    insertComposerReferenceToken(resourceReference('mcp', entry.name, entry.path), trigger)
+    insertComposerReferenceToken({ ...resourceReference('mcp', entry.name, entry.path), connectorId: entry.connectorId, needsAuth: entry.needsAuth }, trigger)
     hideSlashMenu()
     inputEl.focus()
     return

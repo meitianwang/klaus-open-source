@@ -1,3 +1,4 @@
+import { isConnectorIdentity, safeChipImageSrc } from './capability-chip-visuals'
 import { FRIEND_ID_PATTERN, friendMentionValue } from '../../../../shared/friends'
 import type { BrowserTabMention } from '../../../../shared/browser-tab-mention'
 import { scannableReferenceTokens } from '../../../../shared/composer-reference-scan'
@@ -12,6 +13,10 @@ export interface ComposerReferenceToken {
   range: { start: number; end: number }
   source?: 'configured' | 'live' | 'plugin'
   id?: string
+  connectorId?: string
+  iconUrl?: string
+  needsAuth?: boolean
+  unavailable?: boolean
   skillPath?: string
   skillPreview?: boolean
   path?: string
@@ -44,6 +49,10 @@ function validReference(text: string, value: unknown): ComposerReferenceToken | 
     name: browserTab ? browserTabReference(browserTab).name : name,
     value: tokenValue,
     range: { start: range.start, end: range.end },
+    ...(kind === 'mcp' && typeof candidate.connectorId === 'string' && /^[\w.:@-]{1,200}$/.test(candidate.connectorId) ? { connectorId: candidate.connectorId } : {}),
+    ...(safeChipImageSrc(candidate.iconUrl) ? { iconUrl: candidate.iconUrl } : {}),
+    ...(typeof candidate.needsAuth === 'boolean' ? { needsAuth: candidate.needsAuth } : {}),
+    ...(candidate.unavailable === true ? { unavailable: true } : {}),
     ...(candidate.source ? { source: candidate.source } : {}),
     ...(candidate.id ? { id: candidate.id } : {}),
     ...(kind === 'skill' && typeof candidate.skillPath === 'string' && candidate.skillPath && !/[\u0000-\u001f\u007f]/.test(candidate.skillPath) ? { skillPath: candidate.skillPath } : {}),
@@ -88,6 +97,7 @@ function scannableReferences(text: string): ComposerReferenceToken[] {
     value: token.value,
     range: token.range,
     id: token.id,
+    ...(token.kind === 'mcp' && isConnectorIdentity(token.id) ? { connectorId: token.id } : {}),
     ...(token.skillPath ? { skillPath: token.skillPath } : {}),
     ...(token.browserTab ? { browserTab: token.browserTab } : {}),
     ...(token.kind === 'file' || token.kind === 'folder' ? { rel: token.id, path: token.id } : {}),
