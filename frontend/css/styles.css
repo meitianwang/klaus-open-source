@@ -11880,7 +11880,7 @@ button.slash-pill { cursor: pointer; }
 .kls-paste-card-open { border-radius: 10px; inset: 0; }
 .kls-paste-card-remove { z-index: 3; }
 #composer-plus-btn, :is(#main-model-select, #permission-select) .kls-select-trigger, .goal-mode-badge { height: 28px; border-radius: 7px; }
-#composer-context-row :is(button, .kls-select-trigger) { height: 26px; border-radius: 7px; }
+#composer-context-row > button, #composer-context-row .kls-select-trigger { height: 26px; border-radius: 7px; }
 
 .slash-pill, button.slash-pill { border: none; margin: 0; font-family: inherit; box-sizing: border-box; appearance: none; }
 .kls-paste-card-restore { display: inline-flex; align-items: center; gap: 3px; border: none; background: transparent; padding: 0; }
