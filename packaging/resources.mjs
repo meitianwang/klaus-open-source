@@ -70,7 +70,7 @@ export function nativeFingerprint(nativeRoot) {
   visit('core/src'); visit('binding/src'); visit('vendor/wacore-noise/src'); visit('vendor/wacore/src'); visit('vendor/whatsapp-rust/src');
   files.push('vendor/wacore-noise/Cargo.toml', 'vendor/wacore/Cargo.toml', 'vendor/whatsapp-rust/Cargo.toml');
   files.push('pip/KlausPIP.h', 'pip/KlausPIPHost.m', 'pip/KlausPIPTransport.m');
-  files.push('permissions/KlausPermissions.h', 'permissions/KlausPermissions.m');
+  files.push('permissions/KlausPermissions.h', 'permissions/KlausPermissions.m', 'permissions/KlausPermissionGuide.h', 'permissions/KlausPermissionGuide.m');
   files.push('pets/KlausPetPanel.h', 'pets/KlausPetPanel.m', 'pets/KlausAppshotShortcut.h');
   const hash = createHash('sha256');
   for (const file of files.sort()) hash.update(file).update('\0').update(readFileSync(join(nativeRoot, file))).update('\0');

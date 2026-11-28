@@ -123,7 +123,7 @@ test('engine validation rejects incorrect commit, dirty source, target and modif
 
 test('native validation rejects credential fixture builds and stale source fingerprints', () => fixture(root => {
   const nativeRoot = join(root, 'source');
-  for (const name of ['Cargo.toml', 'Cargo.lock', 'core/Cargo.toml', 'binding/Cargo.toml', 'binding/build.rs', 'scripts/build.mjs', 'scripts/build-target.mjs', 'scripts/publish-artifact.mjs', 'core/src/lib.rs', 'binding/src/lib.rs', 'vendor/wacore-noise/Cargo.toml', 'vendor/wacore/Cargo.toml', 'vendor/whatsapp-rust/Cargo.toml', 'vendor/wacore-noise/src/lib.rs', 'vendor/wacore/src/lib.rs', 'vendor/whatsapp-rust/src/lib.rs', 'pip/KlausPIP.h', 'pip/KlausPIPHost.m', 'pip/KlausPIPTransport.m', 'permissions/KlausPermissions.h', 'permissions/KlausPermissions.m', 'pets/KlausPetPanel.h', 'pets/KlausPetPanel.m', 'pets/KlausAppshotShortcut.h']) {
+  for (const name of ['Cargo.toml', 'Cargo.lock', 'core/Cargo.toml', 'binding/Cargo.toml', 'binding/build.rs', 'scripts/build.mjs', 'scripts/build-target.mjs', 'scripts/publish-artifact.mjs', 'core/src/lib.rs', 'binding/src/lib.rs', 'vendor/wacore-noise/Cargo.toml', 'vendor/wacore/Cargo.toml', 'vendor/whatsapp-rust/Cargo.toml', 'vendor/wacore-noise/src/lib.rs', 'vendor/wacore/src/lib.rs', 'vendor/whatsapp-rust/src/lib.rs', 'pip/KlausPIP.h', 'pip/KlausPIPHost.m', 'pip/KlausPIPTransport.m', 'permissions/KlausPermissions.h', 'permissions/KlausPermissions.m', 'permissions/KlausPermissionGuide.h', 'permissions/KlausPermissionGuide.m', 'pets/KlausPetPanel.h', 'pets/KlausPetPanel.m', 'pets/KlausAppshotShortcut.h']) {
     mkdirSync(dirname(join(nativeRoot, name)), { recursive: true }); writeFileSync(join(nativeRoot, name), name);
   }
   const filename = 'klaus-native-darwin-arm64.node', bytes = macho();
@@ -135,7 +135,7 @@ test('native validation rejects credential fixture builds and stale source finge
   save({ ...manifest, whatsappFixtures: true }); assert.throws(() => validateNative(root, nativeRoot, { platform, arch }), /production/);
   save({ ...manifest, nativeSourceSha256: '0'.repeat(64) }); assert.throws(() => validateNative(root, nativeRoot, { platform, arch }), /fingerprint/);
   save(manifest);
-  for (const name of ['pip/KlausPIP.h', 'pip/KlausPIPHost.m', 'pip/KlausPIPTransport.m', 'permissions/KlausPermissions.h', 'permissions/KlausPermissions.m', 'pets/KlausPetPanel.h', 'pets/KlausPetPanel.m', 'pets/KlausAppshotShortcut.h']) {
+  for (const name of ['pip/KlausPIP.h', 'pip/KlausPIPHost.m', 'pip/KlausPIPTransport.m', 'permissions/KlausPermissions.h', 'permissions/KlausPermissions.m', 'permissions/KlausPermissionGuide.h', 'permissions/KlausPermissionGuide.m', 'pets/KlausPetPanel.h', 'pets/KlausPetPanel.m', 'pets/KlausAppshotShortcut.h']) {
     writeFileSync(join(nativeRoot, name), 'changed'); assert.throws(() => validateNative(root, nativeRoot, { platform, arch }), /fingerprint/);
     writeFileSync(join(nativeRoot, name), name);
   }
