@@ -651,8 +651,7 @@ describe('streaming and replay interactions', () => {
     expect(activitySummaryLabel(translate('en'), group)).toBe(activitySummaryLabel(translate('en'), directGroup))
     ;(window as any).currentLang = 'zh'
     expect(activitySummaryLabel(translate('zh'), group)).toBe(activitySummaryLabel(translate('zh'), directGroup))
-    expect(activitySummaryLabel(translate('zh'), group)).toContain('已使用 Klaus Design 集成')
-    expect(activitySummaryLabel(translate('zh'), group)).toContain('已打开网页 · example.com')
+    expect(activitySummaryLabel(translate('zh'), group)).toBe('已使用 Klaus Design 集成，已打开网页 · example.com')
     ;(window as any).currentLang = 'en'
     expect(activitySummaryIconTool(group)?.toolName).toBe('mcp__klaus-design__design_open')
 
@@ -811,7 +810,7 @@ describe('single glyph source across surfaces', () => {
     ])
     const runningAdvisor = describeActivity('advisor', { question: 'Q' }, 'running')
     for (const [locale, expectedMixed, expectedOnly, expectedFailed, expectedActive] of [
-      ['zh', '已读取文件已咨询顾问', '已咨询顾问', '顾问咨询失败', '正在咨询顾问'],
+      ['zh', '已读取文件，已咨询顾问', '已咨询顾问', '顾问咨询失败', '正在咨询顾问'],
       ['en', 'Read files, consulted advisor', 'Consulted advisor', 'Advisor consultation failed', 'Consulting advisor'],
     ] as const) {
       ;(window as any).currentLang = locale

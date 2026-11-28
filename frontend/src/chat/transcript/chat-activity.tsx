@@ -839,8 +839,14 @@ export function chatActivitySummaryParts(tools: ChatActivityTool[]): ChatActivit
   return [...seen.values()]
 }
 
+export function formatActivitySummaryList(parts: string[], locale = intlLocale()): string {
+  if (parts.length <= 1) return parts[0] ?? ''
+  if (locale.startsWith('zh')) return parts.join('，')
+  return new Intl.ListFormat(locale, { style: 'long', type: 'unit' }).format(parts)
+}
+
 export function chatActivitySummaryLabel(translate: (key: string) => string, tools: ChatActivityTool[], leading = true): string {
-  return new Intl.ListFormat(intlLocale(), { style: 'long', type: 'unit' }).format(
+  return formatActivitySummaryList(
     chatActivitySummaryParts(tools).map((tool, index) => dynamicActivityLabel(
       translate, tool, true, leading && index === 0,
     )),

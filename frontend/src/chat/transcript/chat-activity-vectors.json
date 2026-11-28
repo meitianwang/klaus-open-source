@@ -7,7 +7,7 @@
     "Only a row with a nonempty threadId becomes a navigation button.",
     "Read rows keep localized lifecycle wording even when the target chat title is known; valid local targets remain clickable.",
     "Completed summary parts dedupe by host namespace and tool, in first occurrence order.",
-    "Completed dynamic summary parts follow the generic activity categories and use Intl unit list formatting.",
+    "Completed dynamic summary parts follow the generic activity categories and join clauses with '，' in Chinese and Intl unit list formatting elsewhere.",
     "Commentary is standalone; reasoning is omitted from activity units.",
     "A completed singleton becomes a direct row when its activity slice closes.",
     "Groups start collapsed; every read keeps its own navigation target when expanded.",
@@ -667,7 +667,7 @@
         "list"
       ],
       "en": "Listed chats, read chat",
-      "zh": "已列出聊天已阅读聊天"
+      "zh": "已列出聊天，已阅读聊天"
     },
     {
       "kinds": [
@@ -676,7 +676,7 @@
         "read"
       ],
       "en": "Read chat, listed chats",
-      "zh": "已读取聊天已列出聊天"
+      "zh": "已读取聊天，已列出聊天"
     },
     {
       "kinds": [
@@ -700,7 +700,7 @@
         }
       ],
       "en": "Read chat, sent message to chat",
-      "zh": "已读取聊天已向聊天发送消息"
+      "zh": "已读取聊天，已向聊天发送消息"
     },
     {
       "kinds": [
@@ -724,7 +724,7 @@
         }
       ],
       "en": "Read chat, created chat",
-      "zh": "已读取聊天已新建聊天"
+      "zh": "已读取聊天，已新建聊天"
     },
     {
       "kinds": [
@@ -752,7 +752,7 @@
         }
       ],
       "en": "Read chat, waited for chats",
-      "zh": "已读取聊天已等待聊天"
+      "zh": "已读取聊天，已等待聊天"
     },
     {
       "kinds": [
@@ -777,7 +777,7 @@
         }
       ],
       "en": "Read chat, pinned chat",
-      "zh": "已读取聊天已置顶聊天"
+      "zh": "已读取聊天，已置顶聊天"
     },
     {
       "kinds": [
@@ -802,7 +802,7 @@
         }
       ],
       "en": "Read chat, unpinned chat",
-      "zh": "已读取聊天已取消置顶聊天"
+      "zh": "已读取聊天，已取消置顶聊天"
     },
     {
       "kinds": [
@@ -827,7 +827,7 @@
         }
       ],
       "en": "Read chat, archived chat",
-      "zh": "已读取聊天已归档聊天"
+      "zh": "已读取聊天，已归档聊天"
     },
     {
       "kinds": [
@@ -852,7 +852,7 @@
         }
       ],
       "en": "Read chat, restored chat",
-      "zh": "已读取聊天已恢复聊天"
+      "zh": "已读取聊天，已恢复聊天"
     },
     {
       "kinds": [
@@ -877,7 +877,7 @@
         }
       ],
       "en": "Read chat, renamed chat",
-      "zh": "已读取聊天已重命名聊天"
+      "zh": "已读取聊天，已重命名聊天"
     },
     {
       "kinds": [
@@ -901,7 +901,7 @@
         }
       ],
       "en": "Read chat, forked chat",
-      "zh": "已读取聊天已克隆聊天"
+      "zh": "已读取聊天，已克隆聊天"
     },
     {
       "kinds": [
@@ -923,7 +923,7 @@
         }
       ],
       "en": "Read chat, listed archived chats",
-      "zh": "已读取聊天已列出已归档聊天"
+      "zh": "已读取聊天，已列出已归档聊天"
     }
   ],
   "dynamicLabels": [
@@ -1064,7 +1064,7 @@
         }
       ],
       "en": "Loaded a tool, edited a file, read chat",
-      "zh": "加载了工具编辑了文件已阅读聊天",
+      "zh": "加载了工具，编辑了文件，已阅读聊天",
       "iconTool": "tool_search"
     },
     {
@@ -1083,7 +1083,7 @@
         }
       ],
       "en": "Loaded tools, read chat",
-      "zh": "加载了工具已阅读聊天",
+      "zh": "加载了工具，已阅读聊天",
       "iconTool": "ToolSearch"
     },
     {
@@ -1119,7 +1119,7 @@
         }
       ],
       "en": "Used Calendar integration, loaded a tool, read chat",
-      "zh": "已使用 Calendar 集成加载了工具已阅读聊天",
+      "zh": "已使用 Calendar 集成，加载了工具，已阅读聊天",
       "iconTool": "mcp__calendar__read_events"
     },
     {
@@ -1139,7 +1139,7 @@
         }
       ],
       "en": "Used GitHub and Slack integrations, read chat",
-      "zh": "已使用 GitHub和Slack 集成已阅读聊天",
+      "zh": "已使用 GitHub和Slack 集成，已阅读聊天",
       "iconTool": "mcp__github__do_thing"
     },
     {
@@ -1157,7 +1157,7 @@
         }
       ],
       "en": "Loaded a tool, called a tool, read chat",
-      "zh": "加载了工具调用了工具已阅读聊天",
+      "zh": "加载了工具，调用了工具，已阅读聊天",
       "iconTool": "tool_search"
     },
     {
@@ -1174,7 +1174,7 @@
         }
       ],
       "en": "Used Browser Use and GitHub integrations, read chat",
-      "zh": "已使用 Browser Use和GitHub 集成已阅读聊天",
+      "zh": "已使用 Browser Use和GitHub 集成，已阅读聊天",
       "iconTool": "mcp__browser-use__screenshot"
     },
     {
@@ -1188,7 +1188,7 @@
         }
       ],
       "en": "Ran a command, read chat",
-      "zh": "运行了命令已阅读聊天",
+      "zh": "运行了命令，已阅读聊天",
       "iconTool": "mcp__node_repl__js"
     },
     {
@@ -1230,7 +1230,7 @@
         }
       ],
       "en": "Loaded a tool, edited a file, viewed 2 images, read files, ran a command",
-      "zh": "加载了工具编辑了文件查看了 2 张图像读取文件运行了命令",
+      "zh": "加载了工具，编辑了文件，查看了 2 张图像，读取文件，运行了命令",
       "iconTool": "tool_search"
     }
   ],

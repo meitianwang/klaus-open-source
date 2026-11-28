@@ -345,11 +345,19 @@ function toolEventChatEvents(params: Json, splitToolMedia?: ToolMediaProjector, 
     case 'orchestrator_stage_progress': {
       const child = field(ev, 'event');
       if (child === undefined) return [];
+      const childType = str(child, 'type');
+      const childItem = field(child, 'item');
+      if (
+        (childType === 'text.delta' && strOpt(child, 'phase') === 'final_answer') ||
+        ((childType === 'item.started' || childType === 'item.updated' || childType === 'item.completed')
+          && childItem !== undefined && str(childItem, 'type') === 'agent_message' && strOpt(childItem, 'phase') === 'final_answer')
+      ) return [];
       const parentTurnId = strOpt(inner, 'turnId');
       const prefix = typeof toolCallId === 'string' && toolCallId ? `orch:${toolCallId}:` : 'orch:';
       return projectChildEngineEvent(sessionId, child, splitToolMedia, context).flatMap(frame => {
         const type = str(frame, 'type');
         if (['done', 'interrupted', 'api_error', 'user_message', 'proposed_plan', 'proposed_plan_delta'].includes(type)) return [];
+        if ((type === 'text_delta' || type === 'message_complete') && strOpt(frame, 'phase') === 'final_answer') return [];
         const projected = { ...frame };
         for (const key of ['toolCallId', 'messageId']) {
           const id = strOpt(frame, key);

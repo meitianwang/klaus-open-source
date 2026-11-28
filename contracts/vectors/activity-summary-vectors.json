@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "reason": "Desktop and iOS derive the same semantic activity summary while retaining every original tool row and result in the expanded body.",
+  "reason": "Desktop and iOS derive the same semantic activity summary while retaining every original tool row and result in the expanded body. Updated 2026-11-27: Chinese activity summary clauses join with full-width commas ('，') instead of CLDR unit formatting's empty separator so adjacent clauses never glue together.",
   "imageExtensions": ["png", "jpg", "jpeg", "gif", "webp"],
   "nonImageExtensions": ["svg", "pdf"],
   "categoryOrder": ["loadedTools", "skills", "edits", "images", "reads", "commands", "web", "tools"],
@@ -20,7 +20,7 @@
       "reads": 1,
       "commands": 1,
       "en": "Loaded a tool, edited a file, viewed 2 images, read files, ran a command",
-      "zh": "加载了工具编辑了文件查看了 2 张图像读取文件运行了命令"
+      "zh": "加载了工具，编辑了文件，查看了 2 张图像，读取文件，运行了命令"
     }
   },
   "compaction": {

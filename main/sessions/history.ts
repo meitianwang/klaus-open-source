@@ -253,14 +253,22 @@ function collectToolResults(message: JsonObject, results: Map<string, Json>, con
 }
 
 function expandOrchestratedStageItems(stageCallId: string, items: Json[], configRoot: string | undefined): Json[] {
-  return items.flatMap((entry): Json[] => {
+  let lastActionIndex = -1;
+  items.forEach((entry, index) => {
+    const type = obj(entry).type;
+    if (type === 'tool_call' || type === 'command_execution' || type === 'file_change') lastActionIndex = index;
+  });
+  return items.flatMap((entry, index): Json[] => {
     const item = obj(entry);
     const itemId = str(item.id);
     if (!itemId) return [];
     const id = `orch:${stageCallId}:${itemId}`;
     const text = str(item.text);
     if (item.type === 'reasoning') return text.trim() ? [{ type: 'thinking', thinking: text, messageId: id }] : [];
-    if (item.type === 'agent_message') return text.trim() ? [{ type: 'text', text, phase: 'commentary', messageId: id }] : [];
+    if (item.type === 'agent_message') {
+      if (item.phase === 'final_answer' || index > lastActionIndex) return [];
+      return text.trim() ? [{ type: 'text', text, phase: 'commentary', messageId: id }] : [];
+    }
     if (item.type !== 'tool_call' && item.type !== 'command_execution') return [];
     const command = item.type === 'command_execution';
     const name = command ? 'Bash' : str(item.toolName);

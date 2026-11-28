@@ -245,11 +245,12 @@ h.test('saved execution stage expands into scoped inline replay blocks', () => {
       { type: 'tool_call', id: 't', toolName: 'Read', arguments: {}, result: { value: 'contents' } },
       { type: 'command_execution', id: 'cmd', command: 'pwd', aggregatedOutput: 'cwd', exitCode: 0 },
       { type: 'tool_call', id: 'fail', toolName: 'Read', error: { message: 'Not found' } },
+      { type: 'agent_message', id: 'report', text: 'Stage complete: updated files and ran checks.' },
     ] } },
   ] }, 'renderer') as Row;
   const blocks = ((projected.messages as Row[])[0]!.contentBlocks as Row[]);
   assertDeepEqual(blocks.map(block => [block.type, block.id ?? block.messageId, block.phase ?? null]),
-    [['tool_use', 'stage', null], ['text', 'orch:stage:m', 'commentary'], ['tool_use', 'orch:stage:t', null], ['tool_use', 'orch:stage:cmd', null], ['tool_use', 'orch:stage:fail', null]], 'inline stage blocks');
+    [['tool_use', 'stage', null], ['text', 'orch:stage:m', 'commentary'], ['tool_use', 'orch:stage:t', null], ['tool_use', 'orch:stage:cmd', null], ['tool_use', 'orch:stage:fail', null]], 'inline stage blocks omit trailing stage report');
   assertEqual(blocks[3]!.name, 'Bash', 'command card');
   assertEqual((((blocks[4]!.__result as Row).content as Row[])[0]!).text, 'Not found', 'error text');
   assertEqual((blocks[0]!.__result as Row).orchestratedStage, undefined, 'clean parent card');

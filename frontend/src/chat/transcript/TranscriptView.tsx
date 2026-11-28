@@ -99,7 +99,7 @@ import type { AgentTask } from '../engine-events'
 import { subscribeSubagents, subagentsVersion } from '../subagent-state'
 import { resolveAgentActivityTask } from '../subagent-stream'
 import { parseSelectedTextEnvelope } from '../selected-text-envelope'
-import { collectTerminalGeneratedMediaPaths, dynamicActivityLabel, isExplicitMediaGenerationTool, isPetPillOnlyTool, isToolDiscovery, loadedActivityToolNames, mcpActivitySource, mcpActivityIsCommand, chatActivitySummaryLabel, skillActivityLabel, skillIdentifierFromPath, type ChatActivityTool } from './chat-activity'
+import { collectTerminalGeneratedMediaPaths, dynamicActivityLabel, formatActivitySummaryList, isExplicitMediaGenerationTool, isPetPillOnlyTool, isToolDiscovery, loadedActivityToolNames, mcpActivitySource, mcpActivityIsCommand, chatActivitySummaryLabel, skillActivityLabel, skillIdentifierFromPath, type ChatActivityTool } from './chat-activity'
 import { workflowRecordFromTool, WorkflowRecordView, type WorkflowRecord } from './workflow-records'
 import { goalCompletionsByTurn, type GoalCompletionSource, type GoalCompletionSummary } from './goal-completion'
 import { agentEventRowStatus, isSettledAgentEventRowStatus, parseAgentLifecycleNotification, uniqueAgentLifecycleEvents, type AgentLifecycleEvent } from './agent-lifecycle'
@@ -3335,7 +3335,7 @@ export function activitySummaryLabel(t: (key: string) => string, node: ActivityH
   }
   const parts = activitySummaryParts(t, node.summary)
   if (node.summary.allTools.some(tool => semanticActivity(tool.toolName, tool.args)?.category === 'friend')) return parts.join(' · ')
-  return new Intl.ListFormat(intlLocale(), { style: 'long', type: 'unit' }).format(parts)
+  return formatActivitySummaryList(parts)
 }
 
 export function ActivityHeader({ node, thinkingHeading = node.thinkingHeading || '' }: {

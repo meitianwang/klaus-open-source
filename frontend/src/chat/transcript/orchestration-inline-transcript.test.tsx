@@ -48,3 +48,25 @@ test('saved stage activity folds under the completed parent turn', () => {
   expect(JSON.stringify(fold)).toContain('orch:stage:read')
   expect(JSON.stringify(fold)).toContain('Working')
 })
+
+test('mixed read and execution stage summary separates clauses cleanly in Chinese and English', async () => {
+  const { I18N } = await import('../../i18n')
+  const { describeActivity, summarizeActivity } = await import('./activity-model')
+  const summary = summarizeActivity([
+    { key: 'r1', value: { toolName: 'read', args: { path: '/a.ts' }, state: 'done' }, grouping: 'tool', action: describeActivity('read', { path: '/a.ts' }, 'done') },
+    { key: 's1', value: { toolName: 'orchestrate_execution', args: { description: '接入代码、Markdown 与 PDF 面板引用胶囊' }, state: 'done' }, grouping: 'tool', action: describeActivity('orchestrate_execution', { description: '接入代码、Markdown 与 PDF 面板引用胶囊' }, 'done') },
+  ])
+  const prev = (window as any).currentLang
+  try {
+    ;(window as any).currentLang = 'zh'
+    expect(transcript.activitySummaryLabel(key => I18N.zh[key] || key, { mode: 'summary', summary })).toBe(
+      '已读取文件，已执行阶段 · 接入代码、Markdown 与 PDF 面板引用胶囊',
+    )
+    ;(window as any).currentLang = 'en'
+    expect(transcript.activitySummaryLabel(key => I18N.en[key] || key, { mode: 'summary', summary })).toBe(
+      'Read files, completed stage · 接入代码、Markdown 与 PDF 面板引用胶囊',
+    )
+  } finally {
+    ;(window as any).currentLang = prev
+  }
+})

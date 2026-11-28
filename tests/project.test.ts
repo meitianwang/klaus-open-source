@@ -1078,8 +1078,9 @@ h.test('orchestration stage progress projects inline into the parent turn', () =
   const project = (event: Json) => mapChatEvents({ type: 'rawSessionEvent', params: { sessionId: 'root', event: { event: {
     type: 'tool.event', toolUseId: 'stage', turnId: 'parent', event: { type: 'orchestrator_stage_progress', agentId: 'worker', event },
   } } } });
-  const frames = project({ type: 'text.delta', messageId: 'message', text: 'Working', phase: 'final_answer' });
+  const frames = project({ type: 'text.delta', messageId: 'message', text: 'Working', phase: 'commentary' });
   assertDeepEqual(frames.filter(frame => frame.type === 'text_delta').map(frame => [frame.messageId, frame.phase, frame.turnId]), [['orch:stage:message', 'commentary', 'parent']], 'inline text');
+  assertDeepEqual(project({ type: 'text.delta', messageId: 'closing', text: 'Stage complete', phase: 'final_answer' }), [], 'closing stage report is not projected');
   const progress = project({ type: 'tool.event', toolUseId: 'command', event: { type: 'stdout', chunk: 'output' } });
   assertDeepEqual(progress.map(frame => [frame.type, frame.toolCallId, frame.turnId]), [['progress', 'orch:stage:command', 'parent']], 'inline output');
   assertDeepEqual(project({ type: 'user.message' }), [], 'child user input is not projected');
