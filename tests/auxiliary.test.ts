@@ -142,6 +142,77 @@ h.test('Automation probe failures remain unknown and unsupported platforms never
     assert.deepEqual((await service.check() as { permissions: object }).permissions, {});
   }
 });
+
+h.test('drag-and-drop guidance opens only for list-based macOS panes and auto-dismisses when granted or closed', async () => {
+  const shown: Array<Record<string, unknown>> = [];
+  const closed: boolean[] = [];
+  let accessibilityGranted = false;
+  let language = 'zh-CN';
+  const service = new SystemPermissions({
+    platform: 'darwin',
+    language: () => language,
+    fullDiskAccess: async () => 'denied',
+    preferences: {
+      isTrustedAccessibilityClient: () => accessibilityGranted,
+      getMediaAccessStatus: () => 'not-determined',
+    },
+    openExternal: async () => {},
+    showDragGuide: options => { shown.push({ ...options }); return true; },
+    closeDragGuide: restore => { closed.push(Boolean(restore)); },
+  });
+
+  const accOpen = await service.open('accessibility') as Record<string, unknown>;
+  assert.equal(accOpen.ok, true);
+  assert.equal(accOpen.guideShown, true);
+  assert.equal(accOpen.nativeStatus, 'not determined');
+  assert.equal(shown.length, 1);
+  assert.equal(shown[0]?.paneTitle, '辅助功能');
+  assert.equal(shown[0]?.dragLabel, '拖拽');
+  assert.equal(shown[0]?.reopenUrl, 'x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_Accessibility');
+
+  // While still not granted, check() must keep the guide open.
+  await service.check();
+  assert.deepEqual(closed, []);
+
+  // Once observed as granted, check() automatically dismisses the floating guide.
+  accessibilityGranted = true;
+  await service.check();
+  assert.deepEqual(closed, [false]);
+
+  // English localization + Full Disk Access pane.
+  language = 'en-US';
+  const fdaOpen = await service.open('fullDiskAccess') as Record<string, unknown>;
+  assert.equal(fdaOpen.guideShown, true);
+  assert.equal(shown.at(-1)?.paneTitle, 'Full Disk Access');
+  assert.equal(shown.at(-1)?.dragLabel, 'Drag');
+  assert.equal(shown.at(-1)?.reopenUrl, 'x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_AllFiles');
+
+  // Opening a non-drag pane dismisses any active drag guide without showing a new one.
+  const notifOpen = await service.open('notification') as Record<string, unknown>;
+  assert.equal(notifOpen.ok, true);
+  assert.equal(notifOpen.guideShown, undefined);
+  assert.equal(shown.length, 2);
+  assert.deepEqual(closed, [false, false]);
+
+  // Screen Recording shows the guide, and close() cleans it up on shutdown.
+  const screenOpen = await service.open('screenRecording') as Record<string, unknown>;
+  assert.equal(screenOpen.guideShown, true);
+  assert.equal(shown.at(-1)?.reopenUrl, 'x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture');
+  service.close();
+  assert.deepEqual(closed, [false, false, false]);
+
+  // Native bridge wrapper degrades safely on non-macOS or older addons without guide exports.
+  const minimalAddon = {
+    automationPermissionStatus: async () => 'unknown' as const,
+    photosPermissionStatus: async () => 'unknown' as const,
+    locationPermissionStatus: async () => 'unknown' as const,
+    notificationPermissionStatus: async () => 'unknown' as const,
+    requestPermission: async () => 'unknown' as const,
+  };
+  const probes = nativeSystemPermissionProbes(minimalAddon, 'darwin');
+  assert.equal(probes.showDragGuide({ paneTitle: 'Accessibility' }), false);
+  assert.doesNotThrow(() => probes.closeDragGuide(false));
+});
 h.test('shortcut states distinguish defaults, disabled rows, native conflicts and invalid accelerators', () => {
   const stored = new Map<string, string>(), registered = new Map<string, () => void>(), removed: string[] = [], errors: string[] = []; let toggled = 0;
   const service = new DesktopShortcuts({ read: key => stored.get(key), shortcuts: {

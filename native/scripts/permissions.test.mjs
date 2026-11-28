@@ -9,7 +9,11 @@ const native = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const vector = JSON.parse(readFileSync(join(native, '../contracts/vectors/system-permission-vectors.json'), 'utf8')).automation;
 // Same first-execution scan hazard as the lockscreen fixture: keep one stable
 // output path, rebuild only when sources change, skip if the machine SIGKILLs it.
-const sources = [join(native, 'permissions/KlausPermissions.m'), join(native, 'tests/permissions-fixture.m')];
+const sources = [
+  join(native, 'permissions/KlausPermissions.m'),
+  join(native, 'permissions/KlausPermissionGuide.m'),
+  join(native, 'tests/permissions-fixture.m'),
+];
 const root = join(native, '../dist/fixtures/permissions'), executable = join(root, 'probe');
 function needsBuild() {
   if (!existsSync(executable)) return true;
@@ -20,8 +24,10 @@ function needsBuild() {
 test('the native Automation probe addresses the running target by PID and never requests user consent', { skip: process.platform !== 'darwin' }, t => {
   mkdirSync(root, { recursive: true });
   if (needsBuild()) {
-    const compiled = spawnSync('xcrun', ['clang', '-fobjc-arc', '-Wall', '-Wextra', '-Werror', '-DKLAUS_PERMISSIONS_TESTING',
-      '-framework', 'AppKit', '-framework', 'CoreServices', '-framework', 'Photos', '-framework', 'CoreLocation',
+    const compiled = spawnSync('xcrun', ['clang', '-fobjc-arc', '-fblocks', '-Wall', '-Wextra', '-Werror',
+      '-mmacosx-version-min=10.15', '-DKLAUS_PERMISSIONS_TESTING',
+      '-framework', 'AppKit', '-framework', 'ApplicationServices', '-framework', 'QuartzCore',
+      '-framework', 'CoreServices', '-framework', 'Photos', '-framework', 'CoreLocation',
       '-framework', 'UserNotifications', ...sources, '-o', executable], { encoding: 'utf8', timeout: 30_000 });
     assert.equal(compiled.error, undefined); assert.equal(compiled.status, 0, compiled.stderr);
   }
@@ -43,4 +49,12 @@ test('the native Automation probe addresses the running target by PID and never 
     if (!result) return;
     assert.deepEqual(JSON.parse(result.stdout), { osStatus: -600, queries: 0 }, 'an absent target cannot reach a permission query');
   }
+  const geometry = run(['guide-geometry']);
+  if (!geometry) return;
+  assert.deepEqual(JSON.parse(geometry.stdout), {
+    wide: [430, 184, 485, 120],
+    clamped: [430, 52, 485, 120],
+    narrow: [100, 194, 420, 110],
+    converted: [100, 157, 715, 540],
+  });
 });

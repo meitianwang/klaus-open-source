@@ -80,6 +80,12 @@ async function run() {
     }
     assert.equal(typeof addon.requestPermission, 'function');
     if (process.platform !== 'darwin') assert.equal(await addon.requestPermission('notification'), 'unknown');
+    assert.equal(typeof addon.showPermissionGuide, 'function');
+    assert.equal(typeof addon.closePermissionGuide, 'function');
+    assert.equal(typeof addon.permissionGuideVisible, 'function');
+    assert.equal(addon.showPermissionGuide({ paneTitle: 'Accessibility', appPath: '/nonexistent/not-an-app.txt' }), false);
+    assert.equal(addon.permissionGuideVisible(), false);
+    addon.closePermissionGuide(false);
   });
   await require('./directory-quiescence.cjs')(test, host, root, cwd => ptyOptions(cwd, 'cat'));
 

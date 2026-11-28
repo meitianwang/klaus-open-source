@@ -1222,7 +1222,9 @@
 }
 /* The hint beside these buttons is flex:1 with long copy; at the card's
    min(420px, 100vw-40px) an unprotected label wraps vertically. */
-.sys-auth-footer > button { flex-shrink: 0; white-space: nowrap; }
+.sys-auth-footer > button,
+.sys-auth-footer-actions { display: flex; align-items: center; gap: 8px; flex-shrink: 0; }
+.sys-auth-footer-actions > button { flex-shrink: 0; white-space: nowrap; }
 .sys-auth-hint {
   font-size: var(--text-small);
   color: var(--fg-tertiary);

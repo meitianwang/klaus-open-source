@@ -1,4 +1,4 @@
-import type { NativeAddon } from './binding';
+import type { NativeAddon, PermissionGuideOptions } from './binding';
 import type { SystemPermissionStatus } from '../services/system-permissions';
 
 type Probe = () => Promise<SystemPermissionStatus>;
@@ -27,12 +27,20 @@ export function nativeAutomationPermissionProbe(
   };
 }
 
-/** All passive TCC probes plus the explicit consent request, sharing one addon surface. */
+/** All passive TCC probes plus explicit consent and drag-guidance hooks, sharing one addon surface. */
 export function nativeSystemPermissionProbes(
   addon: Pick<NativeAddon, 'automationPermissionStatus' | 'photosPermissionStatus' | 'locationPermissionStatus'
-    | 'notificationPermissionStatus' | 'requestPermission'>,
+    | 'notificationPermissionStatus' | 'requestPermission' | 'showPermissionGuide' | 'closePermissionGuide'>,
   platform: NodeJS.Platform = process.platform,
-): { automation: Probe; photosLibrary: Probe; location: Probe; notification: Probe; request(domain: string): Promise<SystemPermissionStatus> } {
+): {
+  automation: Probe;
+  photosLibrary: Probe;
+  location: Probe;
+  notification: Probe;
+  request(domain: string): Promise<SystemPermissionStatus>;
+  showDragGuide(options: PermissionGuideOptions): boolean;
+  closeDragGuide(restorePreviousApp?: boolean): void;
+} {
   const wrap = (read: () => Promise<string>): Probe => {
     let pending: Promise<SystemPermissionStatus> | undefined;
     const probe = passive(read, platform);
@@ -52,6 +60,22 @@ export function nativeSystemPermissionProbes(
         if (status !== 'granted' && status !== 'denied' && status !== 'unknown') throw new Error('INVALID_PERMISSION_STATUS');
         return status;
       });
+    },
+    showDragGuide: options => {
+      if (platform !== 'darwin' || typeof addon.showPermissionGuide !== 'function') return false;
+      try {
+        return Boolean(addon.showPermissionGuide(options));
+      } catch {
+        return false;
+      }
+    },
+    closeDragGuide: (restorePreviousApp = false) => {
+      if (platform !== 'darwin' || typeof addon.closePermissionGuide !== 'function') return;
+      try {
+        addon.closePermissionGuide(restorePreviousApp);
+      } catch {
+        // Closing an already-dismissed or unavailable guide panel must never disrupt shutdown.
+      }
     },
   };
 }

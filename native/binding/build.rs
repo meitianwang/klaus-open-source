@@ -51,30 +51,31 @@ fn main() {
         objects.push(object);
     }
     let permissions = sources.join("../permissions");
-    println!(
-        "cargo:rerun-if-changed={}",
-        permissions.join("KlausPermissions.h").display()
-    );
-    let source = permissions.join("KlausPermissions.m");
-    println!("cargo:rerun-if-changed={}", source.display());
-    let object = out.join("KlausPermissions.o");
-    run(Command::new("xcrun")
-        .args([
-            "clang",
-            "-O2",
-            "-fobjc-arc",
-            "-Wall",
-            "-Wextra",
-            "-Werror",
-            "-mmacosx-version-min=10.15",
-            "-arch",
-            arch,
-            "-c",
-        ])
-        .arg(source)
-        .arg("-o")
-        .arg(&object));
-    objects.push(object);
+    for name in ["KlausPermissions", "KlausPermissionGuide"] {
+        let header = permissions.join(format!("{name}.h"));
+        let source = permissions.join(format!("{name}.m"));
+        println!("cargo:rerun-if-changed={}", header.display());
+        println!("cargo:rerun-if-changed={}", source.display());
+        let object = out.join(format!("{name}.o"));
+        run(Command::new("xcrun")
+            .args([
+                "clang",
+                "-O2",
+                "-fobjc-arc",
+                "-fblocks",
+                "-Wall",
+                "-Wextra",
+                "-Werror",
+                "-mmacosx-version-min=10.15",
+                "-arch",
+                arch,
+                "-c",
+            ])
+            .arg(source)
+            .arg("-o")
+            .arg(&object));
+        objects.push(object);
+    }
     let pet_source = sources.join("../pets/KlausPetPanel.m");
     println!("cargo:rerun-if-changed={}", pet_source.display());
     println!(

@@ -27,7 +27,7 @@ function sourceFingerprint() {
   visit('core/src'); visit('binding/src'); visit('vendor/wacore-noise/src'); visit('vendor/wacore/src'); visit('vendor/whatsapp-rust/src');
   inputs.push('vendor/wacore-noise/Cargo.toml', 'vendor/wacore/Cargo.toml', 'vendor/whatsapp-rust/Cargo.toml');
   inputs.push('pip/KlausPIP.h', 'pip/KlausPIPHost.m', 'pip/KlausPIPTransport.m');
-  inputs.push('permissions/KlausPermissions.h', 'permissions/KlausPermissions.m');
+  inputs.push('permissions/KlausPermissions.h', 'permissions/KlausPermissions.m', 'permissions/KlausPermissionGuide.h', 'permissions/KlausPermissionGuide.m');
   inputs.push('pets/KlausPetPanel.h', 'pets/KlausPetPanel.m', 'pets/KlausAppshotShortcut.h');
   const hash = createHash('sha256');
   for (const relative of inputs.sort()) hash.update(relative).update('\0').update(readFileSync(path.join(root, relative))).update('\0');

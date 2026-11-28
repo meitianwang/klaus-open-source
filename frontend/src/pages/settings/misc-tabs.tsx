@@ -39,15 +39,16 @@ export function SystemAuthTab() {
   const [state, , beginStateRead] = useSettingsSnapshot<SysAuthState>('system-auth:state', { kind: 'loading' })
   const [loadError, setLoadError] = useState('')
   const [busyKey, setBusyKey] = useState('')
+  const [pendingRestartKeys, setPendingRestartKeys] = useState<string[]>([])
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (opts?: { silent?: boolean }) => {
     const publish = beginStateRead()
-    setLoadError('')
+    if (!opts?.silent) setLoadError('')
     let result
     try {
       result = await w().klaus.systemPermissions.check()
     } catch (err: any) {
-      if (publish(current => current)) setLoadError(String(err?.message || err))
+      if (!opts?.silent && publish(current => current)) setLoadError(String(err?.message || err))
       return
     }
     if (!result?.supported) {
@@ -56,14 +57,46 @@ export function SystemAuthTab() {
     }
     const perms = { ...(result.permissions || {}) }
     publish({ kind: 'ready', perms })
+    setPendingRestartKeys(prev => prev.filter(key => perms[key] !== 'granted'))
   }, [beginStateRead])
 
   useEffect(() => { void refresh() }, [refresh])
+
+  // Poll observed permission states while this tab stays open and visible so newly
+  // granted permissions update immediately (and close any active drag-guide panel)
+  // without requiring a manual refresh click.
+  const hasUngranted = state.kind === 'ready' && SYSTEM_AUTH_ITEMS.some(item => state.perms[item.key] !== 'granted')
+  useEffect(() => {
+    if (!hasUngranted) return
+    const tick = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') return
+      void refresh({ silent: true })
+    }
+    const timer = window.setInterval(tick, 1500)
+    const onFocus = () => { void refresh({ silent: true }) }
+    window.addEventListener('focus', onFocus)
+    return () => {
+      window.clearInterval(timer)
+      window.removeEventListener('focus', onFocus)
+    }
+  }, [hasUngranted, refresh])
 
   const manualRefresh = async () => {
     if (busyKey) return
     setBusyKey('refresh')
     try { await refresh() } finally { setBusyKey('') }
+  }
+
+  const restartNow = async () => {
+    if (busyKey) return
+    setBusyKey('restart')
+    try {
+      await w().klaus.systemPermissions.restartApp()
+    } catch (err: any) {
+      w().showToast(settingsErrorText('sys-auth-restart', err, 'settings_failed'))
+    } finally {
+      setBusyKey('')
+    }
   }
 
   const grant = async (type: string) => {
@@ -81,6 +114,12 @@ export function SystemAuthTab() {
       }
       const res = await w().klaus.systemPermissions.openSettings(type)
       if (!res?.ok) throw new Error(res?.error || t('settings_failed'))
+      if (res.guideShown) {
+        // The floating drag-and-drop guide is anchored beneath System Settings; keep the
+        // settings page unobstructed and surface an inline restart action instead of a modal.
+        setPendingRestartKeys(prev => (prev.includes(type) ? prev : [...prev, type]))
+        return
+      }
       // macOS caches TCC decisions for a running process. A relaunch is needed
       // before a newly granted permission can be observed by Klaus.
       w().showRestartPrompt()
@@ -132,7 +171,12 @@ export function SystemAuthTab() {
       </div>
       <div className={styles['sys-auth-footer']}>
         <span className={styles['sys-auth-hint']}>{t('sys_auth_restart_hint')}</span>
-        <button type="button" className="btn-sm" id="sys-auth-refresh" disabled={Boolean(busyKey)} onClick={() => { void manualRefresh() }}>{t('sys_auth_refresh')}</button>
+        <div className={styles['sys-auth-footer-actions']}>
+          {pendingRestartKeys.length > 0 && (
+            <button type="button" className="btn-sm btn-primary" id="sys-auth-restart-inline" disabled={Boolean(busyKey)} onClick={() => { void restartNow() }}>{t('sys_auth_restart_now')}</button>
+          )}
+          <button type="button" className="btn-sm" id="sys-auth-refresh" disabled={Boolean(busyKey)} onClick={() => { void manualRefresh() }}>{t('sys_auth_refresh')}</button>
+        </div>
       </div>
     </SettingsPage>
   )

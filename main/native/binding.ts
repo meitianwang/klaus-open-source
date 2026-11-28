@@ -107,6 +107,19 @@ export interface NativeInstanceGuardBinding {
   readEvent(): Promise<string | null>;
   closeSync(timeoutMs: number): string;
 }
+export interface PermissionGuideOptions {
+  paneTitle: string;
+  instructionPrefix?: string;
+  instructionMiddle?: string;
+  instructionSuffix?: string;
+  dragLabel?: string;
+  reopenUrl?: string;
+  appPath?: string;
+  sourceX?: number;
+  sourceY?: number;
+  sourceW?: number;
+  sourceH?: number;
+}
 export interface NativeAddon {
   /** Button bitmask only, used to dismiss a transient panel after an outside click. */
   pointerButtons?: () => number;
@@ -135,6 +148,9 @@ export interface NativeAddon {
   locationPermissionStatus(): Promise<'granted' | 'denied' | 'unknown'>;
   notificationPermissionStatus(): Promise<'granted' | 'denied' | 'unknown'>;
   requestPermission(domain: string): Promise<'granted' | 'denied' | 'unknown'>;
+  showPermissionGuide?: (options: PermissionGuideOptions) => boolean;
+  closePermissionGuide?: (restorePreviousApp?: boolean) => void;
+  permissionGuideVisible?: () => boolean;
   abiVersion(): number;
   processId(): number;
 }

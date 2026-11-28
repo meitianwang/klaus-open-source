@@ -2578,9 +2578,15 @@ export async function createDesktopRuntime(app: App, options: { show?: boolean; 
   early.add(async () => { if (!(await quickInput.shutdown()).complete) throw new Error('Quick input startup resources did not finish closing'); });
   const clipboardFiles = new ClipboardFiles({ read: options.readClipboardFiles ?? (() => clipboard.read()) });
   early.add(() => clipboardFiles.close());
+  const systemPermissions = new SystemPermissions({
+    preferences: systemPreferences,
+    openExternal: url => shell.openExternal(url),
+    language: () => setting('language') || edition.defaultLanguage || app.getLocale().split('-')[0],
+    ...nativeSystemPermissionProbes(native.addon),
+  });
+  early.add(() => systemPermissions.close());
   registerAuxiliaryHandlers(registry, { quickInput, clipboard: clipboardFiles, textClipboard: clipboard,
-    permissions: new SystemPermissions({ preferences: systemPreferences, openExternal: url => shell.openExternal(url),
-      ...nativeSystemPermissionProbes(native.addon) }),
+    permissions: systemPermissions,
   });
   registerImageHandlers(registry, new ImageActions({
     media,
