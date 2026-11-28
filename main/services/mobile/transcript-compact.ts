@@ -7,6 +7,7 @@ const MAX_COMMAND_CHARS = 240;
 
 const QUESTION_TOOL_NAMES = new Set([
   'ask_user',
+  'elicit',
   'ask_user_async',
   'askuserquestion',
   'request_user_input',
@@ -581,7 +582,7 @@ export function compactMobileEngineEvent(event: JsonObject): JsonObject | null {
       toolName,
       isError: event.isError === true,
       compact: true,
-      content: delegationText,
+      content: QUESTION_TOOL_NAMES.has(normalizedToolName(toolName)) ? rawContent : delegationText,
     };
     if (Array.isArray(event.media) && event.media.length > 0) next.media = event.media;
     const singleArtifact = compactArtifact(event.artifact);

@@ -1,3 +1,4 @@
+import { compactMobileEngineEvent } from '../main/services/mobile/transcript-compact';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { createServer, request as httpRequest } from 'node:http';
@@ -2107,6 +2108,13 @@ void (async () => {
       await stopSocket(client.socket);
     } finally { await f.close(); }
   });
+  await h.test('live question tool completion preserves the answer payload', () => {
+    const content = JSON.stringify({ answers: { choice: ['Yes'] }, status: 'answered' });
+    for (const toolName of ['ask_user_async', 'ask_user', 'AskUserQuestion', 'request_user_input', 'elicit']) {
+      assert.equal(compactMobileEngineEvent({ type: 'tool_end', toolName, content })?.content, content);
+    }
+  });
+
   await h.test('mobile history and live streams strip bulky tool inputs, outputs and reasoning while preserving compact tool records and deliverables', async () => {
     const f = await mobileFixture(); try {
       const bulkyFileBody = 'const line = 1;\n'.repeat(2_000);
